@@ -37,9 +37,11 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from proof.formplayer import apps
 from proof.webapps import hq as webapps_hq
-from proof.webapps import observe
+from proof.webapps import observe, steps
 from proof.webapps.session import Session
 
 DOCUMENT = "targeted-missing-media"
@@ -101,3 +103,30 @@ def test_web_apps_shows_a_player_for_a_missing_sound_and_a_broken_picture_in_the
         assert "Register" in shown["actions"], shown["actions"]
     # The browser draws its stand-in for the picture with no entry, and nothing for a status that maps to none.
     assert set(drawn) == {True, False}, drawn
+
+
+@pytest.mark.parametrize("scenario", ["ordinary", "orphan", "unmapped", "other-language", "same-language"])
+def test_generated_navigation_icon_needs_a_file_in_the_web_apps_release(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence, scenario
+):
+    image, icon, _ = apps.MISSING_MEDIA_UNMAPPED
+    expected_name = icon if scenario == "ordinary" else image
+    document = webapps_documents[DOCUMENT]
+    with webapps_hq.project(document) as project:
+        with project.released(
+            formplayer_runner, change=apps.generated_menu_icon(project, scenario)
+        ) as release:
+            if scenario == "unmapped":
+                assert release.doc["translations"]["en"]["modules.m0.icon"] == apps.UNMAPPED_GENERATED_ICON
+            in_map = any(path.endswith("/" + expected_name) for path in release.doc["multimedia_map"])
+            assert in_map == (scenario not in ("orphan", "unmapped"))
+            run = Session(release, editor_driver).run([*steps.open_app("Missing media"), steps.SCREEN])
+
+    evidence("screens", run.screens)
+    assert not run.page_errors, run.page_errors
+    (menu,) = run.screens
+    (visit,) = [item for item in menu["commands"] if item["text"] == "Visits"]
+    if scenario in ("orphan", "unmapped"):
+        assert visit["image"] is None, visit
+    else:
+        assert visit["image"].endswith("/" + expected_name), visit

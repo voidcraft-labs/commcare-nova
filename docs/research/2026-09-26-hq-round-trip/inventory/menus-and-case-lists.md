@@ -110,6 +110,12 @@ Part of the surface inventory of the HQ round-trip research. Section names in qu
 
 HQ's build runs its case list and case detail checks (`ModuleDetailValidatorMixin.validate_details_for_build`) only for basic and shadow modules (`validate_case_list_field_actions` runs in every module with case details, and `validate_detail_columns` in every module that needs case details); an advanced module's validator never calls them (`helpers/validators.py::AdvancedModuleValidator`; executed: two address columns, a bad filter and a bad sort field build there). A row refused by one of those checks names what happens in an advanced module. Search-result details (`search_short`/`search_long`) are deep copies of the case list with `instance_name='results'` (`ModuleDetailsMixin.search_detail`, and `AdvancedModule.search_detail`), so every row applies to them too. Nova's one column set serves both surfaces (`visibleInList` / `visibleInDetail`, two orders); an HQ property shown differently on the list and the detail imports as two Nova columns.
 
+In Web Apps, an ordinary Search-first menu can give a detail-only calculated
+column fixed text for a signed Search result and separate fixed text for its
+ordinary list route. If the native guarded result refers to a prompt the
+screen never offers, Nova holds the resulting fixed text and the original
+ordinary fallback.
+
 ### Detail screens (`Detail`)
 
 | HQ item | Disposition | Web Apps / Android | Emission |
@@ -144,8 +150,10 @@ HQ's build runs its case list and case detail checks (`ModuleDetailValidatorMixi
 | `Detail.persistent_case_tile_from_module` | **HELD-NEW**: `tile.persistFrom` (another module's tile) | RUNS / RUNS | module unique id; CASE_LIST_TILE |
 | `Detail.pull_down_tile` `true` | **HELD-NEW**: `tile.pullDown` (`detail-inline`) | RUNS / RUNS | `pull_down_tile: true` (with persist) |
 | `Detail.persist_case_context`, `persist_tile_on_forms` or `pull_down_tile` `false` | **INERT**: HQ's Case List page writes each `false` on every save of a short detail (`views/modules.py::_update_short_details`), and every reader tests each by truth, as its `null` default (`suite_xml/sections/details.py::DetailContributor.get_section_elements`, `entries.py::EntriesHelper.get_detail_persistent_attr`, `get_detail_inline_attr`, `models/case_list.py::Detail.has_persistent_tile`) | n/a | omit |
-| `Detail.case_tile_group` (`index_identifier`, `header_rows`) | **HELD**: `tile.grouping {identifier, headerRows}` | RUNS / IGNORED (flat list) | `case_tile_group`; CASE_LIST_TILE |
-| `case_tile_group.index_identifier` outside `[a-zA-Z_][a-zA-Z0-9_]*` | **HELD-NEW**: a grouping index name Nova's `tile.grouping.identifier` cannot spell | n/a | omit |
+| `Detail.case_tile_group` (`index_identifier`, `header_rows`) | **HELD**: `tile.grouping {identifier, headerRows}` keeps a hyphen or period after the first character of the connection name | RUNS / IGNORED (flat list) | `case_tile_group`; CASE_LIST_TILE |
+| Custom tile group index with a leading hyphen or two connection names joined by one space | **REFUSED**: the current Case List editor keeps the value and Core cannot install the generated group XPath | — | — |
+| Custom tile group index with two plain path steps | **REFUSED**: the editor keeps the value, but a Core case index is a scalar link. The Web Apps list stops when it tries to read a child of that link. | — | — |
+| Other `case_tile_group.index_identifier` values outside `[A-Za-z_][A-Za-z0-9_.-]*` | **HELD-NEW**: a grouping index name Nova's `tile.grouping.identifier` cannot spell | n/a | omit |
 | `Detail.persist_case_context` + `persistent_case_context_xml` | **HELD-NEW**: `caseListConfig.persistentContext` (one-field persistent tile; value lifts into ValueExpression, else the typed expression model), where no persistent tile applies | RUNS / RUNS | both keys; SHOW_PERSIST_CASE_CONTEXT_SETTING |
 | `persist_case_context` beside `persist_tile_on_forms` on a short detail that is a tile, or beside a `persistent_case_tile_from_module` naming a module whose short detail is a tile | **INERT**: the tile persists instead (`entries.py::get_detail_persistent_attr`, `_get_module_for_persistent_context`, `details.py::get_section_elements`) | n/a | omit |
 | `Detail.custom_xml` non-empty | **REFUSED**: freeform + retiring (CASE_LIST_CUSTOM_XML) | — | — |

@@ -5,21 +5,11 @@
  * and release it by hand; the database's own lock table says when the other
  * transaction is waiting.
  */
-import { gzipSync } from "node:zlib";
 import type { Kysely, Transaction } from "kysely";
 import { Client } from "pg";
 import { describe, expect, it } from "vitest";
-import {
-	retainedBodyJson,
-	retainedPublishRead,
-} from "@/__tests__/helpers/retainedHqReads";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
-import { normalizeHqAppSource } from "@/lib/deployment/hqSourceBaseline";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
-import {
-	checkSourceFacts,
-	locationCaptureSourceFacts,
-} from "@/scripts/lib/locationCaptureAdoption";
 import { RestoreClaimsChangedError, restoreApp, softDeleteApp } from "../apps";
 import {
 	claimHqAppInTransaction,
@@ -506,94 +496,6 @@ describe("claimHqAppInTransaction", () => {
 });
 
 // ── Restoring ──────────────────────────────────────────────────────
-
-it("converts held location choices of a deleted app, keeps two targets distinct, and detects a lost claim", async () => {
-	const north = await seedPublishing("app-a", K1, { deleted: true });
-	const south = await seedPublishing("app-a", K2, { deleted: true });
-	for (const [deployment, remoteId, previous] of [
-		[north, K1.remoteAppId, true],
-		[south, K2.remoteAppId, false],
-	] as const) {
-		const raw = retainedBodyJson(retainedPublishRead("source-live"));
-		raw.auto_gps_capture = previous;
-		const normalized = normalizeHqAppSource(raw);
-		if ("malformed" in normalized) throw new Error(normalized.malformed);
-		await h
-			.db()
-			.insertInto("app_deployment_baselines")
-			.values({
-				deployment_id: deployment,
-				remote_app_id: remoteId,
-				origin: "cutover",
-				source_gzip: gzipSync(normalized.text),
-				source_bytes: normalized.bytes,
-				source_digest: normalized.digest,
-				ownership: JSON.stringify({
-					autoGpsCapture: false,
-					addOns: [],
-					profileProperties: [],
-					profileCustomProperties: [],
-				}),
-				observed_at: ADOPTED_AT,
-				observed_by: ACTOR,
-				discarded_digest: null,
-				discarded_by: null,
-			})
-			.execute();
-	}
-	await seedApp("app-b", { projectId: ELSEWHERE });
-	const other = await seedDeployment("app-b", K2, ELSEWHERE);
-	const scan = () => h.db().transaction().execute(locationCaptureSourceFacts);
-	const held = await scan();
-	const app = held.decisions.find((d) => d.appId === "app-a");
-	expect(app).toMatchObject({
-		standing: "disagreement",
-		captureLocation: false,
-	});
-	expect(app?.targets).toEqual(
-		expect.arrayContaining([
-			expect.objectContaining({
-				deploymentId: north,
-				claim: "held",
-				previous: true,
-			}),
-			expect.objectContaining({
-				deploymentId: south,
-				claim: "held",
-				previous: false,
-			}),
-		]),
-	);
-	await restoreApp("app-a", ACTOR);
-	await h
-		.db()
-		.transaction()
-		.execute((tx) => checkSourceFacts(tx, held));
-	await softDeleteApp("app-a", ACTOR);
-	await h
-		.db()
-		.transaction()
-		.execute((tx) => birth(tx, "app-b", other, K2));
-	const after = await scan();
-	expect(after.decisions.find((d) => d.appId === "app-a")).toMatchObject({
-		standing: "agreed-on",
-		captureLocation: true,
-		targets: expect.arrayContaining([
-			expect.objectContaining({
-				deploymentId: south,
-				claim: "claimed-elsewhere",
-				retainedChoice: false,
-				previous: null,
-			}),
-		]),
-	});
-	await expect(
-		h
-			.db()
-			.transaction()
-			.execute((tx) => checkSourceFacts(tx, held)),
-	).rejects.toThrow("source facts changed");
-});
 
 describe("restoreApp settles what the app gave up", () => {
 	it("changes no deployment row where nobody took an HQ app", async () => {

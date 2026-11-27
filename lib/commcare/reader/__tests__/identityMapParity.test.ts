@@ -1,8 +1,8 @@
 /**
  * The keys a reading mints under are the keys the projection of its document
  * spells: for an app the reader reads, `draft.identities.entries` equals
- * `externalIdentityMap(doc, targetWireIdentity(rows))`, the rows being the
- * menu ids and `xmlns` the reading recorded.
+ * `externalIdentityMap(doc, identity)` under the binding the reading recorded,
+ * including menu ids, form namespaces, installation keys and service ids.
  *
  * Catches a reader module that mints an entity under a key the projection
  * spells another way (another part order, another ordinal, another kind), or
@@ -40,6 +40,7 @@ import {
 	placementFixture,
 	read,
 } from "@/lib/commcare/__tests__/placementFixture";
+import { searchEmissionFixture } from "@/lib/commcare/__tests__/searchEmissionFixture";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
@@ -100,7 +101,17 @@ function rowsOf(draft: ReadDraft): WireIdentityOverride[] {
 
 function expectParity(draft: ReadDraft): void {
 	expect(byKey(draft.identities.entries)).toEqual(
-		byKey(externalIdentityMap(draft.doc, targetWireIdentity(rowsOf(draft)))),
+		byKey(
+			externalIdentityMap(
+				draft.doc,
+				targetWireIdentity(
+					rowsOf(draft),
+					draft.identities.columnFieldWords,
+					draft.identities.projectSearches,
+					draft.identities.installationProfiles,
+				),
+			),
+		),
 	);
 }
 
@@ -222,7 +233,71 @@ function level(
 
 const LEVELS = [level("state", null, false), level("district", "state", true)];
 
+const TEAM_PROFILE = testUuid("parity-installation-profile");
+const TEAM_PROFILE_KEY = "field-team";
+const REGIONAL_SEARCH = testUuid("parity-regional-search");
+const REGIONAL_SEARCH_ENDPOINT_ID = 17;
+
 const NOVA_APPS: Readonly<Record<string, NovaApp>> = {
+	"a named installation with two groups of Search inputs": {
+		doc: () => {
+			const doc = searchEmissionFixture("remote-grouped-prompts");
+			doc.appSettings.installationProfiles = {
+				[TEAM_PROFILE]: {
+					uuid: TEAM_PROFILE,
+					name: "Field team",
+					languages: ["eng"],
+					requiresPracticeWorker: false,
+				},
+			};
+			return doc;
+		},
+		edits: {
+			expand: {
+				identity: targetWireIdentity(
+					[],
+					[],
+					[],
+					[{ uuid: TEAM_PROFILE, key: TEAM_PROFILE_KEY }],
+				),
+			},
+		},
+	},
+	"a configured record search with repeated service parameters": {
+		doc: () => {
+			const doc = patients([plainColumn(uuid(1), "case_name", "Name")], {
+				search: {},
+			});
+			doc.modules[doc.moduleOrder[0]].caseSearchConfig = {
+				projectSearch: {
+					searchUuid: REGIONAL_SEARCH,
+					defaults: [
+						{ uuid: uuid(2), name: "district", value: term(literal("north")) },
+						{ uuid: uuid(3), name: "district", value: term(literal("south")) },
+					],
+				},
+			};
+			doc.appSettings.projectSearches = {
+				[REGIONAL_SEARCH]: { name: "Regional results" },
+			};
+			return doc;
+		},
+		edits: {
+			expand: {
+				identity: targetWireIdentity(
+					[],
+					[],
+					[
+						{
+							searchUuid: REGIONAL_SEARCH,
+							endpointId: REGIONAL_SEARCH_ENDPOINT_ID,
+						},
+					],
+				),
+			},
+		},
+	},
+
 	"two menus of questions, a group and choices": {
 		doc: () =>
 			buildDoc({
@@ -516,6 +591,13 @@ describe("the keys a reading of Nova's own export mints", () => {
 				.map((entry) => entry.parts.at(-1));
 		expect(ordinals("caseListColumn")).toContain(1);
 		expect(ordinals("formLink")).toContain(2);
+		expect(ordinals("projectSearchParameter")).toEqual([0, 1]);
+		expect(ordinals("searchInputGroup")).toEqual([
+			["member", "case_name"],
+			["member", "first_name"],
+		]);
+		expect(ordinals("projectSearch")).toEqual([REGIONAL_SEARCH_ENDPOINT_ID]);
+		expect(ordinals("installationProfile")).toEqual([TEAM_PROFILE_KEY]);
 		expect(
 			new Set(
 				entries

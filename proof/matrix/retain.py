@@ -146,11 +146,17 @@ def media_files(app):
 def tables_of(state):
     """Every lookup table of the project space as HQ's models hold it, in tag order, its rows in ``sort_key``
     order (``proof/hq/operations.py::save_authored_tables`` makes them again from this)."""
-    from corehq.apps.fixtures.models import LookupTable, LookupTableRow
+    from corehq.apps.fixtures.models import LookupTable, LookupTableRow, LookupTableRowOwner
 
     found = []
     for table in LookupTable.objects.filter(domain=state.domain).order_by("tag"):
         rows = LookupTableRow.objects.filter(domain=state.domain, table=table).order_by("sort_key", "id")
+        owners = {}
+        if not table.is_global:
+            for owner in LookupTableRowOwner.objects.filter(domain=state.domain, row_id__in=rows.values("id")).order_by(
+                "owner_type", "owner_id"
+            ):
+                owners.setdefault(owner.row_id, []).append({"type": owner.owner_type, "id": owner.owner_id})
         found.append(
             {
                 "tag": table.tag,
@@ -168,6 +174,7 @@ def tables_of(state):
                             for name, values in row.fields.items()
                         },
                         "item_attributes": dict(row.item_attributes),
+                        **({"owners": owners[row.id]} if row.id in owners else {}),
                     }
                     for row in rows
                 ],
@@ -526,6 +533,8 @@ def retain(authoring, base, app_id, credential, core_runner) -> Retained:
     from proof.hq import operations
     from proof.matrix import seed
 
+    from proof.hq.project_search import project_searches_of
+
     state = authoring.state
     retained = Retained(base.id, tree="hq-apps", held=True)
     answers = project_answers = media = answer = None
@@ -548,6 +557,9 @@ def retain(authoring, base, app_id, credential, core_runner) -> Retained:
             places = places_of(state)
             if places is not None:
                 retained.keep("places", places)
+            searches = project_searches_of(state)
+            if searches:
+                retained.keep("project-searches", searches)
             workers = practice_workers_of(state)
             if workers is not None:
                 retained.keep("practice-workers", workers)

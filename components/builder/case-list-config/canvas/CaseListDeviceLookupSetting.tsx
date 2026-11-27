@@ -1,0 +1,488 @@
+"use client";
+
+import { useId, useState } from "react";
+import { v4 } from "uuid";
+import { SingleAssetSlot } from "@/components/builder/media/MediaSlot";
+import { Button } from "@/components/shadcn/button";
+import { Input } from "@/components/shadcn/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
+import {
+	type CaseListDeviceLookup,
+	type CaseListLookupWorkerField,
+	type CaseProperty,
+	type CommitOutcome,
+	caseListDeviceLookupSchema,
+	caseListLookupResultPropertySchema,
+	effectiveDataType,
+	type Uuid,
+} from "@/lib/domain";
+
+function row(
+	name = "",
+	value = "",
+	field?: CaseListLookupWorkerField,
+	sum?: readonly [string, string],
+) {
+	return { id: v4(), name, value, field, sum };
+}
+
+const wholeNumber = (value: string) => ({
+	kind: "term" as const,
+	term: {
+		kind: "literal" as const,
+		value: value.trim() === "" ? Number.NaN : Number(value),
+	},
+});
+
+function edit(value?: CaseListDeviceLookup) {
+	return {
+		id: v4(),
+		action: value?.action ?? "",
+		label: value?.label ?? "",
+		icon: value?.icon,
+		resultHeading: value?.resultHeading,
+		resultProperty: value?.resultProperty,
+		automatic: value?.automatic,
+		evaluateExtras: value?.evaluateExtras,
+		extras: value?.extras.map((extra) =>
+			"value" in extra
+				? row(extra.name, extra.value)
+				: extra.expression.kind === "term"
+					? row(extra.name, "", extra.expression.term.field)
+					: row(extra.name, "", undefined, [
+							String(extra.expression.left.term.value),
+							String(extra.expression.right.term.value),
+						]),
+		) ?? [row()],
+		responses: value?.responses.map((name) => row(name)) ?? [row()],
+	};
+}
+
+interface Props {
+	readonly moduleUuid: Uuid;
+	readonly disabled: boolean;
+	readonly allowConfidence: boolean;
+	readonly allowResultProperty: boolean;
+	readonly caseProperties: readonly CaseProperty[];
+	readonly value: CaseListDeviceLookup | undefined;
+	readonly canEdit: boolean;
+	readonly onChange: (lookup: CaseListDeviceLookup | null) => CommitOutcome;
+}
+
+export function CaseListDeviceLookupSetting({
+	moduleUuid,
+	disabled,
+	allowConfidence,
+	allowResultProperty,
+	caseProperties,
+	value,
+	canEdit,
+	onChange,
+}: Props) {
+	const heading = useId();
+	const projectProse = useProseProjection();
+	const [draft, setDraft] = useState<ReturnType<typeof edit>>();
+	const [base, setBase] = useState<CaseListDeviceLookup | undefined>();
+	const [error, setError] = useState<string>();
+	const resultProperties = caseProperties.filter(
+		(property) =>
+			property.name !== "case_name" &&
+			effectiveDataType(property) === "text" &&
+			caseListLookupResultPropertySchema.safeParse(property.name).success,
+	);
+
+	const commit = (next: CaseListDeviceLookup | null) => {
+		if (base !== value) {
+			setError(
+				"Someone changed the lookup. You can close these settings and open the latest version.",
+			);
+			return;
+		}
+		const saved = onChange(next);
+		if (saved.ok) {
+			setDraft(undefined);
+			setError(undefined);
+		} else {
+			setError(saved.messages.join(" "));
+		}
+	};
+
+	if (disabled && value === undefined && draft === undefined) return null;
+	return (
+		<section aria-labelledby={heading} className="max-w-xl space-y-3">
+			<h2
+				id={heading}
+				className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"
+			>
+				Case lookup with an Android app
+			</h2>
+			<p className="text-[13px] leading-relaxed text-nova-text-muted">
+				Workers can use a companion app’s answer to search this list on Android.
+			</p>
+			{value && draft === undefined && (
+				<p className="text-sm text-nova-text">{value.label}</p>
+			)}
+			{canEdit && draft === undefined && (
+				<Button
+					type="button"
+					variant="outline"
+					onClick={() => {
+						setBase(value);
+						setDraft(edit(value));
+						setError(undefined);
+					}}
+				>
+					{value ? "Edit lookup" : "Add lookup"}
+				</Button>
+			)}
+			{draft !== undefined && canEdit && (
+				<form
+					className="space-y-4"
+					onSubmit={(event) => {
+						event.preventDefault();
+						const parsed = caseListDeviceLookupSchema.safeParse({
+							action: draft.action,
+							label: draft.label,
+							...(draft.icon !== undefined && { icon: draft.icon }),
+							...(draft.resultHeading !== undefined && {
+								resultHeading: draft.resultHeading,
+								...(draft.resultProperty !== undefined && {
+									resultProperty: draft.resultProperty,
+								}),
+							}),
+							...(draft.automatic !== undefined && {
+								automatic: draft.automatic,
+							}),
+							...(draft.evaluateExtras === true && { evaluateExtras: true }),
+							extras: draft.extras.map(({ name, value, field, sum }) => {
+								if (sum !== undefined)
+									return {
+										name,
+										expression: {
+											kind: "arith",
+											op: "+",
+											left: wholeNumber(sum[0]),
+											right: wholeNumber(sum[1]),
+										},
+									};
+								if (field === undefined) return { name, value };
+								return {
+									name,
+									expression: {
+										kind: "term",
+										term: { kind: "session-context", field },
+									},
+								};
+							}),
+							responses: draft.responses.map(({ name }) => name),
+						});
+						if (draft.resultHeading?.trim() === "") {
+							setError("Add a heading for the match confidence column.");
+							return;
+						}
+						if (!parsed.success) {
+							setError(
+								parsed.error.issues.some(
+									({ path }) =>
+										path[0] === "extras" &&
+										typeof path[1] === "number" &&
+										draft.extras[path[1]]?.sum !== undefined,
+								)
+									? "The two nonnegative whole numbers can add up to 2,147,483,647 or less."
+									: "Add an action and a lookup name. Give each sent value and each response its own name.",
+							);
+							return;
+						}
+						commit(parsed.data);
+					}}
+				>
+					<LookupInput
+						label="Android action"
+						value={draft.action}
+						onChange={(action) => setDraft({ ...draft, action })}
+					/>
+					<LookupInput
+						label="Lookup name"
+						value={draft.label}
+						onChange={(label) => setDraft({ ...draft, label })}
+					/>
+					<div className="space-y-1">
+						<p className="text-sm text-nova-text">Button icon</p>
+						<SingleAssetSlot
+							kind="image"
+							value={draft.icon}
+							onChange={(icon) =>
+								setDraft((latest) =>
+									latest?.id === draft.id ? { ...latest, icon } : latest,
+								)
+							}
+							slotKey={`case-list-lookup:${moduleUuid}:${draft.id}`}
+							ariaLabel="Case lookup button icon"
+						/>
+					</div>
+					<label className="flex gap-2 text-sm text-nova-text">
+						<input
+							type="checkbox"
+							checked={draft.automatic === true}
+							onChange={(event) =>
+								setDraft({
+									...draft,
+									automatic: event.currentTarget.checked ? true : undefined,
+								})
+							}
+						/>
+						Open the companion automatically
+					</label>
+					<label className="flex gap-2 text-sm text-nova-text">
+						<input
+							type="checkbox"
+							checked={draft.evaluateExtras === true}
+							onChange={(event) =>
+								setDraft({
+									...draft,
+									evaluateExtras: event.currentTarget.checked
+										? true
+										: undefined,
+								})
+							}
+						/>
+						Evaluate the values before sending them
+					</label>
+					{(allowConfidence || draft.resultHeading !== undefined) && (
+						<>
+							<label className="flex gap-2 text-sm text-nova-text">
+								<input
+									type="checkbox"
+									checked={draft.resultHeading !== undefined}
+									onChange={(event) =>
+										setDraft({
+											...draft,
+											resultHeading: event.currentTarget.checked
+												? ""
+												: undefined,
+											resultProperty: event.currentTarget.checked
+												? draft.resultProperty
+												: undefined,
+										})
+									}
+								/>
+								Show match confidence
+							</label>
+							{draft.resultHeading !== undefined && (
+								<>
+									<LookupInput
+										label="Confidence column heading"
+										value={draft.resultHeading}
+										onChange={(resultHeading) =>
+											setDraft({ ...draft, resultHeading })
+										}
+									/>
+									{(allowResultProperty ||
+										draft.resultProperty !== undefined) && (
+										<div className="space-y-1">
+											<p className="text-sm text-nova-text">
+												Match returned keys by
+											</p>
+											<Select
+												value={draft.resultProperty ?? "case_id"}
+												onValueChange={(property) =>
+													setDraft({
+														...draft,
+														resultProperty:
+															property === "case_id"
+																? undefined
+																: (property ?? undefined),
+													})
+												}
+											>
+												<SelectTrigger aria-label="Match returned keys by">
+													<SelectValue />
+												</SelectTrigger>
+												<SelectContent>
+													<SelectItem value="case_id">Record ID</SelectItem>
+													{allowResultProperty && (
+														<SelectItem value="case_name">
+															Record name
+														</SelectItem>
+													)}
+													{resultProperties.map((property) => (
+														<SelectItem
+															key={property.name}
+															value={property.name}
+														>
+															{projectProse(property.label) || property.name}
+														</SelectItem>
+													))}
+												</SelectContent>
+											</Select>
+										</div>
+									)}
+								</>
+							)}
+						</>
+					)}
+					<LookupRows
+						kind="extras"
+						rows={draft.extras}
+						onChange={(extras) => setDraft({ ...draft, extras })}
+					/>
+					<LookupRows
+						kind="responses"
+						rows={draft.responses}
+						onChange={(responses) => setDraft({ ...draft, responses })}
+					/>
+					{error && (
+						<p role="alert" className="text-sm text-destructive">
+							{error}
+						</p>
+					)}
+					<div className="flex flex-wrap gap-2">
+						<Button type="submit">Save lookup</Button>
+						<Button
+							type="button"
+							variant="ghost"
+							onClick={() => setDraft(undefined)}
+						>
+							Cancel
+						</Button>
+						{value && (
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={() => commit(null)}
+							>
+								Remove lookup
+							</Button>
+						)}
+					</div>
+				</form>
+			)}
+		</section>
+	);
+}
+
+function LookupRows({
+	kind,
+	rows,
+	onChange,
+}: {
+	readonly kind: "extras" | "responses";
+	readonly rows: ReturnType<typeof row>[];
+	readonly onChange: (rows: ReturnType<typeof row>[]) => void;
+}) {
+	const sending = kind === "extras";
+	const noun = sending ? "value" : "response";
+	const update = (
+		id: string,
+		patch: Partial<Omit<ReturnType<typeof row>, "id">>,
+	) =>
+		onChange(rows.map((one) => (one.id === id ? { ...one, ...patch } : one)));
+	return (
+		<fieldset className="space-y-2">
+			<legend className="text-sm font-medium text-nova-text">
+				{sending ? "Values to send" : "Response names, in order"}
+			</legend>
+			{rows.map(({ id, name, value, field, sum }) => (
+				<div className="flex flex-wrap items-end gap-2" key={id}>
+					<LookupInput
+						label="Name"
+						value={name}
+						onChange={(name) => update(id, { name })}
+					/>
+					{sending && (
+						<Select
+							value={sum ? "sum" : (field ?? "text")}
+							onValueChange={(source) =>
+								update(id, {
+									field:
+										source === "username" || source === "userid"
+											? source
+											: undefined,
+									sum: source === "sum" ? ["0", "0"] : undefined,
+								})
+							}
+						>
+							<SelectTrigger aria-label="Value source">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="text">Fixed text</SelectItem>
+								<SelectItem value="sum">Sum of two whole numbers</SelectItem>
+								<SelectItem value="username">Worker username</SelectItem>
+								<SelectItem value="userid">Worker ID</SelectItem>
+							</SelectContent>
+						</Select>
+					)}
+					{sending && sum !== undefined && (
+						<>
+							<LookupInput
+								label="First whole number"
+								value={sum[0]}
+								onChange={(value) => update(id, { sum: [value, sum[1]] })}
+							/>
+							<LookupInput
+								label="Second whole number"
+								value={sum[1]}
+								onChange={(value) => update(id, { sum: [sum[0], value] })}
+							/>
+						</>
+					)}
+					{sending && field === undefined && sum === undefined && (
+						<LookupInput
+							label="Text"
+							value={value}
+							onChange={(value) => update(id, { value })}
+						/>
+					)}
+					<Button
+						type="button"
+						variant="ghost"
+						disabled={rows.length === 1}
+						onClick={() => onChange(rows.filter((one) => one.id !== id))}
+					>
+						Remove {noun}
+					</Button>
+				</div>
+			))}
+			<Button
+				type="button"
+				variant="ghost"
+				onClick={() => onChange([...rows, row()])}
+			>
+				Add {noun}
+			</Button>
+		</fieldset>
+	);
+}
+
+function LookupInput({
+	label,
+	value,
+	onChange,
+}: {
+	readonly label: string;
+	readonly value: string;
+	readonly onChange: (value: string) => void;
+}) {
+	const id = useId();
+	return (
+		<label
+			htmlFor={id}
+			className="block min-w-0 flex-1 space-y-1 text-sm text-nova-text"
+		>
+			<span>{label}</span>
+			<Input
+				id={id}
+				value={value}
+				onChange={(event) => onChange(event.currentTarget.value)}
+			/>
+		</label>
+	);
+}

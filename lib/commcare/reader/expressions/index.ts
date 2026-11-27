@@ -45,7 +45,7 @@ import {
 	walkExpressionNodes,
 	walkExpressionTerms,
 } from "@/lib/domain/expression/walk";
-import { moduleFormsReadSearch } from "@/lib/domain/modules";
+import { moduleFormsReadSearch, projectSearchOf } from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import type { ProseTemplate } from "@/lib/domain/prose";
 import { canonicalProseAtom } from "@/lib/domain/proseExpression";
@@ -121,6 +121,7 @@ import {
 	instanceSourcesOf,
 	judgeSlot,
 	lookupTypes,
+	missingFingerprintFallback,
 	printSlot,
 	type SlotJudgment,
 	type SlotRefusal,
@@ -168,6 +169,7 @@ export interface ExpressionReadEnv {
 	/** Per advanced form: the ids its computed datums give
 	 *  (`arbitrary_datums`), which a session read may name. */
 	readonly computedDatums: ReadonlyMap<Uuid, ReadonlySet<string>>;
+	readonly directFormWithoutSessionSupplier?: Uuid;
 	/** `ReaderInput.knownCaseTypes`: the type the document Nova holds declares for each
 	 *  property step 1 declares (`noteProperty`). */
 	readonly knownCaseTypes?: ReaderKnownCaseTypes;
@@ -334,6 +336,7 @@ function namedElement(element: unknown, ref: SlotContextRef): boolean {
 		"sortUuid",
 		"rowUuid",
 		"tabUuid",
+		"parameterUuid",
 		"searchInputUuid",
 		"filterUuid",
 		"optionUuid",
@@ -377,9 +380,12 @@ function slotHolder(
 			if (typeof holder !== "object" || holder === null) break;
 			if (segment.endsWith("[]")) {
 				const list = (holder as Holder)[segment.slice(0, -2)];
-				holder = Array.isArray(list)
-					? list.find((element) => namedElement(element, ref))
-					: undefined;
+				if (!Array.isArray(list)) holder = undefined;
+				else if (ref.slot === "android_app_input")
+					holder = list.filter((element) => element?.name === ref.member.name)[
+						ref.member.occurrence
+					];
+				else holder = list.find((element) => namedElement(element, ref));
 			} else holder = (holder as Holder)[segment];
 		}
 		if (typeof holder !== "object" || holder === null) continue;
@@ -405,14 +411,20 @@ function proseTemplate(
 	if (!isProseSlotRef(ref)) return undefined;
 	const field = doc.fields[ref.uuid] as Holder | undefined;
 	if (field === undefined) return undefined;
-	if (ref.slot !== "option_label")
-		return field[ref.slot] as ProseTemplate | undefined;
+	if (!("member" in ref)) return field[ref.slot] as ProseTemplate | undefined;
 	const source = field.optionsSource as
-		| { options?: { uuid: Uuid; label: ProseTemplate }[] }
+		| {
+				options?: {
+					uuid: Uuid;
+					label: ProseTemplate;
+					extended_text?: ProseTemplate;
+				}[];
+		  }
 		| undefined;
-	return source?.options?.find(
-		(option) => option.uuid === ref.member.optionUuid,
-	)?.label;
+	const option = source?.options?.find(
+		(entry) => entry.uuid === ref.member.optionUuid,
+	);
+	return ref.slot === "option_label" ? option?.label : option?.extended_text;
 }
 
 /** Where each registration's tree is written: a slot, or the part of a
@@ -507,6 +519,12 @@ function registrationName(
 				(candidate) => candidate.uuid === ref.member.columnUuid,
 			);
 			if (column !== undefined) return column.header;
+		} else if ("member" in ref && "parameterUuid" in ref.member) {
+			const parameterUuid = ref.member.parameterUuid;
+			const parameter = projectSearchOf(doc.modules[ref.uuid])?.defaults.find(
+				(item) => item.uuid === parameterUuid,
+			);
+			if (parameter) return parameter.name;
 		} else if ("member" in ref && "searchInputUuid" in ref.member) {
 			const uuid = ref.member.searchInputUuid;
 			const input = config?.searchInputs.find(
@@ -599,6 +617,8 @@ function declarationsOf(
 	const form = slotForm(doc, pending.ref);
 	return {
 		instanceSources: instanceSourcesOf(doc, pending, env) ?? new Map(),
+		directEntryWithoutSupplier:
+			form !== undefined && form === env.directFormWithoutSessionSupplier,
 		computedDatums:
 			(form === undefined ? undefined : env.computedDatums.get(form)) ??
 			new Set(),
@@ -670,15 +690,37 @@ function refusalOf(
 	};
 }
 
-/** A use whose entry the manifest refuses outranks a slot answer that is no
- *  refusal: a read of a search's answers in a form the parser refuses for a
- *  reason of Nova's own (`unknown-search-input`, the slot's default) is the
- *  read the instance's own class refuses, so the expression is that one line
- *  of the account and not two. */
+/** An instance's refusal owns its read when the slot only names the same
+ *  cause under its generic finding. */
 function withRefusingInstanceUse(
 	resolution: Extract<Resolution, { kind: "entry" }>,
 	uses: readonly { readonly key: string; readonly entryId: string }[],
+	candidate: Expression | undefined,
 ): Extract<Resolution, { kind: "entry" }> {
+	if (
+		resolution.entryId ===
+			EXPRESSION_CLAIMS[
+				"usexpathexpression-field-xpath-outside-valueexpression"
+			].entry &&
+		resolution.reason === "call:string" &&
+		candidate?.kind === "call" &&
+		candidate.fn === "string" &&
+		candidate.args.length === 1 &&
+		candidate.args[0]?.kind === "term" &&
+		candidate.args[0].term.kind === "input"
+	) {
+		// A standalone Search result value wrapped only for scalar coercion
+		// still reads the same unsupported instance in this column.
+		const use = uses.find(
+			(one) =>
+				one.entryId ===
+				EXPRESSION_CLAIMS[
+					"search-input-results-read-in-the-search-results-detail"
+				].entry,
+		);
+		if (use !== undefined)
+			return { ...resolution, entryId: use.entryId, key: use.key };
+	}
 	if (resolution.reason !== "parse:unknown-search-input") return resolution;
 	const index = inventoryIndex();
 	const refusing = (entryId: string) =>
@@ -1445,7 +1487,12 @@ export function* readExpressionsSteps(
 				ownerless.push(index);
 				return;
 			}
-			const resolution = withRefusingInstanceUse(outcome.resolution, uses);
+			const candidate = bindings.get(index)?.candidate;
+			const resolution = withRefusingInstanceUse(
+				outcome.resolution,
+				uses,
+				candidate,
+			);
 			// The slot's own claim is under the registration's key, which the
 			// frame finds it by; where the entry is registered under the key of
 			// a use the text makes (an operator, a function, an instance
@@ -1478,7 +1525,7 @@ export function* readExpressionsSteps(
 							checked,
 							registration,
 							resolution.entryId,
-							bindings.get(index)?.candidate,
+							candidate,
 							context?.profile.expectation.kind === "condition"
 								? "condition"
 								: "value",
@@ -2033,8 +2080,17 @@ function surfaceUseFactsOf(
 				? undefined
 				: moduleUuidOfForm(doc, form);
 	const mod = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	const source = outcome.kind === "held" && textSyntax(registration.text);
 	return {
+		guardedLookupCountWithoutSupplier:
+			!!source &&
+			missingFingerprintFallback(doc, registration, env, source) !== undefined,
 		unsupplied: m1 && unsupplied.size === 0 ? "all" : unsupplied,
+		bareLookupCountWithoutSupplier:
+			outcome.kind === "refused" &&
+			outcome.resolution.kind === "entry" &&
+			outcome.resolution.entryId ===
+				EXPRESSION_CLAIMS["bare-fingerprint-query-without-a-supplier"].entry,
 		computedDatums:
 			(form === undefined ? undefined : env.computedDatums.get(form)) ??
 			new Set(),

@@ -23,12 +23,18 @@ import {
 	RETAINED_BASES,
 	retainedBase,
 } from "@/__tests__/helpers/retainedHqApps";
+import { readingAppStrings } from "@/lib/deployment/reading/appStrings";
 import type { MediaKind } from "@/lib/domain";
+import { lookupContextOf } from "@/proof/corpus/documents";
 import { expandDoc } from "../../expander";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
 import { matchingResolver } from "../identity";
 import { externalIdentityMap } from "../identityMap";
-import { knownCaseTypesOf, readHqApp } from "../index";
+import {
+	knownCaseTypesOf,
+	knownPositionedCaseOperationIdsOf,
+	readHqApp,
+} from "../index";
 import type { ReaderInput, ReaderMediaResolution } from "../types";
 import { readWorkLimit, sourceCharacters } from "../work";
 import { levelsAsPublished } from "../worldEntities";
@@ -134,6 +140,8 @@ it("reads every document the proof lane publishes within a quarter of its limit"
 				externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
 			),
 			knownCaseTypes: knownCaseTypesOf(doc),
+			knownPositionedCaseOperationIds: knownPositionedCaseOperationIdsOf(doc),
+			appStrings: readingAppStrings(lookupContextOf(document.lookup)),
 			lookup: {
 				table: (tag) => {
 					const table = definitions.find((one) => one.tag === tag);

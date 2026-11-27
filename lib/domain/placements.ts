@@ -11,7 +11,10 @@
 // or builder control carries one.
 
 import { z } from "zod";
-import { XML_ELEMENT_NAME_PATTERN } from "./expression/types";
+import {
+	caseTypeNameSchema,
+	XML_ELEMENT_NAME_PATTERN,
+} from "./expression/types";
 import { uuidSchema } from "./uuid";
 
 /**
@@ -23,7 +26,12 @@ const xmlNameSchema = z.string().regex(XML_ELEMENT_NAME_PATTERN);
 
 /** A slot of the form's Case Management settings. */
 export const basicPlacementSchema = z.discriminatedUnion("slot", [
-	z.strictObject({ kind: z.literal("basic"), slot: z.literal("own") }),
+	z.strictObject({
+		kind: z.literal("basic"),
+		slot: z.literal("own"),
+		/** Direct datetime question used by the retained external ID update. */
+		externalIdCalendarDayField: uuidSchema.optional(),
+	}),
 	z.strictObject({ kind: z.literal("basic"), slot: z.literal("usercase") }),
 	/** `subcases[index]`, written at `subcase_<index>`: at the data root, or in a
 	 *  repeat that holds more than one basic subcase. */
@@ -63,6 +71,9 @@ export const saveToCasePlacementSchema = z.strictObject({
 	/** Element names from that scope (the form root, or the repeat's row) to the
 	 *  element that carries `vellum:role="SaveToCase"`, every segment. */
 	path: z.tuple([xmlNameSchema], xmlNameSchema),
+	/** Vellum's saved case type label when a direct update targets a selected
+	 * case of a different, proven type. It never types the submitted update. */
+	editorCaseType: caseTypeNameSchema.max(255).optional(),
 });
 export type SaveToCasePlacement = z.infer<typeof saveToCasePlacementSchema>;
 
@@ -82,6 +93,8 @@ export function sameCasePlacement(a: CasePlacement, b: CasePlacement): boolean {
 	switch (a.kind) {
 		case "basic":
 			if (b.kind !== "basic" || a.slot !== b.slot) return false;
+			if (a.slot === "own" && b.slot === "own")
+				return a.externalIdCalendarDayField === b.externalIdCalendarDayField;
 			return (
 				a.slot !== "subcase" || (b.slot === "subcase" && a.index === b.index)
 			);
@@ -95,6 +108,7 @@ export function sameCasePlacement(a: CasePlacement, b: CasePlacement): boolean {
 			return (
 				b.kind === "save-to-case" &&
 				a.repeat === b.repeat &&
+				a.editorCaseType === b.editorCaseType &&
 				a.path.length === b.path.length &&
 				a.path.every((segment, i) => segment === b.path[i])
 			);
@@ -105,6 +119,7 @@ export function sameCasePlacement(a: CasePlacement, b: CasePlacement): boolean {
  *  cutover's blocker `own-close-in-repeat`), so its block holds no `repeat`. */
 export const ownClosePlacementSchema = saveToCasePlacementSchema.omit({
 	repeat: true,
+	editorCaseType: true,
 });
 export type OwnClosePlacement = z.infer<typeof ownClosePlacementSchema>;
 

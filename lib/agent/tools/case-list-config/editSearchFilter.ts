@@ -3,7 +3,9 @@ import { enableCaseSearchMutation } from "@/lib/doc/caseSearchConfigMutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	effectiveCaseSearchConfig,
-	searchRequestOrderSchema,
+	searchFilterOrderSchema,
+	searchRecordTypeRowSchema,
+	searchRelatedIdRowSchema,
 	searchValueFilterSchema,
 	uuidSchema,
 } from "@/lib/domain";
@@ -30,18 +32,27 @@ export const editSearchFilterInputSchema = moduleAddressSchema
 			}),
 			z.strictObject({
 				operation: z.literal("add-order"),
-				order: searchRequestOrderSchema,
+				order: searchFilterOrderSchema,
 				uuid: uuidSchema.optional(),
 				after: uuidSchema.nullable().optional(),
 			}),
 			z.strictObject({
 				operation: z.literal("edit-order"),
-				order: searchRequestOrderSchema,
+				order: searchFilterOrderSchema,
 				uuid: uuidSchema,
 			}),
 			fields
 				.partial()
 				.extend({ operation: z.literal("edit"), uuid: uuidSchema }),
+			z.strictObject({
+				operation: z.literal("set-request-row"),
+				uuid: uuidSchema.optional(),
+				after: uuidSchema.nullable().optional(),
+				row: z.discriminatedUnion("kind", [
+					searchRecordTypeRowSchema.omit({ uuid: true }),
+					searchRelatedIdRowSchema.omit({ uuid: true }),
+				]),
+			}),
 			z.strictObject({ operation: z.literal("remove"), uuid: uuidSchema }),
 			z.strictObject({
 				operation: z.literal("move"),
@@ -58,7 +69,7 @@ type Result =
 
 export const editSearchFilterTool = {
 	description:
-		"Add, change, move or remove one online search filter. Its target chooses the information to match, and its value comes from the worker, an earlier selection, a search answer, a table or a constant. Rows on the same target send their values together. The excluded-owners target leaves records of the owners its value names (separated by spaces) out of the online matches only; give it placement search-setting for a new rule, and keep one per search. add-order and edit-order set an order among the filters that chooses which matches the server sends first, without advanced case search. Keep the placement of rules brought in from CommCare HQ.",
+		"Add, change, move or remove one online search filter. Its target chooses the information to match, and its value comes from the worker, an earlier selection, a search answer, a table or a constant. Rows on the same target send their values together. The excluded-owners target leaves records of the owners its value names (separated by spaces) out of the online matches only; give it placement search-setting for a new rule, and keep one per search. add-order and edit-order set an order among the filters that chooses which matches the server sends first, without advanced case search. The indexed-fallback comparison uses one property, ascending, and replaces all earlier order rules with number, date, then text, with missing values last. Use it once in a Search that opens on results for one record type with no search fields, related records, or separate order. Keep the placement of rules brought in from CommCare HQ. set-request-row includes a record type in the request or follows the record ID held on a match. Supply the existing row UUID to change its setting.",
 	inputSchema: editSearchFilterInputSchema,
 	async execute(
 		input: z.infer<typeof editSearchFilterInputSchema>,
@@ -90,6 +101,16 @@ export const editSearchFilterTool = {
 					(one) => one.uuid === change.uuid,
 				);
 				const isOrder = row !== undefined && "order" in row;
+				const isRequestRow =
+					row !== undefined && !("order" in row) && !("target" in row);
+				if (isRequestRow)
+					return {
+						kind: "mutate",
+						mutations: [],
+						result: {
+							error: "Use set-request-row to change that Search setting.",
+						},
+					};
 				if (
 					row !== undefined &&
 					isOrder !== (change.operation === "edit-order")
@@ -113,49 +134,69 @@ export const editSearchFilterTool = {
 					ensureCaseListConfig: true,
 				});
 			if (
-				(change.operation === "add" || change.operation === "add-order") &&
+				(change.operation === "add" ||
+					change.operation === "add-order" ||
+					change.operation === "set-request-row") &&
 				!effectiveCaseSearchConfig(mod)
 			)
 				edits.push(enableCaseSearchMutation(moduleUuid, mod.caseSearchConfig));
 			// Omitted, the row goes last; the wire carries no `undefined`.
 			const after =
-				(change.operation === "add" || change.operation === "add-order") &&
+				(change.operation === "add" ||
+					change.operation === "add-order" ||
+					change.operation === "set-request-row") &&
 				change.after !== undefined
 					? { after: change.after }
 					: {};
 			const searchFilterEdit =
-				change.operation === "add-order"
-					? {
-							operation: "add" as const,
-							filter: { uuid, kind: "order" as const, order: change.order },
-							...after,
-						}
-					: change.operation === "edit-order"
+				change.operation === "set-request-row"
+					? mod.caseListConfig?.searchFilters?.some((row) => row.uuid === uuid)
 						? {
-								operation: "edit" as const,
+								operation: "replace" as const,
 								uuid,
-								patch: { order: change.order },
+								filter: { ...change.row, uuid },
 							}
-						: change.operation === "add"
+						: {
+								operation: "add" as const,
+								filter: { ...change.row, uuid },
+								...after,
+							}
+					: change.operation === "add-order"
+						? {
+								operation: "add" as const,
+								filter: { uuid, kind: "order" as const, order: change.order },
+								...after,
+							}
+						: change.operation === "edit-order"
 							? {
-									operation: "add" as const,
-									filter: { uuid, target: change.target, value: change.value },
-									...after,
+									operation: "edit" as const,
+									uuid,
+									patch: { order: change.order },
 								}
-							: change.operation === "edit"
+							: change.operation === "add"
 								? {
-										operation: "edit" as const,
-										uuid,
-										patch: {
-											...(change.target !== undefined && {
-												target: change.target,
-											}),
-											...(change.value !== undefined && {
-												value: change.value,
-											}),
+										operation: "add" as const,
+										filter: {
+											uuid,
+											target: change.target,
+											value: change.value,
 										},
+										...after,
 									}
-								: change;
+								: change.operation === "edit"
+									? {
+											operation: "edit" as const,
+											uuid,
+											patch: {
+												...(change.target !== undefined && {
+													target: change.target,
+												}),
+												...(change.value !== undefined && {
+													value: change.value,
+												}),
+											},
+										}
+									: change;
 			edits.push({
 				kind: "setCaseListMeta",
 				uuid: moduleUuid,

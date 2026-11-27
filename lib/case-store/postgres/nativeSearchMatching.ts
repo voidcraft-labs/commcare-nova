@@ -1,14 +1,19 @@
-import { type RawBuilder, sql } from "kysely";
-import type { CaseSearchCriterion } from "../searchRequest";
+import { type Expression, type RawBuilder, sql } from "kysely";
+import {
+	type CaseSearchCriterion,
+	CaseSearchUnavailableError,
+} from "../searchRequest";
 import type { PredicateCompileContext } from "../sql";
 import {
 	certifiedFuzzyMatch,
 	type FuzzyScope,
 } from "../sql/certifiedFuzzyMatch";
 import {
+	caseHasNoUndismissedParkedValues,
 	compileRelationPath,
 	relationPathContextFrom,
 } from "../sql/compileRelationPath";
+import { storedJsonbText } from "../sql/compileTerm";
 import { indexedSearchDate } from "../sql/searchIndexedDate";
 
 type Truth = RawBuilder<boolean | null>;
@@ -16,7 +21,7 @@ type Truth = RawBuilder<boolean | null>;
 /** case_properties.value is whitespace-analyzed text, and its exact subfield
  * is a case-sensitive keyword (ignore_above 8191 UTF-16 code units). */
 function propertyMatches(
-	value: RawBuilder<unknown>,
+	value: Expression<unknown>,
 	values: readonly string[],
 	fuzzy: boolean,
 	scope: FuzzyScope,
@@ -55,6 +60,104 @@ export function missingNativeProperty(key: string): Truth {
 		default:
 			return sql`coalesce(c.properties ->> ${key}, '') = ''`;
 	}
+}
+
+// HQ bounds terminal matches before following reverse links. Its intermediate
+// ESQuery.get_ids() reads up to SIZE_LIMIT. Each reverse hop uses a single terms
+// clause, so Preview certifies only up to Elasticsearch's default term count.
+// ES 6.8.23 warns above this setting, while newer versions can reject the query.
+const HQ_PARENT_LOOKUP_WINDOWS = {
+	terminal: 500_000,
+	intermediate: 1_000_000,
+	reverseTerms: 65_536,
+};
+
+export async function checkParentPathLookupLimit(
+	criterion: Extract<CaseSearchCriterion, { kind: "native" }>,
+	ctx: Pick<PredicateCompileContext, "db" | "appId" | "projectId">,
+	windows = HQ_PARENT_LOOKUP_WINDOWS,
+): Promise<void> {
+	const { target, values, field } = criterion.parameter;
+	if (!criterion.parameter.parentPathPrompt || target.kind !== "property")
+		return;
+	const terms = values.filter((value) => value !== "");
+	const groups =
+		values.includes("") && terms.length > 0 ? [terms, [""]] : [values];
+	const terminalLimit = Math.min(windows.terminal, windows.reverseTerms);
+	const intermediateLimit = Math.min(
+		windows.intermediate,
+		windows.reverseTerms,
+	);
+	for (const group of groups) {
+		const value = storedJsonbText("terminal.properties", target.property, true);
+		const match = propertyMatches(value, group, false, ctx);
+		const terminal = sql`select terminal.case_id from cases as terminal
+			where terminal.app_id = ${ctx.appId} and terminal.project_id = ${ctx.projectId} and ${match}`;
+		const steps = [
+			{ name: "terminal_matches", limit: terminalLimit, query: terminal },
+		];
+		for (
+			let remaining = (target.ancestors?.length ?? 1) - 1;
+			remaining > 0;
+			remaining--
+		) {
+			const previous = steps[steps.length - 1];
+			const matches = sql.id(previous.name);
+			const query = sql`select child.case_id from cases as child
+				where child.app_id = ${ctx.appId} and child.project_id = ${ctx.projectId}
+					and not exists (select 1 from ${matches} offset ${previous.limit} limit 1)
+					and exists (
+						select 1 from case_indices as edge
+						join ${matches} as matched on matched.case_id = edge.ancestor_id
+						where edge.case_id = child.case_id and edge.depth = 1 and edge.identifier = 'parent'
+					)`;
+			steps.push({
+				name: `parent_matches_${remaining}`,
+				limit: intermediateLimit,
+				query,
+			});
+		}
+		const materialized = steps.map(
+			({ name, limit, query }) =>
+				sql`${sql.id(name)} as materialized (${query} limit ${limit + 1})`,
+		);
+		const exceeded = steps.map(
+			({ name, limit }) =>
+				sql`exists (select 1 from ${sql.id(name)} offset ${limit} limit 1)`,
+		);
+		const lookup = sql<{ exceeded: boolean }>`with ${sql.join(materialized)}
+			select (${sql.join(exceeded, sql` or `)}) as exceeded`;
+		if ((await lookup.execute(ctx.db)).rows[0]?.exceeded)
+			throw new CaseSearchUnavailableError({
+				kind: "parent-lookup-limit",
+				field,
+			});
+	}
+}
+
+/** A nonempty retained edge may reach data outside the authorized snapshot. */
+function unresolvedParentPath(ctx: PredicateCompileContext, hops: number) {
+	function hasUnavailableParent(
+		caseId: RawBuilder<unknown>,
+		remaining: number,
+	): RawBuilder<boolean> {
+		const alias = `prompt_parent_${remaining}`;
+		const parent = sql.ref(`${alias}.case_id`);
+		const unavailableAbove =
+			remaining > 1 ? hasUnavailableParent(parent, remaining - 1) : sql`false`;
+		return sql`exists (
+			select 1 from case_indices as edge
+			left join cases as ${sql.id(alias)}
+				on ${parent} = edge.ancestor_id
+				and ${sql.ref(`${alias}.app_id`)} = ${ctx.appId}
+				and ${sql.ref(`${alias}.project_id`)} = ${ctx.projectId}
+				and ${caseHasNoUndismissedParkedValues(parent)}
+			where edge.case_id = ${caseId}
+				and edge.depth = 1 and edge.identifier = 'parent' and edge.ancestor_id <> ''
+				and (${parent} is null or ${unavailableAbove})
+		)`;
+	}
+	return hasUnavailableParent(sql.ref(`${ctx.anchorAlias}.case_id`), hops);
 }
 
 export function nativeSearchTruth(
@@ -124,7 +227,9 @@ export function nativeSearchTruth(
 					case "external_id":
 						return sql`${read(source, "external_id")}`;
 					default:
-						return sql`${read(source, "properties")} ->> ${target.property}`;
+						return criterion.parameter.parentPathPrompt
+							? storedJsonbText(`${source}.properties`, target.property, true)
+							: sql`${read(source, "properties")} ->> ${target.property}`;
 				}
 			};
 			if (!target.ancestors)
@@ -158,7 +263,10 @@ export function nativeSearchTruth(
 						);
 			// The native ancestor query looks up matching parents and then follows
 			// their reverse links. A record with no such ancestor never qualifies.
-			return sql`(select case when bool_or(accepted) then true when bool_or(accepted is null) then null else false end
+			const unresolved = criterion.parameter.parentPathPrompt
+				? unresolvedParentPath(ctx, target.ancestors.length)
+				: sql`false`;
+			return sql`(select case when bool_or(accepted) then true when ${unresolved} or bool_or(accepted is null) then null else false end
 				from (select ${match} as accepted from ${path.buildLeafSubquery()}
 					where ${read(path.leafAlias, "anchor_case_id")} = ${read(ctx.anchorAlias, "case_id")}) as parents)`;
 		}

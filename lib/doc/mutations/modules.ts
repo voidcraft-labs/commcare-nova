@@ -355,7 +355,11 @@ export function applyModuleMutation(
 									}
 								: mod.caseSearchConfig;
 					const targetSearch = fresh as unknown as Record<string, unknown>;
-					for (const [slot, next] of entries) {
+					for (const [slot, value] of entries) {
+						const next =
+							slot === "projectSearch"
+								? mut.caseSearchConfigPatch.projectSearch?.after
+								: value;
 						if (next === null || next === undefined) delete targetSearch[slot];
 						else targetSearch[slot] = structuredClone(next);
 					}
@@ -459,6 +463,11 @@ export function applyModuleMutation(
 				if (value === null || value === undefined) delete target[key];
 				else target[key] = value;
 			}
+			if (
+				mod.parentCaseLink !== undefined &&
+				mod.parentCaseLink.parentUuid !== mod.parentCaseModuleUuid
+			)
+				delete mod.parentCaseLink;
 			reconcilePostSubmitWithMenuShape(draft, before);
 			return;
 		}
@@ -677,7 +686,10 @@ export function applyModuleMutation(
 			const config = draft.modules[mut.moduleUuid]?.caseListConfig;
 			if (!config) return;
 			const idx = config.searchInputs.findIndex((s) => s.uuid === mut.uuid);
-			if (idx !== -1) config.searchInputs.splice(idx, 1);
+			if (idx !== -1) {
+				config.searchInputs.splice(idx, 1);
+				if (!config.searchInputs.length) delete config.searchInputGroups;
+			}
 			return;
 		}
 		case "moveSearchInput": {
@@ -717,9 +729,20 @@ export function applyModuleMutation(
 				filter,
 				listCondition,
 				searchCondition,
+				searchGroupAssignments,
 				searchFilterEdit,
 				...rest
 			} = mut.patch;
+			if (searchGroupAssignments !== undefined) {
+				const assignments = new Map(
+					searchGroupAssignments.map(({ input, group }) => [input, group]),
+				);
+				for (const input of config.searchInputs) {
+					const group = assignments.get(input.uuid);
+					if (group === null) delete input.group;
+					else if (group !== undefined) input.group = group;
+				}
+			}
 			if (searchFilterEdit !== undefined) {
 				const edit = searchFilterEdit;
 				const rows = config.searchFilters ?? [];
@@ -733,6 +756,10 @@ export function applyModuleMutation(
 					const row = rows.find((r) => r.uuid === edit.uuid);
 					if (row !== undefined) {
 						if (edit.operation === "edit") Object.assign(row, edit.patch);
+						else if (edit.operation === "replace")
+							config.searchFilters = rows.map((r) =>
+								r.uuid === edit.uuid ? edit.filter : r,
+							);
 						else if (edit.operation === "move")
 							config.searchFilters = spliceEntryAfter(rows, row, edit.after);
 						else {

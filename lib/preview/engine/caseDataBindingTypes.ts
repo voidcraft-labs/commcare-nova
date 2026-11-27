@@ -68,6 +68,7 @@ export type {
  */
 export interface ParentCaseSelection {
 	readonly caseType: string;
+	readonly additionalCaseTypes?: readonly string[];
 	readonly caseIds: readonly string[];
 	/** The index name a menu emitted advanced follows to the parent
 	 *  (`caseSelectionNavigation.ts::parentCaseIndex`); absent, any direct
@@ -102,6 +103,8 @@ export type LoadCasesResult =
 			kind: "rows";
 			/** Primary matches before the device filters or groups them. */
 			searchMatchCount?: number;
+			resultReceipt?: string;
+			/** Empty with a nonzero count when automatic selection exceeds its maximum. */
 			rows: ReadonlyArray<CaseRowWithCalculated>;
 			/** Full ROW population matching the authored + worker query, in
 			 * both the ordinary and the grouped shape. Present for bounded
@@ -155,6 +158,7 @@ export type LoadCasesResult =
 	| {
 			kind: "empty";
 			searchMatchCount?: number;
+			resultReceipt?: string;
 			/** When a worker Search and authored availability are both active,
 			 * this count isolates the authored-only population. Zero proves that
 			 * clearing Search cannot reveal a case; a positive value proves that
@@ -491,6 +495,8 @@ export interface SubmissionOperationAnswers {
 	readonly repeats: ReadonlyArray<{
 		readonly repeat: string;
 		readonly iterations: ReadonlyArray<ReadonlyArray<SubmissionAnswerEntry>>;
+		/** For each nested row, the zero-based live row of its enclosing repeat. */
+		readonly parentIterations?: readonly number[];
 	}>;
 }
 
@@ -669,3 +675,11 @@ export type SubmissionResult =
 	 *  Nothing was written. */
 	| { kind: "submission-rejected"; rejection: SubmissionRejection }
 	| { kind: "error"; message: string };
+
+/** The selected result owns this completed response. A plain Details URL
+ * has no receipt. */
+export interface SearchResultDetailOpening {
+	readonly previewRun: string;
+	readonly submission: string;
+	readonly receipt: string;
+}

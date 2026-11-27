@@ -44,6 +44,7 @@ import type { Uuid } from "./uuid";
  */
 export type AdvancedKindBlocker =
 	| { readonly kind: "several-cases" }
+	| { readonly kind: "several-record-types" }
 	| { readonly kind: "forms-read-search" }
 	| { readonly kind: "individual-grid" }
 	| {
@@ -94,7 +95,11 @@ function childLinkIdentifiersOf(
 				const childType = operationCaseType(doc, formUuid, operation);
 				if (childType === undefined) continue;
 				for (const link of links) {
-					if (link.relationship !== "child") continue;
+					if (
+						link.relationship !== "child" ||
+						link.relationshipQuestion !== undefined
+					)
+						continue;
 					const key = pairKey(childType, link.targetType);
 					const identifiers = byPair.get(key);
 					if (identifiers === undefined) byPair.set(key, [link.identifier]);
@@ -127,6 +132,25 @@ export function advancedChainIndex(
 	if (identifiers.length === 1)
 		return { kind: "one", identifier: identifiers[0] };
 	return { kind: "several", identifiers: [...identifiers] };
+}
+
+/** An imported Advanced entry can select one exact index even when other
+ * writes use another index between the same record types. */
+export function advancedMenuChainIndex(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	childType: string,
+	parentType: string,
+): ChainIndex {
+	const module = doc.modules[moduleUuid];
+	const held = module?.parentCaseLink;
+	if (
+		module?.heldKind === "advanced" &&
+		held !== undefined &&
+		module.parentCaseModuleUuid === held.parentUuid
+	)
+		return { kind: "one", identifier: held.identifier };
+	return advancedChainIndex(doc, childType, parentType);
 }
 
 /** One case operation's links between one pair of case types: the
@@ -214,7 +238,10 @@ function linkFactsOf(doc: BlueprintDoc): LinkFacts {
 						continue;
 					}
 					const order = creating ? pair.created : pair.relationships;
-					if (!order.has(link.identifier))
+					if (
+						link.relationshipQuestion === undefined &&
+						!order.has(link.identifier)
+					)
 						order.set(link.identifier, link.relationship);
 					const identifiers = byTarget.get(link.targetType);
 					if (identifiers === undefined)
@@ -436,6 +463,14 @@ export function advancedKindBlockers(
 	const blockers: AdvancedKindBlocker[] = [];
 	if (caseSelectionCardinality(module) === "multiple")
 		blockers.push({ kind: "several-cases" });
+	// Advanced manual loads and the advanced case-list item bind only their
+	// own case type, including a load supplied by an earlier menu.
+	if (
+		parentSelectionChain(doc, moduleUuid).some(
+			(uuid) => doc.modules[uuid]?.caseListConfig?.additionalCaseTypes?.length,
+		)
+	)
+		blockers.push({ kind: "several-record-types" });
 	if (moduleFormsReadSearch(module))
 		blockers.push({ kind: "forms-read-search" });
 	if (module.menuLayout === "grid") blockers.push({ kind: "individual-grid" });
@@ -461,7 +496,12 @@ export function advancedKindBlockers(
 			)?.caseType;
 			const childType = menuWithInheritedCaseSettings(doc, chain[i])?.caseType;
 			if (parentType === undefined || childType === undefined) continue;
-			const index = advancedChainIndex(doc, childType, parentType);
+			const index = advancedMenuChainIndex(
+				doc,
+				chain[i],
+				childType,
+				parentType,
+			);
 			if (index.kind === "several") {
 				blockers.push({
 					kind: "chain-index",

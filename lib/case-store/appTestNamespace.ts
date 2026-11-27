@@ -38,6 +38,8 @@ export type AppTestCaseStore = Pick<
 	| "query"
 	| "count"
 	| "queryGrouped"
+	| "queryAutomaticSelection"
+	| "readFlatCloseSelection"
 	| "readDeviceCaseDatabase"
 	| "readCaseDatabasePatch"
 	| "readSearchResultInstance"

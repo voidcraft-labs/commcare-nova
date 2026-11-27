@@ -33,7 +33,11 @@ import type {
 	LookupHqOrigin,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
-import type { ExportMode, LookupTarget } from "../boundaryFindings";
+import {
+	type ExportMode,
+	exportCarrierFindings,
+	type LookupTarget,
+} from "../boundaryFindings";
 import {
 	type PreparedExportBoundary,
 	prepareExportBoundaryWithReads,
@@ -492,4 +496,85 @@ describe("a downloadable app", () => {
 		]);
 		expect(result.lookupWire?.fixtures.totalRows).toBe(4);
 	});
+});
+
+it("leaves an assigned HQ table at its exact source without treating editor rows as worker choices", () => {
+	const assigned: LookupTableDefinition = {
+		...DISTRICTS,
+		hq: {
+			...ORIGIN,
+			source: {
+				inventory: "complete",
+				distribution: "assigned",
+				indexEvidence: "unobserved",
+			},
+		},
+	};
+	const fixtures = { ...snapshot([assigned]), rowsByTable: new Map() };
+	const doc = docReading([assigned]);
+	const native = exportCarrierFindings({
+		doc,
+		fixtureData: fixtures,
+		mode: "hq-upload",
+		lookupTarget: HERE,
+	});
+	expect(native.rowFindings).toEqual([]);
+	expect(native.lookupWorkbook).toBeUndefined();
+	expect(native.managedLookupTables.map(({ tag }) => tag)).toEqual([
+		assigned.tag,
+	]);
+	for (const [mode, lookupTarget] of [
+		["hq-upload", { ...HERE, domain: "another-space" }],
+		["ccz", HERE],
+	] as const) {
+		const other = exportCarrierFindings({
+			doc,
+			fixtureData: fixtures,
+			mode,
+			lookupTarget,
+		});
+		expect(other.rowFindings).toMatchObject([
+			{ code: "LOOKUP_WORKER_SOURCE_UNAVAILABLE" },
+		]);
+	}
+});
+
+it("keeps an assigned choice unavailable when the workbook binds owners but worker rows are unverified", () => {
+	const assigned: LookupTableDefinition = {
+		...VISITS,
+		workerAccess: "assigned",
+	};
+	const fixtureData = snapshot([assigned]);
+	const rows = fixtureData.rowsByTable.get(assigned.id);
+	if (!rows) throw new Error("Missing the assigned table's intended rows.");
+	const carrier = exportCarrierFindings({
+		mode: "hq-upload",
+		lookupTarget: HERE,
+		doc: docReading([assigned]),
+		fixtureData,
+		assignments: new Map([
+			[
+				assigned.id,
+				new Map(
+					rows.map((row, i) => [
+						row.id,
+						{
+							users: [i === 0 ? "first" : "second"],
+							groups: [],
+							locations: [],
+						},
+					]),
+				),
+			],
+		]),
+	});
+	expect(carrier.lookupWorkbook?.tables).toMatchObject([
+		{ tableId: assigned.id, rowCount: 2 },
+	]);
+	expect(carrier.rowFindings).toMatchObject([
+		{
+			code: "LOOKUP_WORKER_SOURCE_UNAVAILABLE",
+			details: { tableId: assigned.id },
+		},
+	]);
 });

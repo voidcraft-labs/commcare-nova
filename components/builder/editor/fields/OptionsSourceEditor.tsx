@@ -21,6 +21,7 @@ import type { EditorFormFieldDecl } from "@/components/builder/shared/formFieldP
 import { LookupValuePicker } from "@/components/builder/shared/LookupValuePicker";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
+import { Input } from "@/components/shadcn/input";
 import { Label } from "@/components/shadcn/label";
 import {
 	Select,
@@ -35,13 +36,15 @@ import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
-import type {
-	InlineOptionsSource,
-	LookupOptionsSource,
-	LookupTableId,
-	MultiSelectField,
-	SelectOptionsSource,
-	SingleSelectField,
+import {
+	type AvailableCasesOptionsSource,
+	availableCasePropertyMatchSchema,
+	type InlineOptionsSource,
+	type LookupOptionsSource,
+	type LookupTableId,
+	type MultiSelectField,
+	type SelectOptionsSource,
+	type SingleSelectField,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
@@ -67,6 +70,7 @@ export function OptionsSourceEditor<
 	F extends SingleSelectField | MultiSelectField,
 >({ field, value, onChange }: FieldEditorComponentProps<F, "optionsSource">) {
 	const modeId = useId();
+	const caseStatusId = useId();
 	const valueColumnSelectId = useId();
 	const labelColumnSelectId = useId();
 	const sortColumnSelectId = useId();
@@ -100,9 +104,9 @@ export function OptionsSourceEditor<
 	const completeSource =
 		active.kind === "lookup" ? completeLookupSource(active, table) : active;
 	const expressionContext = useExpressionSlotContext(
-		completeSource === undefined || completeSource.kind === "inline"
-			? undefined
-			: { entity: "field", uuid: field.uuid, slot: "lookup_options_source" },
+		completeSource?.kind === "cases" || completeSource?.kind === "lookup"
+			? { entity: "field", uuid: field.uuid, slot: "lookup_options_source" }
+			: undefined,
 		completeSource === undefined
 			? undefined
 			: {
@@ -199,6 +203,8 @@ export function OptionsSourceEditor<
 								if (selected === INLINE) return "Options in this question";
 								if (selected === "cases")
 									return "Cases available to the worker";
+								if (selected === "available-cases")
+									return "All available cases";
 								const selectedTable = tables.find(
 									(candidate) => candidate.id === selected,
 								);
@@ -216,6 +222,11 @@ export function OptionsSourceEditor<
 					<SelectContent>
 						<SelectItem value={INLINE}>Options in this question</SelectItem>
 						<SelectItem value="cases">Cases available to the worker</SelectItem>
+						{field.kind === "single_select" ? (
+							<SelectItem value="available-cases">
+								All available cases
+							</SelectItem>
+						) : null}
 						{/* Keep a missing saved identity represented. Base UI otherwise
 						 * treats catalog removal as a value change and restores the initial
 						 * inline option, which would incorrectly stage a new source. */}
@@ -327,6 +338,78 @@ export function OptionsSourceEditor<
 						setRejection(null);
 					}}
 				/>
+			) : active.kind === "available-cases" ? (
+				<div className="space-y-3">
+					<p className="text-sm text-nova-text-secondary">
+						Choose from cases restored for the worker across all case types.
+						Choices show case names and save case IDs.
+					</p>
+					<div className="space-y-2">
+						<Label htmlFor={caseStatusId}>Cases to offer</Label>
+						<Select
+							items={{
+								all: "All available cases",
+								open: "Open cases only",
+								closed: "Closed cases only",
+							}}
+							value={active.status ?? "all"}
+							onValueChange={(selection) => {
+								if (
+									selection !== "all" &&
+									selection !== "open" &&
+									selection !== "closed"
+								)
+									return;
+								const next: typeof active = {
+									...active,
+									status: selection === "all" ? undefined : selection,
+								};
+								if (draft?.kind === "available-cases") setDraft(next);
+								else commit(next);
+							}}
+						>
+							<SelectTrigger id={caseStatusId} disabled={!canEdit}>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="all">All available cases</SelectItem>
+								<SelectItem value="open">Open cases only</SelectItem>
+								<SelectItem value="closed">Closed cases only</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+					<AvailableCasePropertyMatchEditor
+						key={JSON.stringify(active.propertyMatch ?? null)}
+						value={active.propertyMatch}
+						canEdit={canEdit}
+						onChange={(propertyMatch) => {
+							const next: typeof active = { ...active, propertyMatch };
+							if (draft?.kind === "available-cases") setDraft(next);
+							else commit(next);
+						}}
+					/>
+					{draft?.kind === "available-cases" ? (
+						<div className="flex justify-end gap-2">
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={() => {
+									setDraft(null);
+									setRejection(null);
+								}}
+							>
+								Cancel
+							</Button>
+							<Button
+								type="button"
+								disabled={!canEdit}
+								onClick={() => commit(active)}
+							>
+								Use these cases
+							</Button>
+						</div>
+					) : null}
+				</div>
 			) : table === undefined ? (
 				catalog.kind === "ready" ? (
 					<p
@@ -488,6 +571,96 @@ export function OptionsSourceEditor<
 			)}
 
 			<RejectionInline message={rejection} />
+		</div>
+	);
+}
+
+function AvailableCasePropertyMatchEditor({
+	value,
+	canEdit,
+	onChange,
+}: {
+	value: AvailableCasesOptionsSource["propertyMatch"];
+	canEdit: boolean;
+	onChange: (value: AvailableCasesOptionsSource["propertyMatch"]) => void;
+}) {
+	const [property, setProperty] = useState(value?.property ?? "");
+	const [text, setText] = useState(value?.text ?? "");
+	const [alternateText, setAlternateText] = useState(
+		value?.alternateText ?? "",
+	);
+	const [alternateProperty, setAlternateProperty] = useState(
+		value?.alternateProperty ?? "",
+	);
+	const propertyId = useId();
+	const valueId = useId();
+	const alternatePropertyId = useId();
+	const alternateValueId = useId();
+	const match = availableCasePropertyMatchSchema.safeParse({
+		property,
+		text,
+		...(alternateText !== "" && { alternateText }),
+		...(alternateProperty !== "" && { alternateProperty }),
+	});
+	return (
+		<div className="space-y-2">
+			<Label htmlFor={propertyId}>Match a case property</Label>
+			<Input
+				id={propertyId}
+				value={property}
+				disabled={!canEdit}
+				onChange={(event) => setProperty(event.currentTarget.value)}
+			/>
+			<Label htmlFor={valueId}>Stored value</Label>
+			<Input
+				id={valueId}
+				value={text}
+				disabled={!canEdit}
+				onChange={(event) => setText(event.currentTarget.value)}
+			/>
+			<Label htmlFor={alternatePropertyId}>Other property (optional)</Label>
+			<Input
+				id={alternatePropertyId}
+				value={alternateProperty}
+				disabled={!canEdit}
+				onChange={(event) => setAlternateProperty(event.currentTarget.value)}
+			/>
+			<Label htmlFor={alternateValueId}>Or another stored value</Label>
+			<Input
+				id={alternateValueId}
+				value={alternateText}
+				disabled={!canEdit}
+				onChange={(event) => setAlternateText(event.currentTarget.value)}
+			/>
+			<div className="flex gap-2">
+				<Button
+					type="button"
+					variant="outline"
+					disabled={
+						!canEdit ||
+						!match.success ||
+						(value?.property === property &&
+							value?.text === text &&
+							(value.alternateText ?? "") === alternateText &&
+							(value.alternateProperty ?? "") === alternateProperty)
+					}
+					onClick={() => {
+						if (match.success) onChange(match.data);
+					}}
+				>
+					Apply filter
+				</Button>
+				{value ? (
+					<Button
+						type="button"
+						variant="ghost"
+						disabled={!canEdit}
+						onClick={() => onChange(undefined)}
+					>
+						Clear filter
+					</Button>
+				) : null}
+			</div>
 		</div>
 	);
 }

@@ -338,7 +338,12 @@ function expressionCount(
  */
 export const PLATFORM_CAUSE_WORDS: Readonly<Record<string, string>> = {
 	"datetime-question": "date-and-time questions",
+	"android-app-question": "questions answered in another app on Android",
 	"case-list-here": "case-list columns that read the worker's location",
+	"case-list-icon-actions": "case list icons that submit forms",
+	"search-result-detail-text":
+		"Details fields that show submitted Search answers",
+	"case-list-lookup-count": "reads of the companion lookup count",
 	"case-list-search-text": "reads of the case list's search text",
 	"forms-read-search": "menus whose forms read the search",
 	"list-first": "menus that open on their case list first",
@@ -348,11 +353,15 @@ export const PLATFORM_CAUSE_WORDS: Readonly<Record<string, string>> = {
 	"window-width": "reads of the window's width",
 	"raw-grouped-tile-body-field":
 		"Android-only fields below tile group headings",
+	"answer-root-name-requires-android":
+		"forms with non-ASCII characters in their submitted answer root",
 	"worker-distance": "distances from the worker",
 	"sort-by-distance": "case lists ordered by distance",
 	"connect-app": "CommCare Connect",
 	"auto-select-confirm":
 		"lists that choose their one record by themselves before a confirmation screen",
+	"advanced-index-name-requires-android":
+		"forms that write connection names with non-ASCII characters",
 	"answer-name-requires-android":
 		"answers whose IDs Web Apps reads as instructions",
 };

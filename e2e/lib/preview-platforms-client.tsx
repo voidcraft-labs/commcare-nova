@@ -9,10 +9,16 @@ import { FormScreen } from "@/components/preview/screens/FormScreen";
 import { HomeScreen } from "@/components/preview/screens/HomeScreen";
 import { ToastContainer } from "@/components/ui/ToastContainer";
 import { buildDoc, type FieldSpec } from "@/lib/__tests__/docHelpers";
+import { planDatetimeSplit } from "@/lib/doc/datetimeSplit";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
+import { NEW_APP_SETTINGS } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression/builders";
 import type { Platform } from "@/lib/domain/platforms";
-import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
+import {
+	admittedControllerDoc,
+	applyControllerEdit,
+} from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import type { EngineController } from "@/lib/preview/engine/engineController";
 import {
 	BuilderFormEngineProvider,
@@ -67,6 +73,28 @@ function inSection(label: string, children: FieldSpec[]): FieldSpec {
 
 function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 	switch (fixture) {
+		case "datetime-picker":
+			return [
+				{
+					kind: "datetime",
+					id: "arrival_stamp",
+					uuid: IDS.datetime,
+					label: "Arrival stamp",
+				},
+				{ kind: "text", id: "review", label: "Review visit" },
+			];
+		case "face-photo":
+			return [
+				inSection("Visit", [
+					{
+						uuid: IDS.image,
+						kind: "image",
+						id: "portrait",
+						label: "Portrait",
+						captureSource: "face-camera",
+					},
+				]),
+			];
 		case "question-display": {
 			const options = [
 				{ value: "north", label: "North valley" },
@@ -90,8 +118,22 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 					{
 						kind: "secret",
 						id: "address",
+						uuid: IDS.address,
 						label: "Private meeting place",
 						addressLookup: true,
+						sendTopics: ["meeting-location"],
+					},
+					{
+						kind: "text",
+						id: "city",
+						label: "Meeting city",
+						receiveFrom: { channel: "meeting-location", field: "city" },
+					},
+					{
+						kind: "hidden",
+						id: "recorded_city",
+						uuid: IDS.addressCityCopy,
+						calculate: "/data/questions/city",
 					},
 					{
 						kind: "text",
@@ -232,6 +274,91 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 				},
 			];
 		}
+		case "android-app":
+			return [
+				{
+					kind: "repeat",
+					uuid: testUuid("platforms-visits"),
+					id: "visits",
+					label: "Visit",
+					repeat_mode: "count_bound",
+					repeat_count: "2",
+					children: [
+						{
+							kind: "group",
+							id: "details",
+							label: "Details",
+							fieldList: true,
+							children: [
+								{
+									kind: "text",
+									uuid: IDS.meter,
+									id: "meter",
+									label: "Meter",
+									default_value: "'prior'",
+									androidApp: {
+										kind: "open-app",
+										action: "org.example.MEASURE",
+										send: [
+											{ name: "unit", value: term(literal("gallons")) },
+											{ name: "unit", value: term(literal("litres")) },
+										],
+										receive: [
+											{ name: "quantity", question: IDS.reading },
+											{ name: "quantity", question: IDS.name },
+											{ name: "photo", question: IDS.image },
+										],
+									},
+								},
+								{
+									kind: "int",
+									uuid: IDS.verify,
+									id: "verify",
+									label: "Check meter",
+									default_value: "7",
+									androidApp: { kind: "use-question", question: IDS.meter },
+								},
+								{
+									kind: "int",
+									uuid: IDS.reading,
+									id: "count",
+									label: "Quantity",
+									default_value: "5",
+								},
+								{
+									kind: "text",
+									uuid: IDS.name,
+									id: "reading_text",
+									label: "Reading as text",
+									default_value: "'five'",
+								},
+								{
+									kind: "image",
+									uuid: IDS.image,
+									id: "photo",
+									label: "Meter photo",
+								},
+							],
+						},
+					],
+				},
+			];
+		case "android-app-required":
+			return [
+				{
+					kind: "text",
+					uuid: IDS.meter,
+					id: "meter",
+					label: "Meter",
+					required: "true()",
+					androidApp: {
+						kind: "open-app",
+						action: "org.example.MEASURE",
+						send: [],
+						receive: [],
+					},
+				},
+			];
 		case "questions":
 			return [
 				inSection("Questions", [
@@ -460,6 +587,9 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 const built = buildDoc({
 	appId: "native-platforms",
 	appName: "Platforms",
+	...(scenario.fixture.startsWith("android-app") && {
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" as const },
+	}),
 	modules: [
 		{
 			uuid: IDS.module,
@@ -492,6 +622,14 @@ if (scenario.fixture === "screens")
 const doc = admittedControllerDoc(built);
 const docStore = createBlueprintDocStore();
 docStore.getState().load(doc);
+if (scenarioId === "datetime-picker-web-apps") {
+	const split = planDatetimeSplit(docStore.getState(), IDS.datetime);
+	if (!split.ok) throw new Error(split.message);
+	applyControllerEdit(docStore, [
+		...split.mutations,
+		{ kind: "setAppSettings", settings: { runsOnlyOn: "web-apps" } },
+	]);
+}
 docStore.getState().startTracking();
 const session = createBuilderSessionStore({
 	appId: doc.appId,
@@ -564,6 +702,9 @@ toastRoot.render(<ToastContainer />);
 
 window.previewPlatforms = {
 	answer: (uuid) => controller?.store.getState()[uuid]?.value,
+	async setAnswer(uuid, value) {
+		return (await controller?.onValueChangeAsync(uuid, value)) === true;
+	},
 	setPlatform(next) {
 		session.getState().setPreviewPlatform(next);
 	},
@@ -582,6 +723,7 @@ declare global {
 	interface Window {
 		previewPlatforms: {
 			answer(uuid: string): string | undefined;
+			setAnswer(uuid: string, value: string): Promise<boolean>;
 			/** Plays `next` as the builder's platform switch does. */
 			setPlatform(next: Platform): void;
 			settled(): Promise<void>;

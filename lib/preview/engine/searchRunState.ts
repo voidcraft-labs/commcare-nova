@@ -5,8 +5,10 @@ import {
 	type SearchInputDef,
 	searchInputDefault,
 	searchInputLookupSortColumnId,
+	splitMultiSelectSearchAnswer,
 	type Uuid,
 } from "@/lib/domain";
+import type { QuestionMessage } from "@/lib/preview/displayMessages";
 import { PreviewDataRefusal } from "@/lib/preview/engine/dataRefusal";
 import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
 import {
@@ -47,6 +49,49 @@ export interface SearchRunState {
 	readonly submittedHidden: SearchInputValues;
 	readonly hasSubmitted: boolean;
 	readonly touched: ReadonlySet<string>;
+}
+
+/** A pick or clear updates only the fields linked by identity to this picker.
+ * Android has no picker, and saved unmatched topics have no source identity. */
+export function applySearchAddressMessage(
+	previous: SearchInputValues,
+	inputs: readonly SearchInputDef[],
+	source: Uuid,
+	message: QuestionMessage,
+	choices: ReadonlyMap<string, readonly LookupChoice[] | undefined> | undefined,
+	rules: Pick<PreviewPlatformRules, "searchAddressPicker">,
+): SearchInputValues {
+	if (!rules.searchAddressPicker) return previous;
+	const next = new Map(previous);
+	for (const input of inputs) {
+		if (input.kind === "hidden" || input.kind === "address") continue;
+		const receiver = input.addressReceiver;
+		if (receiver?.kind === "address-clear" && receiver.source === source) {
+			next.delete(input.name);
+			continue;
+		}
+		if (receiver?.kind !== "address" || receiver.source !== source) continue;
+		const part = receiver.parts.find((key) => message?.[key] !== undefined);
+		const received = part === undefined ? undefined : message?.[part];
+		if (input.type === "multi-select") {
+			const matches = choices
+				?.get(input.uuid)
+				?.filter((choice) => choice.label.trim() === received);
+			if (matches?.length !== 1) continue;
+			const selected = matches[0].value;
+			const answers = splitMultiSelectSearchAnswer(next.get(input.name) ?? "");
+			if (!answers.includes(selected))
+				next.set(
+					input.name,
+					joinMultiSelectSearchAnswer([...answers, selected]),
+				);
+			continue;
+		}
+		if (input.type !== "text") continue;
+		if (received) next.set(input.name, received);
+		else next.delete(input.name);
+	}
+	return next;
 }
 
 /** Draft commands own search answers independently of their React adapter. */
@@ -120,7 +165,7 @@ export function buildSearchRunState(
 		// A hidden input has no draft key: the worker never answers it. Its
 		// value is resolved at submit, and a constraint judged over the draft
 		// seeds it itself (`emitPreviewSearchPredicate`).
-		if (input.kind === "hidden") continue;
+		if (input.kind === "hidden" || input.kind === "address") continue;
 		const shape = `${input.uuid}:${input.type}`;
 		if (input.type === "date-range") {
 			keyShapes.set(`${input.name}:from`, shape);
@@ -175,7 +220,7 @@ export function searchInputAnswerKeys(
 ): Set<string> {
 	const keys = new Set<string>();
 	for (const input of searchInputs) {
-		if (input.kind === "hidden") continue;
+		if (input.kind === "hidden" || input.kind === "address") continue;
 		if (input.type === "date-range") {
 			keys.add(`${input.name}:from`);
 			keys.add(`${input.name}:to`);
@@ -216,13 +261,17 @@ export function searchForBlankAnswerRefusal(
  *  field holding its value. */
 export function drawnSearchInputs(
 	searchInputs: readonly SearchInputDef[],
-	rules: Pick<PreviewPlatformRules, "hiddenSearchField">,
+	rules: Pick<
+		PreviewPlatformRules,
+		"hiddenSearchField" | "searchAddressPicker"
+	>,
 ): readonly SearchInputDef[] {
-	return rules.hiddenSearchField === "editable"
-		? searchInputs
-		: searchInputs.filter(
-				(input) => input.kind !== "hidden" && input.hidden !== true,
-			);
+	return searchInputs.filter((input) =>
+		input.kind === "address"
+			? rules.searchAddressPicker
+			: rules.hiddenSearchField === "editable" ||
+				(input.kind !== "hidden" && input.hidden !== true),
+	);
 }
 
 /** The answer keys of the fields a platform's Search screen does not draw
@@ -231,7 +280,10 @@ export function drawnSearchInputs(
  *  starting value the search sends as it stands. */
 export function undrawnSearchAnswerKeys(
 	searchInputs: readonly SearchInputDef[],
-	rules: Pick<PreviewPlatformRules, "hiddenSearchField">,
+	rules: Pick<
+		PreviewPlatformRules,
+		"hiddenSearchField" | "searchAddressPicker"
+	>,
 ): Set<string> {
 	const drawn = new Set(drawnSearchInputs(searchInputs, rules));
 	return searchInputAnswerKeys(
@@ -246,7 +298,10 @@ export function undrawnSearchAnswerKeys(
  *  it, and takes the answer. */
 export function undrawnSearchAnswerRefusal(
 	searchInputs: readonly SearchInputDef[],
-	rules: Pick<PreviewPlatformRules, "hiddenSearchField">,
+	rules: Pick<
+		PreviewPlatformRules,
+		"hiddenSearchField" | "searchAddressPicker"
+	>,
 	key: string,
 ): string | undefined {
 	if (!undrawnSearchAnswerKeys(searchInputs, rules).has(key)) return undefined;
@@ -452,6 +507,7 @@ export function searchScreenOpeningCovered(
 			return false;
 		if (
 			"options" in input &&
+			input.options.kind === "lookup" &&
 			!lookupOptionsSourceCovered(
 				input.options,
 				lookup,

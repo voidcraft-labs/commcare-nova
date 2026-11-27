@@ -32,6 +32,7 @@ const actor = {
 const grant = { kind: "session", sessionId: "worker-preview-session" } as const;
 const worker = asUuid(v7()),
 	other = asUuid(v7()),
+	unassigned = asUuid(v7()),
 	root = asUuid(v7()),
 	primary = asUuid(v7()),
 	extra = asUuid(v7()),
@@ -89,8 +90,9 @@ beforeEach(async () => {
 				locations: { primaryUuid: primary, additionalUuids: [extra] },
 			},
 			[other]: { uuid: other, name: "Kai" },
+			[unassigned]: { uuid: unassigned, name: "Sam" },
 		},
-		personaOrder: [worker, other],
+		personaOrder: [worker, other, unassigned],
 	};
 	await h.seedAppWithBlueprint(doc, {
 		id: scope.appId,
@@ -253,6 +255,113 @@ it("serves the assigned worker's union in row order, excludes additional places,
 	);
 	await h.removeProjectMember(actor.actorId, scope.projectId);
 	await expect(load(worker)).rejects.toThrow();
+});
+
+it("projects ordered rich rows by assignment even when two rows have identical labels", async () => {
+	const clinics = [
+		{
+			code: "east-one",
+			english: "Twin clinic",
+			french: "Clinique jumelle",
+			assignee: worker,
+		},
+		{
+			code: "east-two",
+			english: "Twin clinic",
+			french: "Clinique jumelle",
+			assignee: worker,
+		},
+		{
+			code: "west-one",
+			english: "West clinic",
+			french: "Clinique ouest",
+			assignee: other,
+		},
+	];
+	const {
+		tables: [created],
+	} = await batch({
+		createTables: [
+			{
+				key: "clinics",
+				name: "Clinics",
+				tag: "clinics",
+				attributes: [{ wireName: "code", label: "Code" }],
+				columns: [
+					{
+						key: "name",
+						wireName: "name",
+						label: "Name",
+						dataType: "text",
+						repeated: true,
+						properties: [{ wireName: "lang", label: "Language" }],
+					},
+				],
+				rows: clinics.map(({ code, english, french }) => ({
+					key: code,
+					cells: [],
+					content: {
+						attributes: { code },
+						occurrences: {
+							name: [
+								{ text: english, properties: { lang: "en" } },
+								{ text: french, properties: { lang: "fr" } },
+							],
+						},
+					},
+				})),
+			},
+		],
+	});
+	const { tableId, rowIds } = created;
+	await batch({
+		updateTables: [
+			{
+				tableId,
+				expectedTableRevision: revisionsOf(created.revisions).tableRevision,
+				workerAccess: "assigned",
+				rowOperations: rowIds.map(({ id }, index) => ({
+					kind: "assign",
+					rowId: id,
+					assignments: [
+						{ kind: "worker", appId: scope.appId, id: clinics[index].assignee },
+					],
+				})),
+			},
+		],
+	});
+	const read = (personaUuid: string) =>
+		readWorkerLookupProjection({ scope, grant, personaUuid }, [tableId]);
+	const east = await read(worker);
+	const west = await read(other);
+	const none = await read(unassigned);
+	const [table] = east.definitions;
+	const [name] = table.columns;
+	const code = table.attributes?.[0];
+	const lang = name.properties?.[0];
+	if (!code || !lang)
+		throw new Error(
+			"The row attribute and occurrence property were not stored.",
+		);
+	expect(new Set(rowIds.map(({ id }) => id)).size).toBe(3);
+	const projected = clinics.map(({ code: key, english, french }, index) => ({
+		id: rowIds[index].id,
+		attributes: { [code.id]: key },
+		occurrences: {
+			[name.id]: [
+				{ text: english, properties: { [lang.id]: "en" } },
+				{ text: french, properties: { [lang.id]: "fr" } },
+			],
+		},
+		values: {},
+	}));
+	expect(east.rowsByTable.get(tableId)).toEqual(projected.slice(0, 2));
+	expect(west.rowsByTable.get(tableId)).toEqual(projected.slice(2));
+	expect(none.rowsByTable.get(tableId)).toEqual([]);
+	const generic = await withAppTx((tx) =>
+		readLookupFixtureDataInTransaction(tx, scope.projectId, [tableId]),
+	);
+	expect(generic.rowsByTable.has(tableId)).toBe(false);
 });
 
 function revisionsOf<T>(revisions: T | undefined): T {

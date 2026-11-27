@@ -10,9 +10,8 @@
  * holds the write, and the document read back exports the same update. A
  * moment still goes through its sibling into a `datetime` property, a day
  * beside a moment of one property is a pair of writers no one type holds,
- * and a day saved as the case's external id or to the worker's record (no
- * catalogued type, where Nova saves the moment) is refused under its own
- * entry.
+ * and a day saved as the external ID of its own basic follow-up remains
+ * calendar text. Direct writes to the worker's record remain held.
  *
  * Plausible failures: the export keeping the sibling for a day (Nova then
  * saves the moment's text to a date property), the reading typing the
@@ -21,6 +20,7 @@
  * external id or a worker property held as a write Nova exports as the
  * moment.
  */
+import { readFileSync } from "node:fs";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -31,6 +31,7 @@ import {
 } from "@/lib/commcare/__tests__/placementFixture";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { planDatetimeSplit } from "@/lib/doc/datetimeSplit";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type {
 	BlueprintDoc,
@@ -115,8 +116,15 @@ describe("a date-and-time question saved straight to a case", () => {
 		expect(source(body)).not.toContain("nova_datetime_");
 	});
 
-	it("is exported to a date-and-time property through its sibling", () => {
-		const body = exportedBody(visits("datetime"));
+	it("is exported to a date-and-time property through its sibling and can still split", () => {
+		const doc = visits("datetime");
+		const question = Object.values(doc.fields).find(
+			(field) => field.id === "seen",
+		);
+		if (question === undefined)
+			throw new Error("The form asks when the visit started");
+		expect(planDatetimeSplit(doc, question.uuid)).toMatchObject({ ok: true });
+		const body = exportedBody(doc);
 		expect(update(body.modules).seen_on?.question_path).toBe(
 			"/data/nova_datetime_seen",
 		);
@@ -166,22 +174,124 @@ describe("a date-and-time question saved straight to a case", () => {
 		).toEqual([`${F}/any-other-mixed-writer-pair`]);
 	});
 
-	it("as the case's external id is refused under its own entry", async () => {
-		const body = exportedBody(visits("datetime"));
-		const asExternalId = {
-			...body,
-			modules: produce(body.modules as Modules, (draft) => {
-				update(draft).external_id = {
-					question_path: "/data/seen",
-					update_mode: "always",
-					doc_type: "ConditionalCaseUpdate",
-				};
-			}),
+	it("keeps its own external ID calendar day and only offers Android", async () => {
+		const envelope = JSON.parse(
+			readFileSync("proof/hq-apps/hq-case-management/app-source.json", "utf8"),
+		) as { body: string };
+		const asExternalId = JSON.parse(envelope.body) as Record<string, unknown>;
+		update(asExternalId.modules, 3).external_id = {
+			question_path: "/data/seen_at",
+			update_mode: "always",
+			doc_type: "ConditionalCaseUpdate",
 		};
 		const outcome = await read(asExternalId);
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(outcome.findings));
+		const { doc, declaration } = outcome.draft;
+		expect(declaration.kind).toBe("choices");
+		if (declaration.kind !== "choices") throw new Error("Expected Android");
 		expect(
-			outcome.kind === "account" ? outcome.findings.map((one) => one.code) : [],
-		).toContain(`${F}/a-date-and-time-saved-straight-in-no-shape-nova-keeps`);
+			declaration.choices.map(({ runsOnlyOn, split }) => ({
+				runsOnlyOn,
+				split,
+			})),
+		).toEqual([{ runsOnlyOn: "android", split: false }]);
+		const question = Object.values(doc.fields).find(
+			({ id }) => id === "seen_at",
+		);
+		if (question === undefined) throw new Error("Expected the timestamp");
+		expect(planDatetimeSplit(doc, question.uuid)).toMatchObject({
+			ok: false,
+			reason: "saves-day-as-external-id",
+		});
+		const output = exportedBody(doc);
+		expect(update(output.modules, 3)).toMatchObject({
+			external_id: { question_path: "/data/seen_at", update_mode: "always" },
+			seen_at: { question_path: "/data/nova_datetime_seen_at" },
+		});
+		const form = Object.values(doc.forms).find(
+			(candidate) =>
+				candidate.caseOperations?.[0]?.placement?.kind === "basic" &&
+				candidate.caseOperations[0].placement.slot === "own" &&
+				candidate.caseOperations[0].placement.externalIdCalendarDayField !==
+					undefined,
+		);
+		if (form === undefined) throw new Error("Expected the retained form");
+		expect(form.caseOperations?.[0]?.writes).toContainEqual({
+			property: "external_id",
+			value: {
+				kind: "date-coerce",
+				value: { kind: "term", term: { kind: "field", uuid: question.uuid } },
+			},
+		});
+		expect(form.caseOperations?.[0]?.placement).toEqual({
+			kind: "basic",
+			slot: "own",
+			externalIdCalendarDayField: question.uuid,
+		});
+		const intoBlock = produce(doc, (draft) => {
+			const write = draft.forms[form.uuid].caseOperations?.[0]?.writes?.find(
+				(candidate) => candidate.property === "external_id",
+			);
+			if (write === undefined) throw new Error("Expected the imported write");
+			write.condition = {
+				kind: "term",
+				term: { kind: "literal", value: true },
+			};
+		});
+		expect(runValidation(intoBlock, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					details: expect.objectContaining({
+						reason: "external-id-calendar-day-placement",
+					}),
+				}),
+			]),
+		);
+		const edit = produce(asExternalId, (draft) => {
+			const write = update(draft.modules, 3).external_id;
+			if (write === undefined) throw new Error("Expected the imported write");
+			write.update_mode = "edit";
+		});
+		for (const saveOnlyEditedApplied of [true, false]) {
+			const reading = await readHqApp(
+				await inputFor(edit, { saveOnlyEditedApplied }),
+			);
+			if (reading.kind !== "read")
+				throw new Error(JSON.stringify(reading.findings));
+			expect(reading.draft.declaration).toMatchObject({
+				kind: "choices",
+				choices: [
+					expect.objectContaining({ runsOnlyOn: "android", split: false }),
+				],
+			});
+			const edited = update(exportedBody(reading.draft.doc).modules, 3);
+			expect(edited.external_id).toMatchObject({
+				question_path: "/data/seen_at",
+				update_mode: saveOnlyEditedApplied ? "edit" : "always",
+			});
+			expect(edited.seen_at).toMatchObject({
+				question_path: "/data/nova_datetime_seen_at",
+			});
+		}
+
+		const rename = produce(asExternalId, (draft) => {
+			const writes = update(draft.modules, 3);
+			writes.name = writes.external_id;
+			delete writes.external_id;
+		});
+		const nameReading = await read(rename);
+		if (nameReading.kind !== "read")
+			throw new Error(JSON.stringify(nameReading.findings));
+		expect(nameReading.draft.declaration).toMatchObject({
+			kind: "choices",
+			choices: [
+				expect.objectContaining({ runsOnlyOn: "android", split: false }),
+			],
+		});
+		expect(
+			update(exportedBody(nameReading.draft.doc).modules, 3),
+		).toHaveProperty("name.question_path", "/data/seen_at");
 	});
 	it("to the worker's record is refused under its own entry", async () => {
 		const body = exportedBody(visits("date"));
@@ -282,4 +392,88 @@ describe("one date and time saved to a property of the same name on two cases", 
 				"host/visited": "/data/seen",
 			});
 		});
+});
+
+describe("a date-and-time answer copied through a single parent index", () => {
+	function parentWrite(property: string, savesOwn = true) {
+		const envelope = JSON.parse(
+			readFileSync("proof/hq-apps/hq-case-management/app-source.json", "utf8"),
+		) as { body: string };
+		const body = JSON.parse(envelope.body) as Record<string, unknown>;
+		const form = (body.modules as Modules)[1].forms[0];
+		if (!savesOwn) delete form.actions.update_case.update.status_note;
+		const files = body._attachments as Record<string, string>;
+		const key = `${form.unique_id}.xml`;
+		files[key] = files[key].replace('type="xsd:string"', 'type="xsd:dateTime"');
+		form.actions.update_case.update[`parent/${property}`] = {
+			question_path: "/data/status_note",
+			update_mode: "always",
+			doc_type: "ConditionalCaseUpdate",
+		};
+		return body;
+	}
+
+	it("reads and emits the parent day without conflating it with the loaded case", async () => {
+		const result = await read(parentWrite("visit_day"));
+		if (result.kind !== "read")
+			throw new Error(JSON.stringify(result.findings));
+		const doc = result.draft.doc;
+		const declaration = result.draft.declaration;
+		expect(declaration.kind).toBe("choices");
+		if (declaration.kind !== "choices")
+			throw new Error("The source can still run on Android");
+		expect(
+			declaration.choices.map(({ runsOnlyOn, split }) => ({
+				runsOnlyOn,
+				split,
+			})),
+		).toEqual([{ runsOnlyOn: "android", split: false }]);
+		const question = Object.values(doc.fields).find(
+			(field) => field.id === "status_note",
+		);
+		if (question === undefined)
+			throw new Error("The reader keeps the question");
+		expect(planDatetimeSplit(doc, question.uuid)).toMatchObject({
+			ok: false,
+			reason: "saves-straight-to-date",
+		});
+		const property = (type: string, name: string) =>
+			doc.caseTypes
+				?.find((entry) => entry.name === type)
+				?.properties.find((entry) => entry.name === name);
+		expect(property("household", "visit_day")?.data_type).toBe("date");
+		expect(property("member", "visit_day")).toBeUndefined();
+		expect(property("member", "status_note")?.data_type).toBe("date");
+		const output = exportedBody(doc);
+		expect(
+			(output.modules as Modules)[1].forms[0].actions.update_case.update,
+		).toMatchObject({
+			status_note: { question_path: "/data/status_note" },
+			"parent/visit_day": { question_path: "/data/status_note" },
+		});
+	});
+
+	it("withholds the split when the only Date destination is the parent", async () => {
+		const result = await read(parentWrite("visit_day", false));
+		if (result.kind !== "read")
+			throw new Error(JSON.stringify(result.findings));
+		const declaration = result.draft.declaration;
+		if (declaration.kind !== "choices")
+			throw new Error("The source can still run on Android");
+		expect(
+			declaration.choices.map(({ runsOnlyOn, split }) => ({
+				runsOnlyOn,
+				split,
+			})),
+		).toEqual([{ runsOnlyOn: "android", split: false }]);
+	});
+
+	it("holds a parent day and an own-case moment for the same destination apart", async () => {
+		const result = await read(parentWrite("seen_at"));
+		expect(
+			result.kind === "account"
+				? result.findings.map((finding) => finding.code)
+				: [],
+		).toContain(`${F}/any-other-mixed-writer-pair`);
+	});
 });

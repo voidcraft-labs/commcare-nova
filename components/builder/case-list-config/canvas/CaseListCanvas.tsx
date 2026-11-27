@@ -13,6 +13,7 @@
 "use client";
 
 import { ContentFrame } from "@/components/builder/ContentFrame";
+import { useCaseSelectionMaximumOffer } from "@/lib/doc/hooks/useCaseListSummary";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import type {
 	CaseListConfig,
@@ -49,6 +50,7 @@ import {
 	CaseAvailabilityComposer,
 	type CaseAvailabilityComposerProps,
 } from "./CaseAvailabilityComposer";
+import { CaseListDeviceLookupSetting } from "./CaseListDeviceLookupSetting";
 import {
 	CaseListWordingSetting,
 	type CaseListWordingSlot,
@@ -59,6 +61,7 @@ import {
 	AddInformationControl,
 	DisplayFieldComposer,
 } from "./DisplayFieldComposer";
+import { MenuRecordTypes } from "./MenuRecordTypes";
 import { ParentCaseSelectionSetting } from "./ParentCaseSelectionSetting";
 import { RegisterFromListSetting } from "./RegisterFromListSetting";
 
@@ -118,6 +121,9 @@ export interface CaseListCanvasProps {
 		next: CaseSelection | undefined,
 		origin?: HTMLElement,
 	) => void;
+	readonly onDeviceLookupChange: (
+		next: CaseListConfig["deviceLookup"] | null,
+	) => CommitOutcome;
 	readonly onWordingChange: (
 		slot: CaseListWordingSlot,
 		next: string | null,
@@ -160,8 +166,10 @@ export function CaseListCanvas({
 	onTileGroupingChange,
 	onCaseSelectionChange,
 	onWordingChange,
+	onDeviceLookupChange,
 }: CaseListCanvasProps) {
 	const canEdit = useCanEdit();
+	const maximum = useCaseSelectionMaximumOffer(moduleUuid);
 	const platforms = useDeclaredPlatforms();
 	const severalCasesRefusal = platformRefusal("several-cases", platforms);
 	const severalRefusal =
@@ -198,9 +206,11 @@ export function CaseListCanvas({
 				</header>
 
 				<div className="space-y-10">
+					<MenuRecordTypes moduleUuid={moduleUuid} />
 					<ParentCaseSelectionSetting moduleUuid={moduleUuid} />
 					<CaseSelectionSetting
 						value={config.selection}
+						maximumAllowed={maximum}
 						canEdit={canEdit}
 						severalRefusal={severalRefusal}
 						onChange={onCaseSelectionChange}
@@ -211,6 +221,21 @@ export function CaseListCanvas({
 						several={config.selection?.kind === "multiple"}
 						canEdit={canEdit}
 						onChange={onWordingChange}
+					/>
+					<CaseListDeviceLookupSetting
+						key={moduleUuid}
+						moduleUuid={moduleUuid}
+						disabled={caseType === undefined || tile?.namedSlots !== undefined}
+						value={config.deviceLookup}
+						allowConfidence={tile === undefined}
+						allowResultProperty={!config.additionalCaseTypes?.length}
+						caseProperties={
+							config.additionalCaseTypes?.length
+								? []
+								: (caseType?.properties ?? [])
+						}
+						canEdit={canEdit}
+						onChange={onDeviceLookupChange}
 					/>
 					{caseType !== undefined && (
 						<RegisterFromListSetting moduleUuid={moduleUuid} />

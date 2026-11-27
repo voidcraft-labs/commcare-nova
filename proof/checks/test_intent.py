@@ -1225,10 +1225,9 @@ def test_the_restore_an_expectation_names_is_read_and_declared(tmp_path, core_ru
         ({"export": "C"}, "export is local, A or B"),
         ({"request": {"appHandle": "x"}}, "which Core's evaluate does not take"),
         ({"expect": [{"pointer": "constraints", "value": 1}]}, "a JSON Pointer each"),
-        ({"request": {"caseList": {}}, "export": "A"}, "only the local export is one here"),
         ({"surprise": 1}, "which no expectation reads"),
     ],
-    ids=["unknown-export", "unknown-request-key", "relative-pointer", "case-list-on-hq", "unknown-key"],
+    ids=["unknown-export", "unknown-request-key", "relative-pointer", "unknown-key"],
 )
 def test_an_expectation_the_check_cannot_run_is_refused(tmp_path, core_runner, change, refusal):
     accepted = _targeted(tmp_path / "accepted", b'constraint=". &gt; 10"', EXPECTED)
@@ -1310,8 +1309,8 @@ def _intent_hooks_alone(monkeypatch):
 
 
 def test_each_expectation_runs_where_its_export_is_under_its_configuration(tmp_path, hq, core_runner, monkeypatch):
-    """Expectations at A under minimum, at B under maximum, and on the local archive's case list each run there
-    and nowhere else (one run under another configuration, or at B-edit, would land in that part's record), and
+    """Expectations at A under minimum, at B under maximum, and on the local archive each run there and nowhere
+    else. Case lists run in each export's installed suite (one run under another configuration, or at B-edit, would land in that part's record), and
     the judge reads each where it ran: the ones that hold give nothing, the one fixed otherwise gives its value,
     a form a build of A does not hold is a refusal naming that cause, and a build of nothing is the bar's to
     explain."""
@@ -1337,6 +1336,21 @@ def test_each_expectation_runs_where_its_export_is_under_its_configuration(tmp_p
             "expect": [{"pointer": "/values/0/value", "value": "5"}],
         },
         {
+            "id": "case-list-at-a",
+            "export": "A",
+            "form": followup,
+            "request": {"session": {"command": f"m{m}-f{f}"}, "caseList": {}},
+            "expect": [{"pointer": "/caseList/datum", "value": "case_id"}],
+        },
+        {
+            "id": "case-list-at-b",
+            "export": "B",
+            "configuration": "maximum",
+            "form": followup,
+            "request": {"session": {"command": f"m{m}-f{f}"}, "caseList": {}},
+            "expect": [{"pointer": "/caseList/detail", "value": f"m{m}_case_short"}],
+        },
+        {
             "id": "case-list",
             "export": "local",
             "form": followup,
@@ -1359,7 +1373,10 @@ def test_each_expectation_runs_where_its_export_is_under_its_configuration(tmp_p
         for name, held in records.configurations.items()
         for part in ("a", "b", "b_edit")
     }
-    assert {part: ids for part, ids in ran.items() if ids} == {"minimum/a": ["sum-at-a"], "maximum/b": ["sum-at-b"]}
+    assert {part: ids for part, ids in ran.items() if ids} == {
+        "minimum/a": ["case-list-at-a", "sum-at-a"],
+        "maximum/b": ["case-list-at-b", "sum-at-b"],
+    }
     assert sorted(records.local["hooks"]["intent"]["evaluations"]) == ["case-list"]
     changed = ("evaluate:sum-at-b@B", "/values/*/value", "/values/0/value", "changed", "5", "4")
     assert _found(intent.value_differences(document, records)) == [changed]

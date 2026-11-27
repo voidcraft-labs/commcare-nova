@@ -32,6 +32,7 @@ import {
 	type ExpressionContext,
 	slotContext,
 } from "@/lib/domain/expression/context";
+import { readsSearchRequiredCaseQuery } from "@/lib/domain/expression/ruleSets";
 import type {
 	Expression,
 	ModuleExpressionSlotRef,
@@ -39,7 +40,7 @@ import type {
 } from "@/lib/domain/expression/types";
 import type { Uuid } from "@/lib/domain/uuid";
 import { toBoolean, xpathToString } from "@/lib/preview/xpath/coerce";
-import { evaluateTextInDeviceZone } from "@/lib/preview/xpath/coreDays";
+import { evaluateInDeviceZone } from "@/lib/preview/xpath/coreDays";
 import { evaluate, evaluateRuntime } from "@/lib/preview/xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "@/lib/preview/xpath/generatedJavaRosaFunctions";
 import type { XPathInstance } from "@/lib/preview/xpath/runtimeValues";
@@ -137,6 +138,16 @@ export function searchScreenWorkerInstances(
  * suite fixture ids. */
 function printSearchScreenTree(wire: WireExpr): string {
 	return serializeWire(wire, { target: "preview" }).text;
+}
+
+export function searchRequirementsReadRestoredCases(
+	inputs: readonly SearchInputDef[],
+): boolean {
+	return inputs.some((input) => {
+		const condition =
+			input.kind === "hidden" ? undefined : input.required?.when;
+		return condition !== undefined && readsSearchRequiredCaseQuery(condition);
+	});
 }
 
 function searchScreenTree(
@@ -261,6 +272,13 @@ export function emitPreviewSearchPredicate(
 ): SearchScreenXPath {
 	const lookupData = environment.lookup;
 	const listAction = types.slot.slot === "case_list_action_condition";
+	const beforeSearch = types.slot.slot === "search_button_display_condition";
+	const requiredCases =
+		types.slot.slot === "search_input_required_when" &&
+		environment.caseDatabase != null &&
+		readsSearchRequiredCaseQuery(predicate)
+			? environment.caseDatabase
+			: undefined;
 	return {
 		source: printSearchScreenTree(
 			searchScreenTree(
@@ -273,31 +291,36 @@ export function emitPreviewSearchPredicate(
 					: undefined,
 			),
 		),
-		instances: listAction
-			? secondaryXPathInstances({
-					session,
-					lookupData: lookupData ?? null,
-					sessionData: environment.sessionData,
-					caseDatabase: environment.caseDatabase ?? null,
-					caseTypes: environment.doc.caseTypes ?? [],
-					includeFixtureAliases: true,
-				})
-			: searchScreenXPathInstances({
-					session,
-					answers: searchInputInstanceValues(
-						searchInputs,
-						withSeededHiddenValues(
+		instances:
+			listAction || beforeSearch
+				? secondaryXPathInstances({
+						session,
+						lookupData: lookupData ?? null,
+						sessionData: environment.sessionData,
+						caseDatabase: environment.caseDatabase ?? null,
+						caseTypes: environment.doc.caseTypes ?? [],
+						includeFixtureAliases: true,
+					})
+				: searchScreenXPathInstances({
+						session,
+						answers: searchInputInstanceValues(
 							searchInputs,
-							inputValues,
-							session,
-							environment,
+							withSeededHiddenValues(
+								searchInputs,
+								inputValues,
+								session,
+								environment,
+							),
 						),
-					),
-					...(lookupData === undefined ? {} : { lookupData }),
-					...(environment.sessionData === undefined
-						? {}
-						: { sessionData: environment.sessionData }),
-				}),
+						...(lookupData === undefined ? {} : { lookupData }),
+						...(requiredCases !== undefined && {
+							caseDatabase: requiredCases,
+							caseTypes: environment.doc.caseTypes ?? [],
+						}),
+						...(environment.sessionData === undefined
+							? {}
+							: { sessionData: environment.sessionData }),
+					}),
 	};
 }
 
@@ -437,7 +460,7 @@ export function resolveSearchInputDefaults(
 			),
 		);
 		const context = evaluation;
-		const value = evaluateTextInDeviceZone(deviceTimeZone, () =>
+		const value = evaluateInDeviceZone(deviceTimeZone, () =>
 			xpathToString(evaluate(xpath, context)),
 		);
 		if (input.kind !== "hidden" && input.type === "date-range") {
@@ -509,6 +532,22 @@ export function resolveSearchInputChoices(
 	session: PreviewSearchSessionValues,
 	environment: PreviewSearchEnvironment,
 ): readonly LookupChoice[] | undefined {
+	if (input.options.kind === "restored-case-names") {
+		const { caseType } = input.options;
+		return environment.caseDatabase?.rows
+			.filter(
+				(row) =>
+					row.case_type === caseType && (row.status ?? "open") === "open",
+			)
+			.map((row) => ({
+				key: row.case_id,
+				value: row.case_name ?? "",
+				label: row.case_name ?? "",
+			}))
+			.sort((left, right) =>
+				left.label < right.label ? -1 : left.label > right.label ? 1 : 0,
+			);
+	}
 	const lookupData = environment.lookup;
 	const sortColumnId = searchInputLookupSortColumnId(input.options);
 	if (

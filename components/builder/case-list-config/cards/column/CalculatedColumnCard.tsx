@@ -28,8 +28,24 @@ import {
 import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { Button } from "@/components/shadcn/button";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
+import { deepEqual } from "@/lib/doc/deepEqual";
+import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
+import { useModule } from "@/lib/doc/hooks/useEntity";
 import type { Column } from "@/lib/domain";
-import { type Expression, walkExpressionNodes } from "@/lib/domain/expression";
+import {
+	type Expression,
+	literal,
+	term,
+	walkExpressionNodes,
+} from "@/lib/domain/expression";
+import { resolveSearchResultDetailText } from "@/lib/domain/searchResultDetail";
 import { asUuid } from "@/lib/domain/uuid";
 import type { ColumnEditContext } from "../../columnEditorSchemas";
 
@@ -54,11 +70,52 @@ export function CalculatedColumnCard({
 	onChange,
 	ctx,
 }: CalculatedColumnCardProps) {
+	const appSettings = useAppSettings();
+	const module = useModule(ctx.moduleUuid);
+	const searchResult = value.searchResultDetail;
+	const searchPrompt =
+		searchResult && "inputUuid" in searchResult ? searchResult : undefined;
+	const onList =
+		value.visibleInDetail === false && value.visibleInList !== false;
+	const resultText =
+		searchResult && "text" in searchResult ? searchResult.text : undefined;
+	const detailColumn =
+		value.visibleInList === false
+			? { ...value, notOnList: true as const }
+			: value;
+	const offered = (module?.caseListConfig?.searchInputs ?? []).filter(
+		(prompt) =>
+			module &&
+			resolveSearchResultDetailText({ appSettings }, module, detailColumn, {
+				inputUuid: prompt.uuid,
+				prefix: searchPrompt?.prefix ?? "",
+				suffix: searchPrompt?.suffix ?? "",
+				...(onList && { onList: true }),
+			}),
+	);
+	const canSetResultText =
+		module &&
+		resolveSearchResultDetailText({ appSettings }, module, detailColumn, {
+			text: resultText ?? "",
+		}) !== undefined;
+	const selectedPrompt = offered.find(
+		(prompt) => prompt.uuid === searchPrompt?.inputUuid,
+	);
+	const localText =
+		value.expression.kind === "term" &&
+		value.expression.term.kind === "literal" &&
+		typeof value.expression.term.value === "string"
+			? value.expression.term.value
+			: undefined;
 	const usesDefaultHeader = value.header.trim() === "";
 	const setHeader = (header: string) => onChange({ ...value, header });
+	const { inlineResultProperty: _inlineResultProperty, ...ordinary } = value;
 	const setExpression = (expression: Expression) =>
-		onChange({ ...value, expression });
-	const { showAs, texts, ...plain } = value;
+		onChange({
+			...(deepEqual(expression, value.expression) ? value : ordinary),
+			expression,
+		});
+	const { showAs, texts, ...plain } = ordinary;
 	const used = new Set<string>();
 	walkExpressionNodes(value.expression, (node) => {
 		if (node.kind === "case-text") used.add(node.textUuid);
@@ -67,7 +124,7 @@ export function CalculatedColumnCard({
 
 	return (
 		<div className="space-y-4">
-			{pieces.length === 0 && (
+			{pieces.length === 0 && searchResult === undefined && (
 				<SegmentedRow
 					legend="Show as"
 					options={[
@@ -80,7 +137,7 @@ export function CalculatedColumnCard({
 						if (mode === "translated") onChange({ ...plain, texts: [] });
 						else if (mode === "formatted-text")
 							onChange({ ...plain, showAs: mode });
-						else onChange(plain);
+						else onChange(value.inlineResultProperty ? value : plain);
 					}}
 				/>
 			)}
@@ -151,27 +208,129 @@ export function CalculatedColumnCard({
 					</Button>
 				</div>
 			)}
-			<div className="space-y-3 rounded-lg border border-white/[0.04] bg-nova-deep/30 p-3.5">
-				<div className={INSPECTOR_LABEL_CLS}>Calculation</div>
-				{ctx.moduleUuid === undefined ? (
-					<p role="status">This field is no longer available.</p>
-				) : (
-					<ExpressionSlotEditor
-						slot={{
-							entity: "module",
-							uuid: ctx.moduleUuid,
-							slot: "case_list_column_expression",
-							member: { columnUuid: value.uuid },
+			{(offered.length > 0 ||
+				canSetResultText ||
+				searchResult !== undefined) && (
+				<div className="space-y-3">
+					<div className={INSPECTOR_LABEL_CLS}>Submitted Search answer</div>
+					<Select
+						value={
+							searchPrompt?.inputUuid ??
+							(resultText === undefined ? "none" : "text")
+						}
+						onValueChange={(inputUuid) => {
+							if (inputUuid === "none") {
+								const { searchResultDetail: _branch, ...ordinary } = value;
+								onChange(ordinary);
+								return;
+							}
+							if (inputUuid === "text") {
+								onChange({
+									...detailColumn,
+									searchResultDetail: { text: resultText ?? "" },
+								});
+								return;
+							}
+							const prompt = offered.find((item) => item.uuid === inputUuid);
+							if (prompt)
+								onChange({
+									...detailColumn,
+									searchResultDetail: {
+										inputUuid: prompt.uuid,
+										prefix: searchPrompt?.prefix ?? "",
+										suffix: searchPrompt?.suffix ?? "",
+										...(onList && { onList: true }),
+									},
+								});
 						}}
-						candidate={{ entity: "column", value }}
-						value={value.expression}
-						onChange={setExpression}
-						caseTypes={ctx.caseTypes}
-						currentCaseType={ctx.currentCaseType}
-						userProperties={ctx.userProperties}
-					/>
-				)}
-			</div>
+					>
+						<SelectTrigger aria-label="Submitted Search answer">
+							<SelectValue>
+								{selectedPrompt?.label ??
+									(resultText === undefined ? "None" : "Fixed text")}
+							</SelectValue>
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="none">None</SelectItem>
+							{canSetResultText && (
+								<SelectItem value="text">Fixed text</SelectItem>
+							)}
+							{offered.map((prompt) => (
+								<SelectItem key={prompt.uuid} value={prompt.uuid}>
+									{prompt.label}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					{searchResult && (
+						<div className="space-y-2">
+							{resultText !== undefined && (
+								<BlurCommitTextInput
+									ariaLabel="Text on Search results"
+									value={resultText}
+									onCommit={(text) =>
+										onChange({ ...value, searchResultDetail: { text } })
+									}
+								/>
+							)}
+							{searchPrompt && (
+								<>
+									<BlurCommitTextInput
+										ariaLabel="Text before the answer"
+										value={searchPrompt.prefix}
+										onCommit={(prefix) =>
+											onChange({
+												...value,
+												searchResultDetail: { ...searchPrompt, prefix },
+											})
+										}
+									/>
+									<BlurCommitTextInput
+										ariaLabel="Text after the answer"
+										value={searchPrompt.suffix}
+										onCommit={(suffix) =>
+											onChange({
+												...value,
+												searchResultDetail: { ...searchPrompt, suffix },
+											})
+										}
+									/>
+								</>
+							)}
+							{!onList && (
+								<BlurCommitTextInput
+									ariaLabel="Text outside Search results"
+									value={localText ?? ""}
+									onCommit={(text) => setExpression(term(literal(text)))}
+								/>
+							)}
+						</div>
+					)}
+				</div>
+			)}
+			{searchResult === undefined && (
+				<div className="space-y-3 rounded-lg border border-white/[0.04] bg-nova-deep/30 p-3.5">
+					<div className={INSPECTOR_LABEL_CLS}>Calculation</div>
+					{ctx.moduleUuid === undefined ? (
+						<p role="status">This field is no longer available.</p>
+					) : (
+						<ExpressionSlotEditor
+							slot={{
+								entity: "module",
+								uuid: ctx.moduleUuid,
+								slot: "case_list_column_expression",
+								member: { columnUuid: value.uuid },
+							}}
+							candidate={{ entity: "column", value }}
+							value={value.expression}
+							onChange={setExpression}
+							caseTypes={ctx.caseTypes}
+							currentCaseType={ctx.currentCaseType}
+							userProperties={ctx.userProperties}
+						/>
+					)}
+				</div>
+			)}
 		</div>
 	);
 }

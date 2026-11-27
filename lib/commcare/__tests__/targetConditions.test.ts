@@ -16,7 +16,10 @@ import { PLAN_FEATURE_FOR_PRIVILEGE } from "../planPrivileges";
 
 describe("target conditions", () => {
 	it("name a capability publish checks and a plan feature it asks to confirm", () => {
-		expect(TARGET_CONDITIONED_FEATURES).toEqual(["address-lookup"]);
+		expect(TARGET_CONDITIONED_FEATURES).toEqual([
+			"address-lookup",
+			"search-address-picker",
+		]);
 		for (const feature of TARGET_CONDITIONED_FEATURES) {
 			const condition = PLATFORM_FEATURES[feature].targetCondition;
 			if (condition === undefined)

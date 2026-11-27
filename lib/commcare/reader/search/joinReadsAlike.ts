@@ -108,6 +108,7 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { normalizeCaseScalarTextValue } from "@/lib/domain/caseScalarText";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import type { Expression, PropertyRef, Term } from "@/lib/domain/expression";
+import { searchSessionTextOrder } from "@/lib/domain/expression/ruleSets";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 
 /** The property types whose comparison with text a device makes as text. */
@@ -259,7 +260,14 @@ function steady(condition: Expression): boolean {
 		case "lte":
 		case "gt":
 		case "gte":
-			return steady(condition.left) && steady(condition.right);
+			return (
+				searchSessionTextOrder(
+					condition.kind,
+					condition.left,
+					condition.right,
+				) ||
+				(steady(condition.left) && steady(condition.right))
+			);
 		default:
 			return false;
 	}

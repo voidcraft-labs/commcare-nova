@@ -19,7 +19,10 @@ import {
 	summarizeConnectScan,
 } from "../lib/connectActivityScan";
 
-const h = setupAppStateTestDb("connect_activity_scan_");
+const h = setupAppStateTestDb("connect_activity_scan_", {
+	authSchema: "migrated",
+	caseStoreMigrationsBefore: "20261209000000_hq_round_trip_complete",
+});
 
 interface ReleasedFixture {
 	readonly name: string;

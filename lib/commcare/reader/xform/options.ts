@@ -1,3 +1,4 @@
+import { availableCasesNodeset } from "../../caseOptions";
 import {
 	bindLookupRead,
 	lookupReadNames,
@@ -13,6 +14,10 @@ import {
 
 import type { Element } from "domhandler";
 import { isTag } from "domhandler";
+import {
+	type AvailableCasesOptionsSource,
+	availableCasePropertyMatchSchema,
+} from "@/lib/domain/fields";
 import { instanceScanRead } from "@/lib/domain/hqInstanceRead";
 import { questionChoiceReadIssue } from "@/lib/domain/lookupRead";
 import { selectOptionValueProblemAmong } from "@/lib/domain/selectOptionValue";
@@ -42,8 +47,11 @@ export interface CaseChoicesProposal {
 	 *  left unclaimed and reported. */
 	readonly label: Element;
 	readonly value: Element;
+	readonly sort?: Element;
+	readonly sortProperty?: string;
 	readonly select: "select1" | "select";
-	readonly caseType: string;
+	readonly caseType?: string;
+	readonly available?: AvailableCasesOptionsSource;
 	readonly labelProperty: string;
 	/** Whether the nodeset holds a filter, registered for the expression stage, which claims
 	 *  the nodeset with it. */
@@ -206,6 +214,70 @@ function instanceChain(node: FormSyntax):
 	}
 	const id = literalInstanceId(at);
 	return id === undefined ? undefined : { id: id.value, steps, predicates };
+}
+
+function ungroupSyntax(node: FormSyntax): FormSyntax {
+	while (node.kind === "group") node = node.value;
+	return node;
+}
+
+/** Core's one-argument position() casts its argument to a nodeset.
+ * A literal number in a direct predicate or comparison is evaluated
+ * for every candidate row. This does not inspect conditional branches. */
+function positionOfNumber(predicate: FormSyntax): boolean {
+	const node = ungroupSyntax(predicate);
+	const directly = (expression: FormSyntax) => {
+		const at = ungroupSyntax(expression);
+		if (at.kind !== "call" || at.name !== "position" || at.args.length !== 1)
+			return false;
+		const argument = ungroupSyntax(at.args[0]);
+		return (
+			argument.kind === "number" ||
+			(argument.kind === "negative" &&
+				ungroupSyntax(argument.value).kind === "number")
+		);
+	};
+	return (
+		directly(node) ||
+		(node.kind === "binary" &&
+			["=", "!=", "<", "<=", ">", ">="].includes(node.op) &&
+			(directly(node.left) || directly(node.right)))
+	);
+}
+
+/** Core's numeric literals and arithmetic both return Double. Keep the
+ * constant subset separate from row-dependent filters and function calls. */
+function constantLookupPosition(syntax: FormSyntax): number | undefined {
+	const node = ungroupSyntax(syntax);
+	if (node.kind === "number") return node.value;
+	if (node.kind !== "binary") return undefined;
+	const left = constantLookupPosition(node.left);
+	const right = constantLookupPosition(node.right);
+	if (left === undefined || right === undefined) return undefined;
+	switch (node.op) {
+		case "+":
+			return left + right;
+		case "-":
+			return left - right;
+		case "*":
+			return left * right;
+		default:
+			return undefined;
+	}
+}
+
+/** Core truncates a finite numeric predicate and saturates to a Java int
+ * before comparing it with the one-based row counter of a declared fixture. */
+function lookupPredicateText(
+	nodeset: string,
+	predicate: FormSyntax,
+	declared: boolean,
+): string {
+	const text = nodeset.slice(predicate.from, predicate.to);
+	if (!declared) return text;
+	const value = constantLookupPosition(predicate);
+	if (value === undefined || !Number.isFinite(value) || value < 0) return text;
+	return `position() = ${Math.min(Math.trunc(value), 2_147_483_647)}`;
 }
 
 /** A ref that is one name step: the column's or the property's name. */
@@ -390,6 +462,17 @@ function readItemset(
 			);
 			return undefined;
 		}
+		const predicate = chain.predicates[0];
+		if (predicate !== undefined && positionOfNumber(predicate)) {
+			input.carrierRead(chain.id);
+			cursor.refuseSubtreeAt(
+				itemset,
+				{ element: itemset, attribute: "nodeset" },
+				X.itemsetScalarPosition[select],
+				place,
+			);
+			return undefined;
+		}
 		const labelSites =
 			typeof labelColumn === "string" ? X.lookupRefs : X.richLookupRefs;
 		const valueSites =
@@ -406,7 +489,6 @@ function readItemset(
 			place,
 		);
 		input.carrierRead(chain.id);
-		const predicate = chain.predicates[0];
 		if (predicate === undefined)
 			cursor.take(
 				{ element: itemset, attribute: "nodeset" },
@@ -415,7 +497,14 @@ function readItemset(
 		else
 			field.expressions.push({
 				slot: "lookup_options_source",
-				text: nodeset.slice(predicate.from, predicate.to),
+				text: lookupPredicateText(
+					nodeset,
+					predicate,
+					parsed.instances.some(
+						({ id, src }) =>
+							id === chain.id && src === `jr://fixture/item-list:${tag}`,
+					),
+				),
 				at: { element: itemset, attribute: "nodeset" },
 				key: one
 					? "xform:select1/itemset@nodeset"
@@ -438,8 +527,14 @@ function readItemset(
 			cursor.take({ element, attribute: "ref" }, siteRef).value;
 		}
 		if (sort !== undefined) {
-			cursor.take({ element: sort }, X.itemsetSort).value;
-			cursor.take({ element: sort, attribute: "ref" }, X.itemsetSort).value;
+			cursor.take(
+				{ element: sort },
+				one ? X.itemsetSort.select1 : X.itemsetSort.select,
+			).value;
+			cursor.take(
+				{ element: sort, attribute: "ref" },
+				one ? X.itemsetSort.select1Ref : X.itemsetSort.selectRef,
+			).value;
 		}
 		field.field.optionsSource = {
 			kind: "lookup",
@@ -456,17 +551,47 @@ function readItemset(
 		runtime.ok &&
 		bound?.kind === "native" &&
 		bound.id === "casedb" &&
-		sort === undefined &&
 		chain.steps.length === 2 &&
 		chain.steps[0] === "casedb" &&
 		chain.steps[1] === "case" &&
-		chain.predicates.length >= 1 &&
 		chain.predicates.length <= 2 &&
 		singleAttribute(valueRef) === "case_id"
 	) {
+		const available = availableCaseFilters(chain.predicates);
+		if (
+			available !== undefined &&
+			sameTree(nodeset, availableCasesNodeset(available))
+		) {
+			if (
+				select !== "select1" ||
+				sort !== undefined ||
+				singleName(labelRef) !== "case_name"
+			)
+				return other();
+			field.field.optionsSource = available;
+			return {
+				itemset,
+				label,
+				value,
+				select,
+				labelProperty: "case_name",
+				available,
+				filtered: false,
+			};
+		}
 		const caseType = caseTypeTest(chain.predicates[0] as FormSyntax);
 		const labelProperty = singleName(labelRef) ?? singleAttribute(labelRef);
 		if (caseType === undefined || labelProperty === undefined) return other();
+		const sortProperty =
+			sortRef === undefined
+				? undefined
+				: (singleName(sortRef) ?? singleAttribute(sortRef));
+		if (
+			sortRef !== undefined &&
+			(sortProperty === undefined ||
+				!sameTree(sortRef, w.context([casePropertyStep(sortProperty)])))
+		)
+			return other();
 		const filter = chain.predicates[1];
 		if (filter !== undefined)
 			field.expressions.push({
@@ -479,7 +604,12 @@ function readItemset(
 						: "xform:select/itemset@nodeset",
 				mode: { target: "xform", constraint: false },
 			});
-		field.field.optionsSource = { kind: "cases", caseType, labelProperty };
+		field.field.optionsSource = {
+			kind: "cases",
+			caseType,
+			labelProperty,
+			...(sortProperty !== undefined && { sortProperty }),
+		};
 		return {
 			itemset,
 			label,
@@ -487,10 +617,69 @@ function readItemset(
 			select,
 			caseType,
 			labelProperty,
+			...(sort === undefined ? {} : { sort }),
+			...(sortProperty === undefined ? {} : { sortProperty }),
 			filtered: filter !== undefined,
 		};
 	}
 	return other();
+}
+
+function availableCaseTextEquality(predicate: FormSyntax) {
+	while (predicate.kind === "group") predicate = predicate.value;
+	if (
+		predicate.kind !== "binary" ||
+		predicate.op !== "=" ||
+		predicate.left.kind !== "name" ||
+		predicate.left.wildcard ||
+		predicate.right.kind !== "string"
+	)
+		return undefined;
+	return { property: predicate.left.name, text: predicate.right.value };
+}
+
+function availableCaseFilters(
+	predicates: readonly FormSyntax[],
+): AvailableCasesOptionsSource | undefined {
+	const source: AvailableCasesOptionsSource = { kind: "available-cases" };
+	for (let predicate of predicates) {
+		while (predicate.kind === "group") predicate = predicate.value;
+		if (
+			predicate.kind === "binary" &&
+			predicate.op === "=" &&
+			predicate.left.kind === "axis" &&
+			predicate.left.axis === "attribute" &&
+			predicate.left.value.kind === "name" &&
+			predicate.left.value.name === "status" &&
+			predicate.right.kind === "string" &&
+			(predicate.right.value === "open" ||
+				predicate.right.value === "closed") &&
+			source.status === undefined
+		) {
+			source.status = predicate.right.value;
+			continue;
+		}
+		if (source.propertyMatch !== undefined) return undefined;
+		const either =
+			predicate.kind === "binary" && predicate.op === "or"
+				? predicate
+				: undefined;
+		const first = availableCaseTextEquality(either?.left ?? predicate);
+		const other = either && availableCaseTextEquality(either.right);
+		if (!first || (either && !other)) return undefined;
+		const match = availableCasePropertyMatchSchema.safeParse({
+			...first,
+			...(other && {
+				alternateText: other.text,
+				...(other.property !== first.property && {
+					alternateProperty: other.property,
+				}),
+			}),
+		});
+		if (!match.success) return undefined;
+		source.propertyMatch = match.data;
+	}
+	return source;
 }
 
 /** `@case_type = '<type>'`, the first predicate Nova writes on a case choices itemset. */
@@ -522,7 +711,7 @@ export function settleCaseChoices(
 	same: boolean,
 	filtered: boolean,
 ): void {
-	const { itemset, select, label, value } = proposal;
+	const { itemset, select, label, value, sort } = proposal;
 	// The label ref Nova writes for the property: an attribute for a case's own attributes, a
 	// child step for every other property (`builder.ts::buildFieldParts`). A source label that
 	// reads the other node of the same name is no case choices of Nova's.
@@ -545,5 +734,15 @@ export function settleCaseChoices(
 	for (const part of [label, value]) {
 		cursor.take({ element: part }, element).value;
 		cursor.take({ element: part, attribute: "ref" }, element).value;
+	}
+	if (sort !== undefined) {
+		cursor.take(
+			{ element: sort },
+			one ? X.itemsetSort.select1 : X.itemsetSort.select,
+		).value;
+		cursor.take(
+			{ element: sort, attribute: "ref" },
+			one ? X.itemsetSort.select1Ref : X.itemsetSort.selectRef,
+		).value;
 	}
 }

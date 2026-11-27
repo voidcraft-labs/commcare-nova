@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import AdmZip from "adm-zip";
+import { testUuid } from "../../../__tests__/helpers/uuid";
 import {
 	buildDoc,
 	caseListConfig,
@@ -58,12 +59,16 @@ mkdirSync(output, { recursive: true });
  *   (`EXPECTED_REFUSALS`): any other finding still stops the producer.
  * - `query-hidden-row-same-answer`: the same transition made by editing a
  *   single question from yes to no.
+ * - Both histories also run with the controls still at the start of the
+ *   form and their answers stored under a group after the repeats.
  */
 const QUERY_REPEAT_SCENARIOS = [
 	"query-follows",
 	"query-nested-gated",
 	"query-hidden-row",
 	"query-hidden-row-same-answer",
+	"query-hidden-row-relocated",
+	"query-hidden-row-relocated-same-answer",
 ] as const;
 type QueryRepeatScenario = (typeof QUERY_REPEAT_SCENARIOS)[number];
 
@@ -80,11 +85,12 @@ const queryRepeat = (id: string, idsQuery: string, children: FieldSpec[]) =>
 	});
 
 function queryRepeatDoc(scenario: QueryRepeatScenario): BlueprintDoc {
-	if (
-		scenario === "query-hidden-row" ||
-		scenario === "query-hidden-row-same-answer"
-	) {
-		const sameAnswer = scenario === "query-hidden-row-same-answer";
+	if (scenario.startsWith("query-hidden-row")) {
+		const relocated = scenario.includes("-relocated");
+		const sameAnswer = scenario.endsWith("-same-answer");
+		const group = testUuid("query-hidden-row-data-group");
+		const first = testUuid("query-hidden-row-first");
+		const laterField = testUuid("query-hidden-row-later");
 		const later = sameAnswer ? "#form/first = 'no'" : "#form/later = 'yes'";
 		const hiding = (id: string, extra: Partial<FieldSpec> = {}) =>
 			f({
@@ -99,7 +105,7 @@ function queryRepeatDoc(scenario: QueryRepeatScenario): BlueprintDoc {
 					f({ kind: "hidden", id: "record", calculate: "current()/../@id" }),
 				],
 			} as FieldSpec);
-		return buildDoc({
+		const doc = buildDoc({
 			appName: `Containers ${scenario}`,
 			modules: [
 				{
@@ -109,16 +115,33 @@ function queryRepeatDoc(scenario: QueryRepeatScenario): BlueprintDoc {
 							name: "F",
 							type: "survey",
 							fields: [
-								text("first", { default_value: "'yes'" }),
-								...(sameAnswer ? [] : [text("later")]),
+								text("first", { uuid: first, default_value: "'yes'" }),
+								...(sameAnswer ? [] : [text("later", { uuid: laterField })]),
 								hiding("held", { placement: "model-iteration" }),
 								hiding("counted"),
+								...(relocated
+									? [
+											f({
+												kind: "group",
+												id: "receiving",
+												uuid: group,
+												label: proseText("Saved answers"),
+												children: [text("place")],
+											}),
+										]
+									: []),
 							],
 						},
 					],
 				},
 			],
 		});
+		if (relocated) {
+			doc.fields[first].submissionPlacement = { parent: group };
+			if (!sameAnswer)
+				doc.fields[laterField].submissionPlacement = { parent: group };
+		}
+		return doc;
 	}
 	if (scenario === "query-follows") {
 		const nameWriter = (caseType: string) =>
@@ -234,6 +257,8 @@ const COUNT_PLACED: Record<QueryRepeatScenario, readonly string[]> = {
 	"query-nested-gated": ["/data/page/sites", "/data/page/sites/item/plots"],
 	"query-hidden-row": ["/data/counted"],
 	"query-hidden-row-same-answer": ["/data/counted"],
+	"query-hidden-row-relocated": ["/data/counted"],
+	"query-hidden-row-relocated-same-answer": ["/data/counted"],
 };
 
 /** The query repeats a scenario holds in model iteration: the setvalue that
@@ -243,6 +268,8 @@ const MODEL_ITERATED: Record<QueryRepeatScenario, readonly string[]> = {
 	"query-nested-gated": [],
 	"query-hidden-row": ["/data/held"],
 	"query-hidden-row-same-answer": ["/data/held"],
+	"query-hidden-row-relocated": ["/data/held"],
+	"query-hidden-row-relocated-same-answer": ["/data/held"],
 };
 
 /** The refusals a scenario emits on purpose, as `code` at the question
@@ -255,6 +282,12 @@ const EXPECTED_REFUSALS: Record<
 		{ code: "QUERY_REPEAT_MODEL_ITERATION_SHAPE", fieldId: "held" },
 	],
 	"query-hidden-row-same-answer": [
+		{ code: "QUERY_REPEAT_MODEL_ITERATION_SHAPE", fieldId: "held" },
+	],
+	"query-hidden-row-relocated": [
+		{ code: "QUERY_REPEAT_MODEL_ITERATION_SHAPE", fieldId: "held" },
+	],
+	"query-hidden-row-relocated-same-answer": [
 		{ code: "QUERY_REPEAT_MODEL_ITERATION_SHAPE", fieldId: "held" },
 	],
 };

@@ -42,6 +42,7 @@ export function knownCaseTypesOf(doc: BlueprintDoc): ReaderKnownCaseTypes {
 		}
 	}
 	const declared = new Map<string, CasePropertyDataType>();
+	const types = new Set(doc.caseTypes?.map((type) => type.name));
 	for (const type of doc.caseTypes ?? [])
 		for (const property of type.properties)
 			if (property.data_type !== undefined)
@@ -50,6 +51,7 @@ export function knownCaseTypesOf(doc: BlueprintDoc): ReaderKnownCaseTypes {
 					property.data_type,
 				);
 	return {
+		hasType: (caseType) => types.has(caseType),
 		declaredTypeOf: (caseType, property) =>
 			declared.get(JSON.stringify([caseType, property])),
 		relationsOf: (caseType) => graph.edges(caseType),

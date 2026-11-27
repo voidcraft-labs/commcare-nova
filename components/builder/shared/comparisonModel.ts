@@ -1,9 +1,14 @@
 import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
+	type ComparisonKind,
 	comparisonObjectConstraint,
 	type Expression,
 	term,
 } from "@/lib/domain/expression";
+import {
+	searchChoiceColumnOrder,
+	searchSessionTextOrder,
+} from "@/lib/domain/expression/ruleSets";
 import { KIND_BUILDERS } from "./cards/comparisonSeed";
 import {
 	reseedValueForConstraint,
@@ -27,6 +32,23 @@ export function possibleRowCaseTypes(
  * value is a case type picked from the catalog. */
 export function comparesCaseType(left: Expression): boolean {
 	return left.kind === "term" && left.term.kind === "case-row-type";
+}
+
+export function comparesNumericallyOrderedSearchText(
+	ctx: PredicateEditContext,
+	kind: ComparisonKind,
+	left: Expression | undefined,
+	right: Expression | undefined,
+): boolean {
+	if (left === undefined || right === undefined) return false;
+	if (ctx.expressionContext.profile.searchTextDefault === true)
+		return searchSessionTextOrder(kind, left, right);
+	return (
+		ctx.expressionContext.slot.slot === "search_input_options" &&
+		searchChoiceColumnOrder(kind, left, right) &&
+		resolveExpressionType(left, ctx) === "text" &&
+		resolveExpressionType(right, ctx) === "text"
+	);
 }
 
 /** The comparison's value retargeted at a new subject, when it is a choice
@@ -59,6 +81,8 @@ export function replaceComparisonSubject(
 	ctx: PredicateEditContext,
 ): Expression {
 	const builder = KIND_BUILDERS[value.kind];
+	if (comparesNumericallyOrderedSearchText(ctx, value.kind, left, value.right))
+		return builder(left, value.right);
 	// "Case type" compares with a case type of the app: a value that names
 	// none, such as a blank literal, is refused, so the value moves with it.
 	if (comparesCaseType(left)) {

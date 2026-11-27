@@ -73,7 +73,7 @@
 	},
 	"expressions-and-data/fields-is-indexed": {
 		"reason": "not-in-app-source",
-		"note": "Every key is of a lookup family, which no app's source holds; no API-key read shows whether a field is indexed, and lib/commcare/__tests__/hqLookupRestore.test.ts reads the indexed fields from a verified global restore's schema."
+		"note": "Every key belongs to the lookup family outside an app's source. The API-key read leaves the flag unobserved. proof/hq/test_indexed_lookup.py checks the native workbook, storage, restore, and installed search, and lib/lookup/__tests__/generations.postgres.test.ts checks the flag learned in a verified ownership transfer."
 	},
 	"expressions-and-data/image-svg": {
 		"reason": "hq-never-serves-the-value",
@@ -81,7 +81,7 @@
 	},
 	"expressions-and-data/is-global-false-row-owners-user-group-location": {
 		"reason": "not-in-app-source",
-		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+		"note": "Ownership lives in HQ's fixture tables. proof/hq/test_lookup_upload.py uses HQ’s workbook importer over direct user, group and primary-location-ancestor assignments. proof/hq/test_assigned_lookup_runtime.py checks worker choices after an owner-only edit and distinguishes a missing fixture, an empty assigned fixture and a filter with no matches. The retained hq-assigned-lookups base includes a Nova wording edit and exact worker choices for proofs 1 to 6. proof/webapps/test_assigned_lookup.py checks signed workers after reassignment on both installed platforms."
 	},
 	"expressions-and-data/is-synced-last-modified": {
 		"reason": "not-in-app-source",
@@ -117,7 +117,7 @@
 	},
 	"expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64": {
 		"reason": "not-in-app-source",
-		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
+		"note": "Lookup values live outside app source. proof/hq/test_lookup_upload.py checks the exact workbook row limit through HQ’s workbook reader. lib/export/__tests__/boundaryValidation.test.ts checks Nova’s aggregate archive row limit across inline and paged fixtures."
 	},
 	"expressions-and-data/tag-containing-casedb-or-ledgerdb": {
 		"reason": "not-in-app-source",
@@ -142,10 +142,6 @@
 	"expressions-and-data/tag-or-field-name-with-non-ascii-letters-or-starting-xml-in-any": {
 		"reason": "not-in-app-source",
 		"note": "Every key is of a lookup family, which no app's source holds; lib/deployment/reading/projectData/__tests__/lookupTables.test.ts reads CommCare HQ's retained lookup answers."
-	},
-	"forms-and-case-writes/a-datetime-question-saved-straight-to-a-case": {
-		"reason": "no-surface-key",
-		"note": "The entry names no surface key, and it allows what it describes."
 	},
 	"forms-and-case-writes/a-now-hidden-value-saved-straight-to-a-case": {
 		"reason": "no-surface-key",
@@ -247,10 +243,6 @@
 		"reason": "only-in-a-build",
 		"note": "Every key is parser:, which a runtime reads from a build and no app source holds."
 	},
-	"menus-and-case-lists/lookup-autolaunch": {
-		"reason": "stated-by-its-part",
-		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
-	},
 	"menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template": {
 		"reason": "stated-by-its-part",
 		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
@@ -261,19 +253,7 @@
 	},
 	"menus-and-case-lists/lookup-extras-key-value": {
 		"reason": "stated-by-its-part",
-		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
-	},
-	"menus-and-case-lists/lookup-image-jr": {
-		"reason": "stated-by-its-part",
-		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
-	},
-	"menus-and-case-lists/lookup-name": {
-		"reason": "stated-by-its-part",
-		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
-	},
-	"menus-and-case-lists/lookup-responses-key": {
-		"reason": "stated-by-its-part",
-		"note": "Part 07 decided it (its section 11.1): a callout is one finding under its decisive cause, and this key stands under that finding, never as one of its own."
+		"note": "Part 07, Case list callout (C5), accounts for the held unspaced calculation in hq-case-lists/callout-with-unspaced-integer-sum under lookup-enabled-lookup-action. Relative names, fixed text, worker account values and explicitly evaluated arguments have separate retained variants."
 	},
 	"menus-and-case-lists/unknown-module-doc-type": {
 		"reason": "hq-never-serves-the-value",

@@ -17,6 +17,7 @@ import { slotContext } from "@/lib/domain/expression/context";
 import type { CaseQueryReading } from "@/lib/domain/expression/temporalType";
 import { lookupReadTypes } from "@/lib/domain/lookupRead";
 import { projectProseTemplate } from "@/lib/domain/prose";
+import { searchResultDetailColumns } from "@/lib/domain/searchResultDetail";
 import { caseColumnLabel } from "../caseColumnLabel";
 import { ordinaryCaseResultCell } from "../caseMap";
 import { parentCaseConstraint } from "../caseSelectionNavigation";
@@ -33,6 +34,10 @@ import {
 	previewCaseStoreBindings,
 	withSearchInputExpressionValues,
 } from "../engine/runtimeBindings";
+import {
+	searchResultDetailProjection,
+	submittedSearchResultDetailAnswers,
+} from "../engine/searchResultDetailProjection";
 import { recordsReadSearch, searchedReading } from "../engine/serverSearchRead";
 import {
 	columnOutputWording,
@@ -45,7 +50,11 @@ import {
 } from "../menuProjection";
 import { previewPinnedCaseTile } from "../pinnedCaseTile";
 import { previewPlatformRules } from "../platform";
-import { projectWorkerColumn, projectWorkerModule } from "../workerModule";
+import {
+	projectWorkerColumn,
+	projectWorkerModule,
+	workerDetailTabTitle,
+} from "../workerModule";
 import type { AppTestContext } from "./context";
 import { readingSurface } from "./dataRefusal";
 import { AppTestActionError } from "./errors";
@@ -77,7 +86,7 @@ export async function appTestDetails(
 		throw new AppTestActionError("Select the required parent record first.");
 	const searched = recordsReadSearch(mod, screen.source);
 	const reading = searchedReading(searched);
-	const result = await readDisplayRow(
+	const storedRow = await readDisplayRow(
 		context,
 		scope,
 		mod.uuid,
@@ -86,6 +95,39 @@ export async function appTestDetails(
 		screen.source.searchAnswers,
 		parentCaseConstraint(context.doc, screen.moduleUuid, selected.parentCase),
 	);
+	// The server persisted these submitted answers with the exact page the
+	// test selected from. A Search draft cannot enter a Details step.
+	const columns =
+		searched &&
+		screen.source.searchAnswers !== undefined &&
+		previewPlatformRules(context.device.platform).searchResultDetailText
+			? searchResultDetailColumns(
+					context.doc,
+					context.doc.modules[screen.moduleUuid],
+				).filter((column) => !("onList" in column && column.onList))
+			: [];
+	const calculated = searchResultDetailProjection(
+		columns,
+		submittedSearchResultDetailAnswers(
+			columns,
+			new Map(
+				screen.source.searchAnswers?.map(({ name, value }) => [name, value]),
+			),
+			screen.source.searchEntry?.defaultSearch === true,
+			mod.caseListConfig?.searchInputs,
+		),
+	);
+	const result =
+		storedRow.kind === "row" && calculated
+			? {
+					...storedRow,
+					row: {
+						...storedRow.row,
+						calculated: { ...storedRow.row.calculated, ...calculated },
+					},
+				}
+			: storedRow;
+
 	const project = appTestCellProjector(
 		context,
 		screen.moduleUuid,
@@ -97,13 +139,18 @@ export async function appTestDetails(
 		result.kind === "row"
 			? availableDetailTabs(caseListConfig, fields, result.row.calculated)
 			: undefined;
+	const localized = workerLocalizedValues(context.doc, context.language);
 	const active =
 		tabs?.find(({ tab }) => tab.uuid === screen.tabUuid) ?? tabs?.[0];
 	return {
 		result,
 		tabs: tabs?.map(({ tab }) => ({
 			uuid: tab.uuid,
-			title: tab.title,
+			title: workerDetailTabTitle(
+				tab,
+				searched && !moduleFormsReadSearch(mod),
+				localized,
+			),
 			selected: active?.tab.uuid === tab.uuid,
 		})),
 		fields:
@@ -275,6 +322,7 @@ export async function appTestFormCaseContext(
 					detail.row.calculated,
 				)
 			: undefined;
+	const localized = workerLocalizedValues(context.doc, context.language);
 	const active =
 		tabs?.find((span) => span.tab.uuid === screen.contextTabUuid) ?? tabs?.[0];
 	return {
@@ -285,7 +333,7 @@ export async function appTestFormCaseContext(
 			unavailable: detail.kind !== "row",
 			tabs: tabs?.map(({ tab }) => ({
 				uuid: tab.uuid,
-				title: tab.title,
+				title: workerDetailTabTitle(tab, false, localized),
 				selected: tab.uuid === active?.tab.uuid,
 			})),
 			fields:

@@ -362,10 +362,12 @@ describe("proof corpus edit batches", () => {
 	let outcomes: readonly EditBatchOutcome[];
 	let census: EditCensus;
 
+	// Setup admits each edit through the commit gate. It runs beside the
+	// compiler fuzz suites on the same shard and crosses the default hook budget.
 	beforeAll(() => {
 		corpus = { fixed: fixedDocuments(), sampled: sampledDocuments() };
 		({ outcomes, census } = editBatchCorpus(corpus, SEED));
-	});
+	}, 120_000);
 
 	// One commit verdict and one validation per document: about a second
 	// locally, and CI runners take about four times as long as a laptop for

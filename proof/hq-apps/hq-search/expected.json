@@ -38,6 +38,8 @@
 		"application-and-settings/rev-domain-copy-of-version",
 		"application-and-settings/target-derived-profile-properties-posturl-posttesturl-ota",
 		"case-search/a-search-key-named-owner-id",
+		"case-search/address-picker-on-a-search-screen",
+		"case-search/address-receiver-with-an-unused-suffix",
 		"case-search/and-or-parentheses",
 		"case-search/appearance-barcode-scan",
 		"case-search/case-list-filter-clause-the-search-does-not-restate",
@@ -46,6 +48,7 @@
 		"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
 		"case-search/date-prompt-matched-by-hq-s-own-rule",
 		"case-search/date-v-string-date-datetime-v-string",
+		"case-search/default-filter-orders-the-records-the-search-sends",
 		"case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
 		"case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
 		"case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project",
@@ -155,6 +158,9 @@
 		"instant-comparison",
 		"search-value-guards",
 		"search-filter-rows-recut",
+		"search-order-direction-signs-respelled",
+		"search-order-unused-suffix-removed",
+		"search-address-receiver-suffix-removed",
 		"web-apps-turned-on"
 	]
 }

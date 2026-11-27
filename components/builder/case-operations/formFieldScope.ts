@@ -62,20 +62,27 @@ export function operationFormFieldDecls(
 
 /**
  * The answers that can key an authored create: a scalar string the
- * author already collects, correlated to the operation's own repeat.
+ * author already collects. A root Text key can explicitly share a case across rows.
  * A multi-select answer is an array in Nova and cannot be an identity.
  */
 export function identityKeyFieldDecls(
 	entries: readonly FormFieldEntry[],
 	repeat: Uuid | undefined,
-): readonly EditorFormFieldDecl[] {
-	return entries
-		.filter(
-			(entry) =>
-				formFieldCorrelatesWithCreate(entry.repeat, repeat) &&
-				formFieldCanKeyCreate(entry),
+): readonly (EditorFormFieldDecl & { readonly shareKeyAcrossRows?: true })[] {
+	return entries.flatMap((entry) => {
+		if (
+			formFieldCorrelatesWithCreate(entry.repeat, repeat) &&
+			formFieldCanKeyCreate(entry)
 		)
-		.map(declOf);
+			return [declOf(entry)];
+		if (
+			repeat !== undefined &&
+			entry.repeat === undefined &&
+			entry.kind === "text"
+		)
+			return [{ ...declOf(entry), shareKeyAcrossRows: true as const }];
+		return [];
+	});
 }
 
 /** Every repeat in the form, for the multiplicity picker. */

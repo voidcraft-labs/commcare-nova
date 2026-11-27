@@ -15,10 +15,13 @@ import type {
 	Column,
 	ColumnVia,
 	LanguageTag,
+	Uuid,
 } from "@/lib/domain";
+import { entryPointInventory } from "@/lib/domain";
 import { caseMappingComparison } from "@/lib/domain/caseMappingRows";
 import { AUTHORED_CASE_PROPERTY_NAME_PATTERN } from "@/lib/domain/casePropertyName";
 import { COMMCARE_DATE_PATTERN_REGEX } from "@/lib/domain/commCareDatePattern";
+import { literal, term } from "@/lib/domain/expression";
 import type { ColumnRecordSource } from "@/lib/domain/modules";
 import {
 	CASE_MAP_LAYER_KINDS,
@@ -78,6 +81,7 @@ import { COLUMN_FORMAT_LABELS } from "../hqPageLabels";
 import { shownText } from "../hqText";
 import { isJsonObject, type JsonCursor, sameJson } from "../jsonCursor";
 import { pendingPlaceholder, type ReadMode } from "../pendingExpressions";
+import { provisionalDocument } from "../provisional";
 import { sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import { readMediaMap } from "../xform/media";
@@ -85,7 +89,10 @@ import {
 	ATTRIBUTE_PROPERTIES,
 	calculatedAttributeField,
 } from "./attributeColumns";
+import { readInlineResultProperty } from "./inlineResultProperty";
+import { literalText } from "./literalText";
 import { claimRestOfRefusedColumn } from "./refusedWhole";
+import { readResultDetailText } from "./resultDetailText";
 
 const A = "menus-and-case-lists/";
 
@@ -112,6 +119,34 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 	fieldCalculated: take(
 		`${A}usexpathexpression-field-xpath-lifting-into-valueexpression`,
 		"schema:DetailColumn.useXpathExpression",
+	),
+	inlineResultOwnProperty: take(
+		`${A}inline-search-result-own-text-property`,
+		"schema:DetailColumn.field",
+	),
+	inlineResultOwnPropertyUnavailable: refuse(
+		`${A}usexpathexpression-field-xpath-outside-valueexpression`,
+		"schema:DetailColumn.field",
+	),
+	searchResultList: take(
+		`${A}standalone-search-result-list-text`,
+		"schema:DetailColumn.field",
+	),
+	searchResultListAndroid: refuse(
+		`${A}standalone-search-result-list-answer-without-web-apps`,
+		"schema:DetailColumn.field",
+	),
+	searchResultDetail: take(
+		`${A}standalone-search-result-detail-text`,
+		"schema:DetailColumn.field",
+	),
+	searchResultDetailFixedText: take(
+		`${A}standalone-search-result-detail-fixed-text`,
+		"schema:DetailColumn.field",
+	),
+	searchResultDetailUnavailable: refuse(
+		`${A}standalone-search-result-detail-without-its-offered-prompt`,
+		"schema:DetailColumn.field",
 	),
 	fieldAttribute: take(
 		`${A}usexpathexpression-field-reading-one-case-attribute`,
@@ -296,8 +331,16 @@ export const COLUMN_CLAIMS = defineClaims("caseList.columns", {
 		"schema:DetailColumn.format",
 	),
 	addressPopup: refuse(`${A}15-address-popup`, "schema:DetailColumn.format"),
-	clickableIcon: refuse(
+	clickableIcon: take(
 		`${A}16-clickable-icon-endpoint-action-id-on-the-case-list`,
+		"schema:DetailColumn.format",
+	),
+	clickableIconEndpoint: take(
+		`${A}16-clickable-icon-endpoint-action-id-on-the-case-list`,
+		"schema:DetailColumn.endpoint_action_id",
+	),
+	clickableIconUnavailable: refuse(
+		`${A}clickable-icon-with-an-unusable-form-endpoint`,
 		"schema:DetailColumn.format",
 	),
 	clickableIconEmpty: refuse(
@@ -700,6 +743,9 @@ export interface ColumnProposal {
 	readonly texts: Readonly<Record<string, Readonly<Record<string, string>>>>;
 	/** A calculated column's expression, registered by the join once the column is minted. */
 	readonly expression?: ColumnExpressionSource;
+	readonly resultDetailText?: NonNullable<
+		ReturnType<typeof readResultDetailText>
+	>;
 	readonly conditions?: ReadonlyMap<number, ColumnExpressionSource>;
 	readonly textKeys?: readonly string[];
 	/** True for an `invisible` short column, which joins by `field` and header alone. */
@@ -1389,6 +1435,9 @@ export interface ColumnOptions {
 	 *  instances: a detail of the search's results, or a menu whose search launches by itself
 	 *  (`helpers/validators.py::ModuleBaseValidator.validate_detail_columns`). */
 	readonly searchInstancesRead: boolean;
+	readonly standaloneResultDetailText?: boolean;
+	readonly standaloneAndroidTextAnswers?: ReadonlySet<string>;
+	readonly inlineResultProperty?: boolean;
 	/** The walk a column's indices name from the menu's case type, each step typed as Nova types
 	 *  it (`parent` by the catalog's parent, any other index by the type the app links it to), and
 	 *  the type it reaches; undefined where a step reaches no type. */
@@ -1610,16 +1659,31 @@ function readRelationTranslatableEnum(
 	column.take("format", C.translatableEnumRelationDoes, String).value;
 	claimPropertySource(ctx, column, field, relation, false);
 	if (!calculationKeysAreEditable(column)) return undefined;
-	return readGeneralCalculation(
+	const expression = imageMapPropertyText(
+		relation.name,
+		relation.via,
+		relation,
+	);
+	const proposed = readGeneralCalculation(
 		ctx,
 		column,
-		imageMapPropertyText(relation.name, relation.via, relation),
+		expression,
 		header,
 		base,
 		others,
 		C.translatableEnumRelationDoes,
 		false,
 	);
+	// HQ substitutes each enum variable key throughout the original XPath.
+	// Only a field whose calculation uses none of those keys is a spelling change.
+	if (proposed?.textKeys?.every((key) => !expression.includes(key))) {
+		ctx.facts.sameStateRewrites.push({
+			entry: C.translatableEnumRelationDoes.entry,
+			path: column.pointer,
+			register: "legacy-related-case-text-rekeyed",
+		});
+	}
+	return proposed;
 }
 
 function calculationKeysAreEditable(column: JsonCursor): boolean {
@@ -1820,7 +1884,10 @@ function readColumn(
 	const proposal = (
 		kind: ColumnProposal["column"],
 		extra: Partial<
-			Pick<ColumnProposal, "texts" | "expression" | "invisible" | "conditions">
+			Pick<
+				ColumnProposal,
+				"texts" | "expression" | "invisible" | "conditions" | "resultDetailText"
+			>
 		> = {},
 	): ColumnProposal | undefined =>
 		others
@@ -1842,6 +1909,9 @@ function readColumn(
 					...(extra.conditions && { conditions: extra.conditions }),
 					...(extra.expression !== undefined && {
 						expression: extra.expression,
+					}),
+					...(extra.resultDetailText !== undefined && {
+						resultDetailText: extra.resultDetailText,
 					}),
 					invisible: extra.invisible ?? false,
 					json: column,
@@ -1890,6 +1960,65 @@ function readColumn(
 					key: "schema:DetailColumn.field",
 				},
 			},
+		);
+	}
+	const inlineResultProperty =
+		field.xpath &&
+		screen === "short" &&
+		format === "plain" &&
+		options.inlineResultProperty &&
+		!options.inTile &&
+		!options.dataRows &&
+		!options.fixtureRow &&
+		loadBehavior === undefined
+			? readInlineResultProperty(field.text)
+			: undefined;
+	if (inlineResultProperty && module.module.caseType !== undefined) {
+		column.take("useXpathExpression", C.fieldCalculated, Boolean).value;
+		column.take("format", C.plain, String).value;
+		return proposal({
+			kind: "calculated",
+			...base,
+			expression: term({
+				kind: "prop",
+				caseType: module.module.caseType,
+				property: inlineResultProperty,
+			}),
+			inlineResultProperty: true,
+		});
+	}
+	const parsedResultText =
+		field.xpath &&
+		format === "plain" &&
+		(options.standaloneResultDetailText ||
+			options.standaloneAndroidTextAnswers?.size) &&
+		!options.dataRows &&
+		!options.fixtureRow &&
+		loadBehavior === undefined
+			? readResultDetailText(field.text, screen)
+			: undefined;
+	const unavailableAndroidAnswer =
+		parsedResultText &&
+		"inputName" in parsedResultText &&
+		options.standaloneAndroidTextAnswers?.has(parsedResultText.inputName);
+	const resultDetailText =
+		options.standaloneResultDetailText || unavailableAndroidAnswer
+			? parsedResultText
+			: undefined;
+	if (resultDetailText) {
+		column.take("useXpathExpression", C.fieldCalculated, Boolean).value;
+		column.take("format", C.plain, String).value;
+		if (unavailableAndroidAnswer) {
+			column.refuse("field", C.searchResultListAndroid);
+			return undefined;
+		}
+		return proposal(
+			{
+				kind: "calculated",
+				...base,
+				expression: term(literal(resultDetailText.localText)),
+			},
+			{ resultDetailText },
 		);
 	}
 	if (field.xpath) {
@@ -2168,18 +2297,36 @@ function readColumn(
 				...base,
 			} as ColumnProposal["column"]);
 		}
-		case "clickable-icon":
-			column.refuse(
-				"format",
-				screen === "long"
-					? C.clickableIconLong
-					: column.peek("endpoint_action_id") === "" ||
-							column.peek("endpoint_action_id") == null
-						? C.clickableIconEmpty
-						: C.clickableIcon,
-				formatName(format),
+		case "clickable-icon": {
+			const id = column.peek("endpoint_action_id");
+			if (screen === "long" || typeof id !== "string" || id === "") {
+				column.refuse(
+					"format",
+					screen === "long" ? C.clickableIconLong : C.clickableIconEmpty,
+					formatName(format),
+				);
+				return undefined;
+			}
+			const target = entryPointInventory(provisionalDocument(ctx)).find(
+				(item) => item.entryPoint.id === id && item.target.kind === "form",
 			);
-			return undefined;
+			if (!target) {
+				column.refuse("format", C.clickableIconUnavailable, { name: id });
+				return undefined;
+			}
+			column.take("endpoint_action_id", C.clickableIconEndpoint, String).value;
+			return readImageMap(
+				ctx,
+				module,
+				column,
+				name,
+				base,
+				proposal,
+				via,
+				recordSource,
+				target.entryPoint.uuid,
+			);
+		}
 		case "markdown":
 			column.take("format", C.markdownOther, String).value;
 			return proposal({
@@ -2478,20 +2625,6 @@ function selectedValue(key: string, property: string): string | undefined {
 		: undefined;
 }
 
-/** The text a string literal spells, or a `concat` of string literals, which is how a literal
- *  holding both quote marks is printed. */
-function literalText(node: FormSyntax | undefined): string | undefined {
-	if (node?.kind === "string") return node.value;
-	if (node?.kind !== "call" || node.name !== "concat") return undefined;
-	let out = "";
-	for (const arg of node.args) {
-		const part = literalText(arg);
-		if (part === undefined) return undefined;
-		out += part;
-	}
-	return out;
-}
-
 function readImageMap(
 	ctx: ReadContext,
 	_module: DraftModule,
@@ -2504,6 +2637,7 @@ function readImageMap(
 	) => ColumnProposal | undefined,
 	via?: ColumnVia,
 	source?: ColumnRecordSource,
+	entryPointUuid?: Uuid,
 ): ColumnProposal | undefined {
 	const codes = appCodes(ctx);
 	const entries = enumEntries(column, []);
@@ -2523,11 +2657,13 @@ function readImageMap(
 	);
 	column.take(
 		"format",
-		definitions.some((item) => "text" in item)
-			? C.enumImageOther
-			: definitions.some((item) => "match" in item && item.match === "exact")
-				? C.enumImagePlain
-				: C.enumImage,
+		entryPointUuid !== undefined
+			? C.clickableIcon
+			: definitions.some((item) => "text" in item)
+				? C.enumImageOther
+				: definitions.some((item) => "match" in item && item.match === "exact")
+					? C.enumImagePlain
+					: C.enumImage,
 		String,
 	).value;
 	const conditions = new Map<number, ColumnExpressionSource>();
@@ -2569,6 +2705,7 @@ function readImageMap(
 	return proposal(
 		{
 			kind: "image-map",
+			...(entryPointUuid !== undefined && { entryPointUuid }),
 			field,
 			...base,
 			mapping,

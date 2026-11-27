@@ -193,3 +193,120 @@ def test_android_prompts_for_a_questions_missing_image_and_offers_the_missing_so
         ),
     ]
     assert image not in str([item for item in items if item["image"] is not None]), items
+
+
+@pytest.mark.parametrize("scenario", ["ordinary", "orphan", "unmapped", "other-language", "same-language"])
+def test_generated_navigation_icon_needs_a_file_in_the_full_release(
+    hq, android_documents, android_walk_evidence, scenario
+):
+    from io import BytesIO
+    from zipfile import ZipFile
+
+    from proof.android import observe
+    from proof.android.navigation import nav
+    from proof.checks.compare.app_strings import parse_app_strings
+    from proof.formplayer import hq as formplayer_hq
+    from proof.observe.record import Blobs
+    from proof.rules.conftest import published
+
+    image, icon, _ = apps.MISSING_MEDIA_UNMAPPED
+    expected_name = icon if scenario == "ordinary" else image
+    expected_file = scenario not in ("orphan", "unmapped")
+    document = android_documents[DOCUMENT]
+    with published(document, None) as app:
+        with formplayer_hq.serve(
+            app.unit, document, app.app_id, change=apps.generated_menu_icon(app, scenario)
+        ) as served:
+            archive = observe.release_archive(served)
+            with ZipFile(BytesIO(archive)) as files:
+                locale = parse_app_strings(files.read("en/app_strings.txt").decode())
+                assert locale["modules.m0.icon"].endswith("/" + expected_name)
+                if scenario == "unmapped":
+                    assert locale["modules.m0.icon"] == apps.UNMAPPED_GENERATED_ICON
+                assert any(name.endswith("/" + expected_name) for name in files.namelist()) == expected_file
+            blobs = Blobs()
+            observed = nav(served, blobs, label=f"generated-icon-{scenario}", archive=archive, paths=[[]])
+            answer = blobs.get_json(observed["answer"])
+
+    android_walk_evidence(answer)
+    assert answer["install"] == "Installed", answer
+    assert answer["signIn"].startswith("Success("), answer
+    walk = answer["navs"][FIRST_MENU]
+    assert "raised" not in walk, walk
+    (visit,) = [item for item in walk["steps"][-1]["menu"]["items"] if item["id"] == VISITS]
+    assert visit["image"]["uri"].endswith("/" + expected_name), visit
+    if scenario == "unmapped":
+        assert visit["image"]["uri"] == apps.UNMAPPED_GENERATED_ICON, visit
+    assert visit["image"]["held"] == expected_file, visit
+
+
+def test_other_language_carrier_only_packages_a_generated_icon_when_the_profile_includes_it(
+    hq, android_documents, android_walk_evidence
+):
+    from dataclasses import replace
+
+    from corehq import privileges
+    from corehq.apps.accounting import utils as accounting
+
+    from proof.android import observe
+    from proof.android.navigation import nav
+    from proof.checks.compare.app_strings import parse_app_strings
+    from proof.formplayer import hq as formplayer_hq
+    from proof.hq import operations
+    from proof.hq.check import hq_check
+    from proof.hq.seams import build_seams
+    from proof.hq.test_installation_profiles import offline_download, profile_payload
+    from proof.observe.record import Blobs
+    from proof.observe import publish
+    from proof.rules.conftest import Published
+
+    image, _, _ = apps.MISSING_MEDIA_UNMAPPED
+    document = android_documents[DOCUMENT]
+    export = document.exports["maximum"]
+    base_configuration = export.configuration.hq()
+    configuration = replace(base_configuration, privileges=base_configuration.privileges | {"BUILD_PROFILES"})
+    with hq_check(configuration) as (unit, _):
+        app_id, refusal, lookups = publish.create(unit, export)
+        assert refusal is None, refusal
+        assert lookups is None or lookups["errors"] == [], lookups
+        for request, _ in export.content.media_uploads():
+            media = operations.apply_media_upload(unit, app_id, request.upload())
+            assert media.status == 200, media.response
+        app = Published(document, export, unit, app_id)
+        change = apps.generated_menu_icon(app, "other-language")
+
+        def named_profiles(stored):
+            change(stored)
+            stored["build_profiles"] = {
+                "both": profile_payload("English and French", ["en", "fr"]),
+                "english": profile_payload("English", ["en"]),
+            }
+
+        with formplayer_hq.serve(
+            app.unit, document, app.app_id, change=named_profiles
+        ) as served:
+            assert accounting.domain_has_privilege(app.unit.domain, privileges.BUILD_PROFILES)
+            build = operations.held_app(app.unit, served.build_id)
+            for profile, carries_file in (("both", True), ("english", False)):
+                with build_seams(), app.unit.committing():
+                    files = offline_download(app.unit, build, profile)
+                locale = parse_app_strings(files["en/app_strings.txt"].decode())
+                icon = locale["modules.m0.icon"]
+                assert icon.startswith("jr://file/") and icon.endswith("/" + image)
+                file_path = icon.removeprefix("jr://file/")
+                assert ("fr/app_strings.txt" in files) == carries_file
+                assert (file_path in files) == carries_file
+                if carries_file:
+                    assert files[file_path]
+                archive = observe.archive_bytes(files.items())
+                blobs = Blobs()
+                found = nav(served, blobs, label=f"generated-icon-profile-{profile}", archive=archive, paths=[[]])
+                answer = blobs.get_json(found["answer"])
+                android_walk_evidence(answer)
+                assert answer["install"] == "Installed", answer
+                assert answer["signIn"].startswith("Success("), answer
+                walk = answer["navs"][FIRST_MENU]
+                assert "raised" not in walk, walk
+                (visit,) = [item for item in walk["steps"][-1]["menu"]["items"] if item["id"] == VISITS]
+                assert visit["image"]["uri"] == icon, visit
+                assert visit["image"]["held"] == carries_file, visit

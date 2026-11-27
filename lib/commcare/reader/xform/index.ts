@@ -44,6 +44,11 @@ import { placeKey, whereText } from "../place";
 import { dateRangeGuesses } from "../search/dateRangeGuesses";
 import type { ReadGeneratedNode } from "../types";
 import type { XmlCursor } from "../xmlCursor";
+import {
+	claimAndroidApp,
+	mintAndroidApp,
+	type ReadAndroidApp,
+} from "./androidApp";
 import type { AppearanceForm } from "./appearances";
 import { type ControlNode, readControls } from "./body";
 import { X } from "./claims";
@@ -140,6 +145,8 @@ export interface ReadSaveToCaseBlock {
 	readonly setvalues: readonly SetvalueFacts[];
 	/** Its ancestors between its scope and itself, outermost first, each a `case-region` node. */
 	readonly wrappers: readonly DataNode[];
+	/** An ordinary root, group or repeat holds the block among its submitted fields. */
+	readonly authoredScopeLength?: number;
 	/** The refusal of the data tree that covers the block (two siblings of one name in it or
 	 *  at it), which has claimed it with its binds and setvalues: the case management stage
 	 *  reads nothing of it and refuses what stands around it for it alone under that refusal. */
@@ -159,6 +166,10 @@ export interface DraftExpression {
 	readonly slot: FieldExpressionSlotRef["slot"] | ProseSlotRef["slot"];
 	/** For a choice's label, the option's position in the field's inline options. */
 	readonly option?: number;
+	readonly androidAppInput?: {
+		readonly name: string;
+		readonly occurrence: number;
+	};
 	/** HQ's text, as the source holds it. */
 	readonly text: string;
 	/** The node it was read from. */
@@ -175,6 +186,9 @@ export interface DraftExpression {
 
 /** A field as the form reader builds it: its kind's slots, less its logic, which is pending. */
 export interface DraftField {
+	androidApp?:
+		| { readonly kind: "open-app"; readonly app: ReadAndroidApp }
+		| { readonly kind: "use-question"; readonly source: DraftField };
 	readonly node: DataNode;
 	/** A root Question List becomes a section once the form's root is known. */
 	kind: FieldKind;
@@ -274,6 +288,7 @@ export interface ReadXForm {
 	readonly caseRegion: readonly DataNode[];
 	/** Every Save to Case block of the form, in document order, wherever it stands. */
 	readonly saveToCaseBlocks: readonly ReadSaveToCaseBlock[];
+	attachCaseChange(node: DataNode, operationUuid: Uuid): void;
 	readonly connectBlocks: readonly ReadConnectBlock[];
 	readonly itext: ItextTable;
 	/** Each declared secondary instance id to its `src`. */
@@ -317,16 +332,23 @@ function saveToCaseBlocks(
 		.map((node) => {
 			const refusal = tree.refused.get(node);
 			let repeat: DraftField | null = null;
+			let authoredScopeLength = 0;
 			const wrappers: DataNode[] = [];
 			for (let at = node.parent; at !== null; at = at.parent) {
 				const role = roles.get(at);
 				if (role?.kind === "case-region") wrappers.unshift(at);
 				else if (role?.kind === "query-row") {
 					repeat = role.repeat;
+					authoredScopeLength = at.path.length;
 					break;
 				} else if (role?.kind === "field") {
-					if (role.field.kind === "repeat") repeat = role.field;
-					break;
+					if (role.field.kind === "repeat") {
+						repeat = role.field;
+						authoredScopeLength = at.path.length;
+						break;
+					}
+					if (role.field.kind !== "group" && role.field.kind !== "section")
+						break;
 				}
 			}
 			return {
@@ -340,6 +362,7 @@ function saveToCaseBlocks(
 					(one) => one.target !== undefined && under(node.path, one.target),
 				),
 				wrappers,
+				...(wrappers.length === 0 && { authoredScopeLength }),
 				...(refusal === undefined ? {} : { refusal }),
 			};
 		});
@@ -802,6 +825,7 @@ function readForm(
 		binds: binds.byNode,
 		setvalues,
 		childrenOf: joined.childrenOf,
+		attachCaseChange: joined.attachCaseChange,
 		candidates,
 		settle,
 		generated,
@@ -1000,7 +1024,46 @@ export function mintFields(ctx: ReadContext): void {
 								"xform:select1/item/value",
 							);
 				}
+				const byNode = new Map(fields.map((field) => [field.node, field]));
+				const refusedActions = new Set<DraftField>();
+				// A second invoking question can come before the question that
+				// owns its action, so settle every owner before binding users.
 				for (const field of fields) {
+					if (
+						field.androidApp?.kind === "open-app" &&
+						!mintAndroidApp(field, byNode)
+					) {
+						refusedActions.add(field);
+					}
+				}
+				for (const field of fields) {
+					const app = field.androidApp;
+					if (app && field.control) {
+						const refused =
+							refusedActions.has(field) ||
+							(app.kind === "use-question" &&
+								(refusedActions.has(app.source) ||
+									!mintAndroidApp(field, byNode)));
+						const appearance = {
+							element: field.control.element,
+							attribute: "appearance",
+						};
+						if (refused)
+							xform.cursor.refuse(
+								appearance,
+								X.androidAppRefused.appearance,
+								field.place,
+							);
+						else {
+							const claim =
+								app.kind === "open-app"
+									? X.kind.androidApp.appearance
+									: X.androidAppAnswer;
+							if (claim) xform.cursor.take(appearance, claim).value;
+						}
+						if (app.kind === "open-app")
+							claimAndroidApp(xform.cursor, app.app, field, !refused);
+					}
 					const uuid = field.uuid;
 					if (uuid === undefined) continue;
 					field.field.uuid = uuid;
@@ -1014,7 +1077,9 @@ export function mintFields(ctx: ReadContext): void {
 								mode: expression.mode,
 								place: field.place,
 								key: expression.key,
-								...(expression.usesOnly === true && { usesOnly: true }),
+								...((expression.usesOnly === true ||
+									(expression.slot === "android_app_input" &&
+										refusedActions.has(field))) && { usesOnly: true }),
 								...(expression.translatedOutput === true && {
 									translatedOutput: true,
 								}),
@@ -1071,7 +1136,19 @@ function draftExpressionRef(
 	uuid: Uuid,
 	expression: DraftExpression,
 ): SlotContextRef | undefined {
-	if (expression.slot !== "option_label")
+	if (expression.slot === "android_app_input")
+		return (
+			expression.androidAppInput && {
+				entity: "field",
+				uuid,
+				slot: expression.slot,
+				member: expression.androidAppInput,
+			}
+		);
+	if (
+		expression.slot !== "option_label" &&
+		expression.slot !== "option_extended_text"
+	)
 		return { entity: "field", uuid, slot: expression.slot } as SlotContextRef;
 	const source = field.field.optionsSource as
 		| { options?: readonly { uuid?: Uuid }[] }
@@ -1082,7 +1159,7 @@ function draftExpressionRef(
 			: source?.options?.[expression.option]?.uuid;
 	return optionUuid === undefined
 		? undefined
-		: { entity: "field", uuid, slot: "option_label", member: { optionUuid } };
+		: { entity: "field", uuid, slot: expression.slot, member: { optionUuid } };
 }
 
 function sourceNames(
@@ -1187,6 +1264,49 @@ function sourceNames(
 	};
 }
 
+function directFormWithoutSessionSupplier(ctx: ReadContext): Uuid | undefined {
+	// Only an ordinary standalone survey opened from the root command is
+	// established to have no selection, link, or configured datum upstream.
+	const [menu] = ctx.draft.modules;
+	const form = menu?.forms[0];
+	const source = ctx.input.source;
+	if (
+		source.cloudcareEnabled ||
+		source.raw.cloudcare_enabled !== false ||
+		source.raw.use_custom_suite !== false ||
+		source.modules.length !== 1 ||
+		source.modules[0].forms.length !== 1 ||
+		menu?.docType !== "Module" ||
+		form?.docType !== "Form" ||
+		menu.json.peek("module_type") !== "basic" ||
+		menu.json.peek("case_type") !== "" ||
+		menu.json.peek("root_module_id") ||
+		form.json.peek("form_type") !== "module_form" ||
+		form.json.peek("requires") !== "none" ||
+		form.json.peek("post_form_workflow") !== "default"
+	)
+		return undefined;
+	for (const key of ["fixture_select", "parent_select"]) {
+		const setting = menu.json.peek(key);
+		if (
+			setting != null &&
+			(!isJsonObject(setting) ||
+				(setting.active !== false && setting.active !== undefined))
+		)
+			return undefined;
+	}
+	for (const key of [
+		"form_links",
+		"arbitrary_datums",
+		"function_datum_endpoints",
+	]) {
+		const value = form.json.peek(key);
+		if (value != null && (!Array.isArray(value) || value.length !== 0))
+			return undefined;
+	}
+	return form.uuid;
+}
+
 /**
  * What the expression stage reads beside the document, built from each form's reading and keyed
  * by the form's UUID: the source's own names, the unit each referenced text id was read as (its
@@ -1240,6 +1360,7 @@ export function expressionEnvOf(ctx: ReadContext): ExpressionReadEnv {
 		numericSortColumns: numericSortColumns(ctx),
 		formPlaces,
 		computedDatums,
+		directFormWithoutSessionSupplier: directFormWithoutSessionSupplier(ctx),
 		...(ctx.input.knownCaseTypes !== undefined && {
 			knownCaseTypes: ctx.input.knownCaseTypes,
 		}),

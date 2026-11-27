@@ -402,6 +402,8 @@ function compiler(bindings: QueryBindings) {
 			if (name === "session") {
 				return { kind: "session-context", field: string(args[0]) };
 			}
+			if (name === "result-field")
+				return { kind: "search-result-field", name: string(args[0]) };
 			if (name === "record-type") return { kind: "case-row-type" };
 			if (name === "worker-record") {
 				const property = term(args[0]);
@@ -555,6 +557,10 @@ function compiler(bindings: QueryBindings) {
 				left,
 				right,
 			};
+		}
+		if (name === "position") {
+			arity(name, args);
+			return { kind: "call", fn: name, args: args.map(value) };
 		}
 		if (name === "project-today") {
 			arity(name, args);
@@ -794,8 +800,20 @@ function compiler(bindings: QueryBindings) {
 				};
 			const kind = comparisons[node.operator];
 			if (kind) {
-				const left = value(node.left),
-					right = value(node.right);
+				const left = value(node.left);
+				// The slot checker admits this only as an ordered comparison
+				// between two direct Text columns in a Search choice filter.
+				const right =
+					bindings.typeContext.rows.at(-1)?.kind === "table" &&
+					node.right.kind === "call" &&
+					node.right.name === "string-length" &&
+					node.right.args.length === 1
+						? {
+								kind: "call",
+								fn: "string-length",
+								args: [value(node.right.args[0])],
+							}
+						: value(node.right);
 				return {
 					kind,
 					left: comparisonOperand(node.left, left, right),

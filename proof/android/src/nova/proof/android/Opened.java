@@ -39,6 +39,12 @@ final class Opened {
         return controller;
     }
 
+    /** Ends a temporary screen before its caller continues the same walk. */
+    static void close(ActivityController<? extends Activity> controller) {
+        controller.close();
+        open.remove(controller);
+    }
+
     /** Ends every screen opened since the last call, the newest first. */
     static void end() {
         for (int i = open.size() - 1; i >= 0; i--) {

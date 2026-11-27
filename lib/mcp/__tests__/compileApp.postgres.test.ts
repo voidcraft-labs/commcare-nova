@@ -45,7 +45,11 @@ import {
 	type ManagedOriginWrite,
 } from "@/lib/lookup/managed";
 import type { ManagedLookupContent } from "@/lib/lookup/managedRules";
-import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
+import {
+	createLookupTable,
+	getLookupFixtureData,
+	replaceLookupRows,
+} from "@/lib/lookup/service";
 import { authorizeLookupWriteInTransaction } from "@/lib/lookup/writerTransaction";
 import { streamAsset } from "@/lib/storage/media";
 import { registerCompileApp } from "../tools/compileApp";
@@ -596,20 +600,15 @@ it.each([false, true])(
 	},
 );
 
-it("walks complete copies of tables CommCare HQ manages into a CCZ a page at a time, past what one app once held in memory", async () => {
-	/* Two copies of 5,000 rows and 11 fields: 110,000 values together, past
-	 * the 100,000 an archive once held in memory (`LOOKUP_FIXTURE_EXPORT_TOO_LARGE`).
-	 * Each is past what a snapshot holds inline, so the downloadable app reads
-	 * it in pages, as it reads a table of Nova's own. */
-	const fields = [
-		"code",
-		"name",
-		...Array.from({ length: 9 }, (_, at) => `f${at}`),
-	];
+it("walks complete copies of tables CommCare HQ manages into a CCZ a page at a time, past the inline snapshot boundary", async () => {
+	// Each copy crosses the 1,000-row inline snapshot boundary and spans
+	// several archive pages, while the combined CCZ fits the device budget.
+	const rowCount = 1_025;
+	const fields = ["code", "name"];
 	const copy = (tag: string) => {
 		const content: ManagedLookupContent = {
 			fields,
-			rows: Array.from({ length: 5_000 }, (_, at) =>
+			rows: Array.from({ length: rowCount }, (_, at) =>
 				Object.fromEntries(
 					fields.map((field) => [
 						field,
@@ -660,6 +659,15 @@ it("walks complete copies of tables CommCare HQ manages into a CCZ a page at a t
 			new Date(AT),
 		),
 	);
+	const fixtureData = await getLookupFixtureData(
+		{ projectId: PROJECT, actorId: "creator", role: "owner" },
+		tables.map(({ binding }) => binding.tableId),
+		"download-export",
+	);
+	expect(fixtureData.rowsByTable.size).toBe(0);
+	expect(fixtureData.streamedTables).toEqual(
+		new Map(tables.map(({ binding }) => [binding.tableId, { rowCount }])),
+	);
 	await seed(
 		buildDoc({
 			appName: "Clinic intake",
@@ -695,18 +703,25 @@ it("walks complete copies of tables CommCare HQ manages into a CCZ a page at a t
 	await asGrantedUser(async (client) => {
 		const ccz = archive(await call(client, "ccz"), "ccz");
 		const suite = ccz.readAsText("suite.xml");
-		for (const tag of ["clinics", "wards"]) {
+		for (const {
+			binding: { tag },
+			content,
+		} of tables) {
 			const fixture = elements(suite, "fixture").filter(
 				(node) => node.attribs.id === `item-list:${tag}`,
 			);
 			expect(fixture).toHaveLength(1);
 			const items = getElementsByTagName(tag, fixture[0].children, true);
-			expect(items).toHaveLength(5_000);
 			expect(
-				[items[0], items[4_999]].map((node) =>
-					textContent(getElementsByTagName("code", node.children, true)[0]),
-				),
-			).toEqual(["0000", "4999"]);
+				items.map((node) => ({
+					code: textContent(
+						getElementsByTagName("code", node.children, true)[0],
+					),
+					name: textContent(
+						getElementsByTagName("name", node.children, true)[0],
+					),
+				})),
+			).toEqual(content.rows);
 		}
 
 		/* The import file keeps each copy to its own rule for a table CommCare

@@ -60,6 +60,12 @@ function journey() {
 			return population.map((row) => ({ ...row }));
 		},
 		count: async () => population.length,
+		readFlatCloseSelection: async () => {
+			throw new Error("Unexpected flat close.");
+		},
+		queryAutomaticSelection: async () => {
+			throw new Error("Unexpected automatic selection.");
+		},
 		queryGrouped: async () => {
 			throw new Error("The search read is not grouped.");
 		},

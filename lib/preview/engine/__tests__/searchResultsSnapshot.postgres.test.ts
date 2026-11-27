@@ -12,18 +12,24 @@
 
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { buildCaseTypeMap, type CaseStore } from "@/lib/case-store";
+import { checkParentPathLookupLimit } from "@/lib/case-store/postgres/nativeSearchMatching";
 import {
 	PostgresCaseStore,
 	type PostgresCaseStoreArgs,
 } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
-import type { CaseSearchRequest } from "@/lib/case-store/searchRequest";
+import type {
+	CaseSearchCriterion,
+	CaseSearchRequest,
+} from "@/lib/case-store/searchRequest";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
 import { SEARCH_RESULTS_CAP } from "@/lib/commcare/session";
-import type { CaseType } from "@/lib/domain";
+import type { CaseType, SearchInputDef } from "@/lib/domain";
+import { caseClaimCaseType } from "@/lib/domain/caseClaim";
 import {
 	eq,
 	gt,
@@ -37,6 +43,7 @@ import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { readCases } from "../caseDataBindingHelpers";
+import { completedSearchRequest } from "../completedSearchRequest";
 import { readSearchResultsSnapshot } from "../searchResultsSnapshot";
 
 const APP_ID = "app-search-results";
@@ -47,12 +54,18 @@ const EXCLUDED_WORKER = "worker-excluded";
 
 const HOUSEHOLD: CaseType = {
 	name: "household",
-	properties: [{ name: "village", label: proseText("Village") }],
+	properties: [
+		{ name: "village", label: proseText("Village") },
+		{ name: "stops", label: proseText("Stops"), data_type: "multi_select" },
+	],
 };
 const PATIENT: CaseType = {
 	name: "patient",
 	parent_type: "household",
-	properties: [{ name: "district", label: proseText("District") }],
+	properties: [
+		{ name: "district", label: proseText("District") },
+		{ name: "village", label: proseText("Village") },
+	],
 };
 
 const dbHandle = setupPerTestDatabase({
@@ -86,6 +99,19 @@ function patient(caseId: string, status = "open", parent?: string) {
 			...(parent === undefined ? {} : { parent_case_id: parent }),
 		},
 	};
+}
+
+async function parkHouseholdVillage(caseId: string) {
+	await sql`insert into parked_case_values
+		(app_id, case_id, case_type, property, original_value, reason, from_type, to_type)
+		values (${APP_ID}, ${caseId}, 'household', 'village', '"Old value"'::jsonb, 'schema change', 'text', 'select-one')`.execute(
+		dbHandle.db,
+	);
+}
+
+async function dismissHouseholdPark(caseId: string) {
+	await sql`update parked_case_values set dismissed_at = now()
+		where app_id = ${APP_ID} and case_id = ${caseId}`.execute(dbHandle.db);
 }
 
 beforeEach(async () => {
@@ -506,6 +532,463 @@ describe("a completed search's snapshot", () => {
 		).rejects.toMatchObject({ reason: { kind: "search-settings-changed" } });
 	});
 
+	it("matches a typed parent Search prompt using the destination rule for its exact request key", async () => {
+		let fuzzy = false;
+		const store = storeAs(WORKER, async () => ({
+			revision: "settings",
+			maximum: 500,
+			timeZone: "UTC",
+			projectSpace: "clinic",
+			matcherFor: (key) =>
+				key === "parent/village" ? { fuzzy, ignoreLiterals: ["!"] } : null,
+		}));
+		const parent: SearchInputDef = {
+			uuid: testUuid("parent-village"),
+			name: "parent_village",
+			label: "Parent village",
+			kind: "simple",
+			type: "text",
+			property: "village",
+			matching: "project-space",
+			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
+		};
+		for (const [caseId, value] of [
+			["target-house", "Dyer's crossing"],
+			["other-house", "North"],
+		] as const) {
+			await storeAs(OTHER_WORKER).insert({
+				appId: APP_ID,
+				row: {
+					case_id: caseId,
+					case_type: "household",
+					case_name: caseId,
+					status: "closed",
+					properties: { village: value },
+				},
+			});
+		}
+		for (const [caseId, relationship, ownValue] of [
+			["linked", "target-house", "South"],
+			["own-value", "other-house", "Dyer's crossing"],
+			["unlinked", undefined, "Dyer's crossing"],
+		] as const) {
+			await store.insert(patient(caseId, "open", relationship));
+			await sql`update cases set properties = properties || jsonb_build_object('village', ${ownValue}::text)
+				where case_id = ${caseId} and app_id = ${APP_ID} and project_id = ${PROJECT}`.execute(
+				dbHandle.db,
+			);
+		}
+		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+		config.searchInputs = [parent];
+		const read = (answer: string) => {
+			const request = completedSearchRequest(
+				{ caseListConfig: config },
+				new Map([[parent.name, answer]]),
+				undefined,
+				{ revision: "settings" },
+			);
+			return readSearchResultsSnapshot(store, {
+				...SEARCH,
+				searchPopulation: { ...SEARCH.searchPopulation, request },
+			});
+		};
+		const found = await read("Dyer's cross!ing");
+		expect(found.rows.map((row) => row.case_id)).toEqual(["linked"]);
+		await expect(read('Dyer"s crossing')).rejects.toMatchObject({
+			reason: { kind: "query-value-invalid", field: "Parent village" },
+		});
+		fuzzy = true;
+		await expect(read("Dyer's crossing")).rejects.toMatchObject({
+			reason: { kind: "parent-fuzzy-unavailable", field: "Parent village" },
+		});
+		fuzzy = false;
+		await parkHouseholdVillage("target-house");
+		await expect(read("Dyer's crossing")).rejects.toMatchObject({
+			reason: { kind: "parent-value-unavailable", field: "Parent village" },
+		});
+		await dismissHouseholdPark("target-house");
+		expect(
+			(await read("Dyer's crossing")).rows.map((row) => row.case_id),
+		).toEqual(["linked"]);
+		await sql`insert into case_indices(case_id, ancestor_id, identifier, depth, relationship, target_case_type)
+			values ('unlinked', 'unresolved-house', 'parent', 1, 'child', 'household')`.execute(
+			dbHandle.db,
+		);
+		await expect(read("Dyer's crossing")).rejects.toMatchObject({
+			reason: { kind: "parent-value-unavailable", field: "Parent village" },
+		});
+	});
+
+	it.each([1, 2])(
+		"matches a scalar Search date over exactly %i parent links in Preview",
+		async (hops) => {
+			const requestKey = `${"parent/".repeat(hops)}village`;
+			const day = "2024-03-10";
+			const earlier = "2024-03-09";
+			const later = "2024-03-11";
+			const store = storeAs(WORKER, async () => ({
+				revision: "parent-date",
+				maximum: 500,
+				timeZone: "America/Los_Angeles",
+				projectSpace: "clinic",
+				matcherFor: (key) =>
+					key === requestKey ? { fuzzy: false, ignoreLiterals: [] } : null,
+			}));
+			const prompt: SearchInputDef = {
+				uuid: testUuid("parent-village-date"),
+				name: requestKey.replaceAll("/", "_"),
+				label: "Visit day",
+				kind: "simple",
+				type: "date",
+				property: "village",
+				matching: "project-space",
+				via: {
+					kind: "ancestor",
+					via: [
+						{ identifier: "parent" },
+						...(hops === 2 ? [{ identifier: "parent" }] : []),
+					],
+				},
+			};
+			const insertHousehold = (
+				caseId: string,
+				village: string,
+				parentCaseId?: string,
+			) =>
+				storeAs(OTHER_WORKER).insert({
+					appId: APP_ID,
+					row: {
+						case_id: caseId,
+						case_type: "household",
+						case_name: caseId,
+						status: "open",
+						properties: { village },
+						...(parentCaseId === undefined
+							? {}
+							: { parent_case_id: parentCaseId }),
+					},
+				});
+			for (const [caseId, value] of [
+				["exact-parent", day],
+				["earlier-parent", earlier],
+				["later-parent", later],
+				["timestamp-parent", `${day}T12:30:00Z`],
+			] as const) {
+				await insertHousehold(caseId, value);
+				if (hops === 2)
+					await insertHousehold(
+						`middle-${caseId}`,
+						value === day ? earlier : day,
+						caseId,
+					);
+			}
+			for (const [caseId, parent, village] of [
+				["exact", "exact-parent", earlier],
+				["earlier", "earlier-parent", day],
+				["later", "later-parent", day],
+				["timestamp", "timestamp-parent", day],
+				["unlinked", undefined, day],
+			] as const) {
+				const row = patient(
+					caseId,
+					"open",
+					parent && hops === 2 ? `middle-${parent}` : parent,
+				);
+				await store.insert({
+					...row,
+					row: { ...row.row, properties: { village } },
+				});
+			}
+			if (hops === 2)
+				await store.insert(patient("direct-only", "open", "exact-parent"));
+			const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+			config.searchInputs = [prompt];
+			const read = (answer: string) =>
+				readSearchResultsSnapshot(store, {
+					...SEARCH,
+					searchPopulation: {
+						...SEARCH.searchPopulation,
+						request: completedSearchRequest(
+							{ caseListConfig: config },
+							new Map([[prompt.name, answer]]),
+							undefined,
+							{ revision: "parent-date" },
+						),
+					},
+				});
+			expect((await read(day)).rows.map((row) => row.case_id)).toEqual([
+				"exact",
+			]);
+			expect((await read(earlier)).rows.map((row) => row.case_id)).toEqual([
+				"earlier",
+			]);
+			expect((await read(later)).rows.map((row) => row.case_id)).toEqual([
+				"later",
+			]);
+			await store.insert(patient("unsynced"));
+			await sql`insert into case_indices(case_id, ancestor_id, identifier, depth, relationship, target_case_type)
+			values ('unsynced', 'missing-parent', 'parent', 1, 'child', 'household')`.execute(
+				dbHandle.db,
+			);
+			await expect(read(day)).rejects.toMatchObject({
+				reason: { kind: "parent-value-unavailable", field: "Visit day" },
+			});
+		},
+	);
+
+	it.each([2, 3])("reads %i parent links in Preview", async (hops) => {
+		const prefix = "parent/".repeat(hops);
+		const label =
+			hops === 2 ? "Grandparent village" : "Great-grandparent village";
+		const store = storeAs(WORKER, async () => ({
+			revision: "exact",
+			maximum: 500,
+			timeZone: "UTC",
+			projectSpace: "clinic",
+			matcherFor: (key) =>
+				key === `${prefix}village`
+					? { fuzzy: false, ignoreLiterals: ["!"] }
+					: key === `${prefix}stops`
+						? { fuzzy: false, ignoreLiterals: [] }
+						: null,
+		}));
+		const grandparent: SearchInputDef = {
+			uuid: testUuid("grandparent-village"),
+			name: `${prefix.replaceAll("/", "_")}village`,
+			label,
+			kind: "simple",
+			type: "text",
+			property: "village",
+			matching: "project-space",
+			via: {
+				kind: "ancestor",
+				via: [
+					{ identifier: "parent" },
+					{ identifier: "parent" },
+					...(hops === 3 ? [{ identifier: "parent" }] : []),
+				],
+			},
+		};
+		for (const [caseId, village] of [
+			["target-house", "North"],
+			["other-house", "South"],
+			["matching-middle", "South"],
+			["other-middle", "North"],
+			["matching-lower", "South"],
+			["other-lower", "South"],
+		] as const)
+			await storeAs(OTHER_WORKER).insert({
+				appId: APP_ID,
+				row: {
+					case_id: caseId,
+					case_type: "household",
+					case_name: caseId,
+					status: "closed",
+					properties: {
+						village,
+						...(caseId === "target-house" ? { stops: ["east", "west"] } : {}),
+					},
+				},
+			});
+		const edge = (caseId: string, target: string) =>
+			sql`insert into case_indices(case_id, ancestor_id, identifier, depth, relationship, target_case_type)
+				values (${caseId}, ${target}, 'parent', 1, 'child', 'household')`.execute(
+				dbHandle.db,
+			);
+		await edge("matching-middle", "target-house");
+		await edge("other-middle", "other-house");
+		await edge("matching-lower", "matching-middle");
+		await edge("other-lower", "other-middle");
+		for (const [id, related] of [
+			["nested", hops === 2 ? "matching-middle" : "matching-lower"],
+			["direct", "target-house"],
+			["wrong-terminal", hops === 2 ? "other-middle" : "other-lower"],
+			["unlinked", undefined],
+		] as const)
+			await store.insert(patient(id, "open", related));
+		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+		const stops: SearchInputDef = {
+			...grandparent,
+			uuid: testUuid("grandparent-stops"),
+			name: `${prefix.replaceAll("/", "_")}stops`,
+			label: "Ancestor stops",
+			property: "stops",
+		};
+		config.searchInputs = [grandparent, stops];
+		const read = (answer: string, input: SearchInputDef = grandparent) =>
+			readSearchResultsSnapshot(store, {
+				...SEARCH,
+				searchPopulation: {
+					...SEARCH.searchPopulation,
+					request: completedSearchRequest(
+						{ caseListConfig: config },
+						new Map([[input.name, answer]]),
+						undefined,
+						{ revision: "exact" },
+					),
+				},
+			});
+		const found = await read("No!rth");
+		expect(found.rows.map((row) => row.case_id)).toEqual(["nested"]);
+		expect(await read("Missing")).toEqual({ rows: [], totalMatches: 0 });
+		expect(
+			(await read("east west", stops)).rows.map((row) => row.case_id),
+		).toEqual(["nested"]);
+		expect(await read("west east", stops)).toEqual({
+			rows: [],
+			totalMatches: 0,
+		});
+
+		const unavailable = {
+			reason: {
+				kind: "parent-value-unavailable",
+				field: label,
+			},
+		};
+		await parkHouseholdVillage("matching-middle");
+		await expect(read("North")).rejects.toMatchObject(unavailable);
+		await dismissHouseholdPark("matching-middle");
+		expect((await read("North")).rows.map((row) => row.case_id)).toEqual([
+			"nested",
+		]);
+
+		await parkHouseholdVillage("target-house");
+		await expect(read("North")).rejects.toMatchObject(unavailable);
+		await dismissHouseholdPark("target-house");
+		expect((await read("North")).rows.map((row) => row.case_id)).toEqual([
+			"nested",
+		]);
+
+		await edge("unlinked", "unknown-first");
+		await expect(read("North")).rejects.toMatchObject(unavailable);
+		await sql`delete from case_indices where case_id = 'unlinked' and ancestor_id = 'unknown-first'`.execute(
+			dbHandle.db,
+		);
+		if (hops === 3) {
+			await edge("other-lower", "unknown-second");
+			await expect(read("North")).rejects.toMatchObject(unavailable);
+			await sql`delete from case_indices where case_id = 'other-lower' and ancestor_id = 'unknown-second'`.execute(
+				dbHandle.db,
+			);
+		}
+		await edge("other-middle", "unknown-terminal");
+		await expect(read("North")).rejects.toMatchObject(unavailable);
+	});
+
+	it("refuses a truncated reverse-link lookup and counts each intermediate record once", async () => {
+		const store = storeAs(OTHER_WORKER);
+		for (const [caseId, village] of [
+			["terminal-one", "North"],
+			["terminal-two", "North"],
+			["middle-one", "South"],
+			["middle-two", "South"],
+			["unrelated", "South"],
+			["lower-one", "South"],
+			["lower-two", "South"],
+		]) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: caseId,
+					case_type: "household",
+					case_name: caseId,
+					status: "open",
+					properties: {
+						village,
+						stops: village === "North" ? ["east", "west"] : ["west"],
+					},
+				},
+			});
+		}
+		await sql`insert into case_indices(case_id, ancestor_id, identifier, depth, relationship, target_case_type)
+			values ('middle-one', 'terminal-one', 'parent', 1, 'child', 'household'),
+				('middle-one', 'terminal-two', 'parent', 1, 'child', 'household'),
+				('middle-two', 'terminal-two', 'parent', 1, 'child', 'household'),
+				('unrelated', 'terminal-one', 'other', 1, 'child', 'household')`.execute(
+			dbHandle.db,
+		);
+		const criterion: Extract<CaseSearchCriterion, { kind: "native" }> = {
+			kind: "native",
+			fuzzy: false,
+			parameter: {
+				field: "Grandparent stops",
+				key: "parent/parent/stops",
+				parentPathPrompt: true,
+				target: {
+					kind: "property",
+					property: "stops",
+					ancestors: [{ identifier: "parent" }, { identifier: "parent" }],
+				},
+				values: ["east west"],
+			},
+		};
+		const check = (
+			terminal: number,
+			intermediate: number,
+			reverseTerms = 2,
+			path = criterion,
+		) =>
+			checkParentPathLookupLimit(
+				path,
+				{
+					db: dbHandle.db as unknown as Kysely<Database>,
+					appId: APP_ID,
+					projectId: PROJECT,
+				},
+				{ terminal, intermediate, reverseTerms },
+			);
+		await expect(check(2, 2)).resolves.toBeUndefined();
+		await expect(check(2, 1)).rejects.toMatchObject({
+			reason: { kind: "parent-lookup-limit", field: "Grandparent stops" },
+		});
+		await expect(check(1, 2)).rejects.toMatchObject({
+			reason: { kind: "parent-lookup-limit", field: "Grandparent stops" },
+		});
+		const overLimit = {
+			reason: { kind: "parent-lookup-limit", field: "Grandparent stops" },
+		};
+		await expect(check(2, 2, 1)).rejects.toMatchObject(overLimit);
+		// One qualifying terminal fits the terms limit, but its two matching
+		// reverse links still exceed that limit on the intermediate set.
+		await sql`update cases set properties = properties || '{"stops":["west","east"]}'::jsonb
+			where app_id = ${APP_ID} and project_id = ${PROJECT} and case_id = 'terminal-two'`.execute(
+			dbHandle.db,
+		);
+		await sql`insert into case_indices(case_id, ancestor_id, identifier, depth, relationship, target_case_type)
+			values ('middle-two', 'terminal-one', 'parent', 1, 'child', 'household')`.execute(
+			dbHandle.db,
+		);
+		await expect(check(2, 2, 1)).rejects.toMatchObject(overLimit);
+
+		await sql`delete from case_indices where case_id = 'middle-two' and ancestor_id = 'terminal-one'`.execute(
+			dbHandle.db,
+		);
+		await sql`insert into case_indices(case_id, ancestor_id, identifier, depth, relationship, target_case_type)
+			values ('lower-one', 'middle-one', 'parent', 1, 'child', 'household'),
+				('lower-two', 'middle-one', 'parent', 1, 'child', 'household')`.execute(
+			dbHandle.db,
+		);
+		const threeLinks: typeof criterion = {
+			...criterion,
+			parameter: {
+				...criterion.parameter,
+				key: "parent/parent/parent/stops",
+				target: {
+					kind: "property",
+					property: "stops",
+					ancestors: [
+						{ identifier: "parent" },
+						{ identifier: "parent" },
+						{ identifier: "parent" },
+					],
+				},
+			},
+		};
+		await expect(check(2, 1, 2)).resolves.toBeUndefined();
+		await expect(check(2, 1, 2, threeLinks)).rejects.toMatchObject(overLimit);
+		await expect(check(2, 2, 2, threeLinks)).resolves.toBeUndefined();
+	});
+
 	it("decides a fuzzy search condition from the Project's own words", async () => {
 		// "smith" reaches two stored words ("smith" exactly, "smyth" one edit
 		// past the shared "sm"), far below HQ's 100 expansions, so both
@@ -669,4 +1152,373 @@ describe("a completed search's snapshot", () => {
 		const snapshot = await readSearchResultsSnapshot(storeAs(WORKER), SEARCH);
 		expect(snapshot).toEqual({ rows: [], totalMatches: 0 });
 	});
+	it("keeps request-only primary records, dynamically related records and the terminal of a closed path distinct", async () => {
+		const store = storeAs(WORKER);
+		const rows = [
+			["patient-a", "patient", "open", "care-a"],
+			["house-a", "household", "open", null],
+			["file-a", "document", "open", "extension-seed"],
+			["extension-host", "episode", "open", null],
+			["extension-seed", "episode", "closed", null],
+			["extension-leaf", "episode", "open", null],
+			["care-a", "episode", "closed", null],
+			["middle", "group", "closed", null],
+			["last", "region", "closed", null],
+			["child", "visit", "closed", null],
+			["non-parent", "visit", "open", null],
+			["second-child", "task", "closed", null],
+			["ignored-child", "note", "closed", null],
+		] as const;
+		for (const [id, type, status, source] of rows) {
+			await sql`insert into cases(app_id, project_id, case_id, case_type, case_name, status, properties)
+				values (${APP_ID},${PROJECT},${id},${type},${id},${status},${JSON.stringify(source ? { care_record: source } : {})}::jsonb)`.execute(
+				dbHandle.db,
+			);
+		}
+		// Edges created by old imports can cross an app or Project. Each
+		// fixture uses a physical case inside its own authorized app tuple.
+		await sql`insert into apps(id, owner, project_id, app_name, app_name_lower)
+			values ('elsewhere-app', ${OTHER_WORKER}, 'elsewhere', 'Elsewhere', 'elsewhere'),
+				('other-app', ${OTHER_WORKER}, ${PROJECT}, 'Other app', 'other app')`.execute(
+			dbHandle.db,
+		);
+		await sql`insert into cases(app_id,project_id,case_id,case_type,case_name,status,properties)
+			values ('elsewhere-app','elsewhere','private','visit','Private','open','{}'::jsonb),
+				('other-app',${PROJECT},'other-app-case','visit','Other app case','open','{}'::jsonb)`.execute(
+			dbHandle.db,
+		);
+		for (const [child, ancestor, name, type, relationship = "child"] of [
+			["care-a", "middle", "parent", "group"],
+			["extension-seed", "extension-host", "host", "episode", "extension"],
+			["extension-leaf", "extension-seed", "host", "episode", "extension"],
+			["middle", "last", "parent", "region"],
+			["child", "care-a", "parent", "episode"],
+			["second-child", "patient-a", "parent", "patient"],
+			["ignored-child", "patient-a", "parent", "patient"],
+			["non-parent", "care-a", "mentor", "episode"],
+			["private", "patient-a", "parent", "patient"],
+			["other-app-case", "patient-a", "parent", "patient"],
+		]) {
+			await sql`insert into case_indices(case_id,ancestor_id,identifier,depth,relationship,target_case_type)
+				values (${child},${ancestor},${name},1,${relationship},${type})`.execute(
+				dbHandle.db,
+			);
+		}
+		const parentColumn = caseListConfig([
+			{ field: "case_name", header: "Region" },
+		]);
+		parentColumn.columns[0] = {
+			...parentColumn.columns[0],
+			kind: "plain",
+			field: "case_name",
+			via: [{ identifier: "parent" }, { identifier: "parent" }],
+		};
+		const explicit = caseListConfig([
+			{ field: "case_name", header: "Details" },
+		]);
+		explicit.detailTabs = [
+			{
+				uuid: testUuid("closed-detail"),
+				title: "Nearby records",
+				startColumnUuid: explicit.detailColumnOrder[0],
+				displayCondition: eq(literal(1), literal(2)),
+				rowSource: {
+					kind: "records",
+					rows: {
+						kind: "cases",
+						source: "casedb",
+						where: [
+							eq(
+								{ kind: "case-row-type" },
+								{ kind: "case-type", caseType: "patient" },
+							),
+						],
+					},
+					includeChildrenOfType: "visit",
+				},
+			},
+		];
+		const second = caseListConfig([{ field: "case_name", header: "Tasks" }]);
+		second.detailTabs = [
+			{
+				uuid: testUuid("tasks"),
+				title: "Tasks",
+				startColumnUuid: second.detailColumnOrder[0],
+				rowSource: { kind: "children", caseType: "task" },
+			},
+		];
+		const disabled = caseListConfig([{ field: "case_name", header: "Notes" }]);
+		disabled.detailTabs = [
+			{
+				uuid: testUuid("notes"),
+				title: "Notes",
+				startColumnUuid: disabled.detailColumnOrder[0],
+				rowSource: { kind: "children", caseType: "note" },
+			},
+		];
+		const primary = caseListConfig([{ field: "case_name", header: "Name" }]);
+		primary.additionalCaseTypes = ["household"];
+		primary.searchFilters = [
+			{
+				uuid: testUuid("requested"),
+				kind: "request-record-type",
+				caseType: "document",
+			},
+		];
+		const doc = buildDoc({
+			caseTypes: [
+				PATIENT,
+				HOUSEHOLD,
+				...[
+					"document",
+					"episode",
+					"group",
+					"region",
+					"visit",
+					"task",
+					"note",
+				].map((name) => ({ name, properties: [] })),
+			],
+			modules: [
+				{
+					name: "Find records",
+					caseType: "patient",
+					caseListConfig: primary,
+					caseSearchConfig: {
+						relatedRecordIdProperty: "care_record",
+						relatedRecords: "details",
+					},
+					forms: [],
+				},
+				{
+					name: "Related information",
+					caseType: "patient",
+					caseListConfig: parentColumn,
+					caseSearchConfig: {},
+					forms: [],
+				},
+				{
+					name: "Nearby",
+					caseType: "household",
+					caseListConfig: explicit,
+					caseSearchConfig: {},
+					forms: [],
+				},
+				{
+					name: "Other tasks",
+					caseType: "document",
+					caseListConfig: second,
+					caseSearchConfig: {},
+					forms: [],
+				},
+				{
+					name: "Notes on device",
+					caseType: "patient",
+					caseListConfig: disabled,
+					forms: [],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		const projected = completedSearchRequest(
+			doc.modules[moduleUuid],
+			undefined,
+			undefined,
+			{},
+			{ doc, moduleUuid, caseType: "patient" },
+		);
+		const request = { ...projected, configuration: undefined };
+		const args = {
+			...SEARCH,
+			caseListConfig: primary,
+			additionalCaseTypes: primary.additionalCaseTypes,
+			searchPopulation: { ...SEARCH.searchPopulation, request },
+		};
+		const fixture = await readSearchResultsSnapshot(store, args);
+		expect(fixture.totalMatches).toBe(3);
+		expect(
+			fixture.rows
+				.filter((row) => row.properties.commcare_is_related_case !== "true")
+				.map((row) => [row.case_id, row.case_type]),
+		).toEqual([
+			["file-a", "document"],
+			["house-a", "household"],
+			["patient-a", "patient"],
+		]);
+		expect(
+			fixture.rows
+				.filter((row) => row.properties.commcare_is_related_case === "true")
+				.map((row) => [row.case_id, row.status])
+				.sort(),
+		).toEqual([
+			["care-a", "closed"],
+			["child", "closed"],
+			["extension-seed", "closed"],
+			["last", "closed"],
+			["second-child", "closed"],
+		]);
+		const hierarchy = await readSearchResultsSnapshot(store, {
+			...args,
+			searchPopulation: {
+				...args.searchPopulation,
+				request: { ...request, includeRelatedHierarchy: true },
+			},
+		});
+		expect(hierarchy.totalMatches).toBe(3);
+		expect(
+			hierarchy.rows
+				.filter((row) => row.properties.commcare_is_related_case === "true")
+				.map((row) => [row.case_id, row.status])
+				.sort(),
+		).toEqual([
+			["care-a", "closed"],
+			["child", "closed"],
+			["extension-host", "open"],
+			["extension-leaf", "open"],
+			["extension-seed", "closed"],
+			["ignored-child", "closed"],
+			["last", "closed"],
+			["middle", "closed"],
+			["second-child", "closed"],
+		]);
+
+		const page = await store.querySearchResults(args);
+		expect(page.primaryCount).toBe(3);
+		expect(page.totalRows).toBe(2);
+		expect(page.rows.map((row) => row.case_id).sort()).toEqual([
+			"house-a",
+			"patient-a",
+		]);
+		const claimType = caseClaimCaseType();
+		const schemas = buildCaseTypeMap(doc);
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: claimType.name,
+			caseTypeSchemas: new Map([...schemas, [claimType.name, claimType]]),
+		});
+		for (const unavailable of [
+			"file-a",
+			"care-a",
+			"child",
+			"middle",
+			"private",
+			"other-app-case",
+		]) {
+			const ids = ["house-a", unavailable];
+			await expect(
+				store.claimCases({
+					appId: APP_ID,
+					caseIds: ids,
+					fromSearches: [{ caseIds: ids, query: args }],
+				}),
+			).rejects.toMatchObject({ name: "CaseNotFoundError" });
+			expect(await store.countClaims({ appId: APP_ID })).toBe(0);
+		}
+		await expect(
+			store.claimCases({
+				appId: APP_ID,
+				caseIds: ["house-a"],
+				fromSearches: [{ caseIds: ["house-a"], query: args }],
+			}),
+		).resolves.toMatchObject({ created: ["house-a"] });
+		const prefix = await store.readSearchResultInstance({
+			...args,
+			searchPopulation: {
+				...args.searchPopulation,
+				request: {
+					...request,
+					relatedPaths: [["parent", "parent"], ["parent"]],
+				},
+			},
+		});
+		expect(prefix.rows.map((row) => row.case_id).sort()).toEqual([
+			"care-a",
+			"child",
+			"extension-seed",
+			"file-a",
+			"house-a",
+			"last",
+			"middle",
+			"patient-a",
+			"second-child",
+		]);
+	});
+});
+
+it("preserves the retained default Search reset at the real server cap", async () => {
+	const ordinary = {
+		comparison: "date",
+		property: "visit",
+		direction: "descending",
+	} as const;
+	const reset = {
+		comparison: "indexed-fallback",
+		property: "priority",
+		direction: "ascending",
+	} as const;
+	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+	config.searchFilters = [ordinary, reset, ordinary].map((term, index) => ({
+		uuid: testUuid(`search-order-reset-${index}`),
+		kind: "order",
+		order: [term],
+	}));
+	const date = new Date("2026-05-02T12:00:00Z");
+	const cases = [
+		...Array.from({ length: SEARCH_RESULTS_CAP - 2 }, (_, index) => ({
+			id: `qualifying-${index}`,
+			priority: "1",
+			visit: "2020-01-01",
+		})),
+		{ id: "two-earlier", priority: "2", visit: "2024-01-01" },
+		{ id: "two-later", priority: "2", visit: "2025-01-01" },
+		{ id: "ten", priority: "10", visit: "2027-01-01" },
+		{ id: "letter", priority: "alpha", visit: "2026-01-01" },
+	];
+	await (dbHandle.db as unknown as Kysely<Database>)
+		.insertInto("cases")
+		.values(
+			cases.map(({ id, priority, visit }) => ({
+				case_id: id,
+				case_name: id,
+				case_type: "patient",
+				app_id: APP_ID,
+				project_id: PROJECT,
+				owner_id: WORKER,
+				status: "open",
+				opened_on: date,
+				modified_on: date,
+				properties: JSON.stringify({ priority, visit }),
+			})),
+		)
+		.execute();
+	const store = storeAs(WORKER);
+	const projected = completedSearchRequest({
+		caseListConfig: config,
+		caseSearchConfig: { workflow: "skipToResults" },
+	});
+	expect(projected.order).toEqual([
+		{ key: "priority", type: "number", direction: "asc", missing: "last" },
+		{ key: "priority", type: "date", direction: "asc", missing: "last" },
+		{ key: "priority", type: "text", direction: "asc", missing: "last" },
+		{ key: "visit", type: "date", direction: "desc" },
+	]);
+	const { configuration: _configuration, ...request } = projected;
+	const ids = async (order: CaseSearchRequest["order"]) => {
+		const snapshot = await readSearchResultsSnapshot(store, {
+			...SEARCH,
+			searchPopulation: {
+				...SEARCH.searchPopulation,
+				request: { ...request, order },
+			},
+		});
+		expect(snapshot.totalMatches).toBe(SEARCH_RESULTS_CAP);
+		return snapshot.rows
+			.map((row) => row.case_id)
+			.filter((id) => !id.startsWith("qualifying-"))
+			.sort();
+	};
+	expect(await ids(request.order)).toEqual(["two-earlier", "two-later"]);
+	expect(
+		await ids(request.order?.map(({ missing: _missing, ...term }) => term)),
+	).toEqual(["letter", "two-later"]);
 });

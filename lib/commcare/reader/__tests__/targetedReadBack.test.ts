@@ -31,6 +31,7 @@ import { isDeepStrictEqual } from "node:util";
 import { expect, it } from "vitest";
 import { recordDialectRoundTrip } from "@/lib/agent/authoring/recordRoundTrip";
 import { sourceUsesCaseListActionSetting } from "@/lib/commcare/hq/caseListActionSetting";
+import { readingAppStrings } from "@/lib/deployment/reading/appStrings";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type {
 	BlueprintDoc,
@@ -49,7 +50,7 @@ import { projectProseTemplate } from "@/lib/domain/prose";
 import { rewriteExpressionSlotValues } from "@/lib/domain/referenceSlots";
 import { filledProse } from "@/lib/domain/translationFill";
 import { snapshotTranslationUnits } from "@/lib/domain/translationUnits";
-import type { CorpusDocument } from "@/proof/corpus/documents";
+import { type CorpusDocument, lookupContextOf } from "@/proof/corpus/documents";
 import { expandDoc } from "../../expander";
 import { lookupWireNaming } from "../../lookup/naming";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
@@ -60,7 +61,11 @@ import {
 } from "../expressions/__tests__/readBackCorpus";
 import { matchingResolver } from "../identity";
 import { externalIdentityMap } from "../identityMap";
-import { knownCaseTypesOf, readHqApp } from "../index";
+import {
+	knownCaseTypesOf,
+	knownPositionedCaseOperationIdsOf,
+	readHqApp,
+} from "../index";
 import { whereText } from "../place";
 import type {
 	ReaderInput,
@@ -358,6 +363,7 @@ async function readBack(
 		...(JSON.parse(JSON.stringify(emitted)) as Record<string, unknown>),
 	};
 	const catalog = lookupCatalog(document);
+	const appStrings = readingAppStrings(lookupContextOf(document.lookup));
 	// The project space holds the document's own levels, as a publish sets
 	// them up, and a re-read mints what the document does not hold under the
 	// app's own id.
@@ -368,6 +374,7 @@ async function readBack(
 			externalIdentityMap(doc, DERIVED_WIRE_IDENTITY),
 		),
 		knownCaseTypes: knownCaseTypesOf(doc),
+		knownPositionedCaseOperationIds: knownPositionedCaseOperationIdsOf(doc),
 		// HQ keeps no name for an opening record; a re-read takes the names
 		// the published document gave its records, as a bring-in does.
 		knownFormEntryChoices: knownFormEntryChoicesOf(doc),
@@ -389,6 +396,7 @@ async function readBack(
 		// which a reading of that project space observes.
 		sourceProjectFactories: { locations: "flat" },
 		lookup: catalog,
+		appStrings,
 		organization: { levelCodes: levels.map((level) => level.code), levels },
 		media: {
 			resolve: (path): ReaderMediaResolution => {
@@ -432,10 +440,13 @@ async function readBack(
 		!declaration.choices.some((choice) => choice.runsOnlyOn === runsOnlyOn)
 	)
 		return `the reading offers no declaration for ${runsOnlyOn ?? "both platforms"}`;
-	const reading = await readBody(body, doc, recordDialectRoundTrip, {
-		naming: naming ?? lookupWireNaming([]),
-		catalog,
-	});
+	const reading = await readBody(
+		body,
+		doc,
+		recordDialectRoundTrip,
+		{ naming: naming ?? lookupWireNaming([]), catalog },
+		{ appStrings },
+	);
 	const differing = judgeReadBack(want, reading).filter(
 		({ verdict }) => verdict.kind === "differs",
 	);

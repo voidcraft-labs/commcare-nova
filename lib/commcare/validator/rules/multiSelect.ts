@@ -20,12 +20,15 @@ import {
 	fieldReferenceSlotsFor,
 	formLinkEntries,
 	formLinkSelectionIsCompatible,
+	isOrdinaryCaseSearchConfig,
 	type Module,
 	moduleIsBareCaseList,
 	readSlotValues,
 	resolveFormLinkTarget,
 	type Uuid,
 } from "@/lib/domain";
+import { authoredBoundedFlatSelection } from "@/lib/domain/boundedFlatClose";
+import { STANDARD_CASE_SELECTION_MAXIMUM } from "@/lib/domain/caseSelectionLimits";
 import { activeRowScope, slotContext } from "@/lib/domain/expression/context";
 import { expressionContextAtPath } from "@/lib/domain/expression/typeChecker";
 import {
@@ -34,6 +37,7 @@ import {
 	type SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import {
 	expressionSlotValues,
 	translatedFieldProse,
@@ -71,9 +75,41 @@ export function multiSelectTopology(
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
 ): ValidationError[] {
-	if (!isMultiple(module)) return [];
-
 	const errors: ValidationError[] = [];
+	if (
+		isOrdinaryCaseSearchConfig(module.caseSearchConfig) &&
+		module.caseSearchConfig.searchOnClear === true &&
+		menuWithInheritedCaseSettings(doc, moduleUuid)?.caseListConfig?.selection
+			?.autoSelect === true
+	) {
+		errors.push(
+			validationError(
+				"MULTI_SELECT_SEARCH_ON_CLEAR",
+				"module",
+				"Turn off searching when the worker clears Search before choosing matching cases automatically.",
+				{ moduleUuid, moduleName: module.name },
+			),
+		);
+	}
+	if (!isMultiple(module)) return errors;
+	if (
+		caseSelectionMaximum(module) > STANDARD_CASE_SELECTION_MAXIMUM &&
+		!authoredBoundedFlatSelection(
+			doc,
+			moduleUuid,
+			doc.formOrder[moduleUuid]?.[0],
+		)
+	) {
+		errors.push(
+			validationError(
+				"MULTI_SELECT_LARGE_BATCH_REQUIRES_FLAT_CLOSE",
+				"module",
+				"A single Web Apps list can choose up to 101 records to close them, or up to 500 to collect text answers without changing any records. Use a limit of 100 for other workflows.",
+				{ moduleUuid, moduleName: module.name },
+			),
+		);
+	}
+
 	if (module.caseListConfig?.tile?.persistOnForms === true) {
 		errors.push(
 			validationError(
@@ -230,13 +266,14 @@ export function multiSelectFormSemantics(
 		if (
 			operation.action === "create" &&
 			operation.target.kind === "new" &&
-			operation.target.idFrom !== undefined
+			(operation.target.idFrom !== undefined ||
+				operation.target.expr !== undefined)
 		) {
 			errors.push(
 				validationError(
 					"MULTI_SELECT_AUTHORED_KEY_CREATE",
 					"form",
-					`Create operation "${operation.id}" derives its case id from one shared form answer. On a form that runs over several selected cases, that would reuse the same derived id across the selected-case execution. Use a generated case id instead.`,
+					`Create operation "${operation.id}" chooses its case ID from the form. A form that runs over several selected cases may reuse that ID across cases. Use a generated case id instead.`,
 					loc,
 					{ operationUuid: operation.uuid, operationId: operation.id },
 				),

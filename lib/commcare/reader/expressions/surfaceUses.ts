@@ -7,12 +7,16 @@
  * (`proof/checks/manifest_value_classes.py`), so a reading's claim log and
  * the lane's standings can be held to each other.
  */
-import type { ExpressionContext } from "@/lib/domain/expression/context";
+import type {
+	ExpressionContext,
+	FormExpressionFacts,
+} from "@/lib/domain/expression/context";
 import { literalShape } from "@/lib/domain/expression/ruleSets";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
 import { recordFromEntries } from "@/lib/domain/records";
 import { type SourceTable, tableOf } from "../../sourceKeys";
+import { inlineSearchInstance } from "../../suite/case-search/types";
 import { inventoryIndex } from "../../surface/inventory";
 import { rethrowWorkStop } from "../../workMeter";
 import { type FormSyntax, literalInstanceId } from "../../xpath/formSyntax";
@@ -199,6 +203,8 @@ function instancePath(
 /** What decides the class of a use beyond its syntax and its slot, from the
  *  slot's reading and its owner. */
 export interface SurfaceUseFacts {
+	readonly bareLookupCountWithoutSupplier?: boolean;
+	readonly guardedLookupCountWithoutSupplier?: boolean;
 	/** The session datum ids the expression reads that its entry does not
 	 *  supply, from the parse issue or the checker's refusal; `"all"` where
 	 *  the refusal says the entry does not supply a datum the expression reads
@@ -243,12 +249,24 @@ function sessionUse(
 	steps: readonly string[],
 	context: ExpressionContext,
 	facts: SurfaceUseFacts,
+	holdsLookupCount: boolean,
 ): { readonly key: string; readonly valueClass?: string } | undefined {
 	const [root, group, next, field] = steps;
 	if (root !== "session" || next === undefined) return undefined;
 	if (group === "data") {
-		if (next === "stringquery" || next === "fingerprintquery")
-			return { key: `session-path:session/data/${next}` };
+		if (next === "stringquery")
+			return { key: "session-path:session/data/stringquery" };
+		if (next === "fingerprintquery")
+			return {
+				key: "session-path:session/data/fingerprintquery",
+				valueClass: holdsLookupCount
+					? "guarded-numeric-lookup-count-from-one-supplier"
+					: facts.bareLookupCountWithoutSupplier
+						? "bare-fingerprint-query-without-a-supplier"
+						: facts.guardedLookupCountWithoutSupplier
+							? "guarded-fingerprint-query-without-a-supplier"
+							: "count-outside-a-guarded-single-supplier",
+			};
 		return {
 			key: "session-path:session/data/*",
 			valueClass:
@@ -270,6 +288,25 @@ function sessionUse(
 	if (group === "user" && next === "data" && field !== undefined)
 		return { key: "session-path:session/user/data/*" };
 	return undefined;
+}
+
+/** Which completed query supplies a form's prompt, including a registration after an empty search. */
+export function formSearchAnswerClass(
+	id: string,
+	form: FormExpressionFacts | undefined,
+) {
+	const supplier = form?.searchSuppliers?.find(
+		(search) =>
+			id === `search-input:${inlineSearchInstance(search.resultsName)}`,
+	);
+	if (supplier !== undefined)
+		return supplier.module === form?.moduleUuid
+			? "inline-search-form"
+			: "child-menu-of-inline-search-form";
+	return form?.caseListRegistrationForm &&
+		id === `search-input:${inlineSearchInstance(form.searchResultsName)}`
+		? "inline-search-form"
+		: "non-inline-search-form";
 }
 
 /** The class an instance of `id` is read in from the slot it stands in and
@@ -309,7 +346,14 @@ function instanceClass(
 			return "mobile-ucr-reports";
 		case "results":
 			if (inModule) return "search-detail";
-			return inlineForm ? "inline-search-form" : "non-inline-search-form";
+			return context.form?.searchSuppliers?.some(
+				(search) => id === `results:${search.resultsName ?? "inline"}`,
+			) ||
+				(inlineForm &&
+					context.form?.caseListRegistrationForm &&
+					id === `results:${context.form.searchResultsName ?? "inline"}`)
+				? "inline-search-form"
+				: "non-inline-search-form";
 		case "search-input":
 			// A Search field's own slots run while the query is built, where
 			// the legacy id reads too, and so does the owner exclusion: HQ's
@@ -318,7 +362,9 @@ function instanceClass(
 			// answers (`RemoteQuerySessionManager.getRawQueryParams`).
 			if (
 				inModule &&
-				(slot.startsWith("search_input_") || slot === "excluded_owner_ids")
+				(slot.startsWith("search_input_") ||
+					slot === "excluded_owner_ids" ||
+					slot === "project_search_parameter")
 			)
 				return "query-build";
 			// The legacy id is provided only while the query is built.
@@ -327,10 +373,7 @@ function instanceClass(
 				return facts.menu === "inline"
 					? "inline-search-list"
 					: "results-detail";
-			if (inlineForm) return "inline-search-form";
-			return facts.menu === "child-of-inline"
-				? "child-menu-of-inline-search-form"
-				: "non-inline-search-form";
+			return formSearchAnswerClass(id, context.form);
 		default:
 			return undefined;
 	}
@@ -433,9 +476,11 @@ function xpathUses(
 	const expression = (name: string, valueClass?: string) =>
 		uses.add(`xpath-expr:${name}`, valueClass ?? OPERAND_CLASS);
 	const staticChoices = new Set<string>();
+	let holdsLookupCount = false;
 	if (candidate !== undefined)
 		walkExpression(candidate, {
 			visitExpression(node) {
+				if (node.kind === "case-list-lookup-count") holdsLookupCount = true;
 				if (
 					node.kind === "choice-name" &&
 					context.facts.options.has(node.field)
@@ -582,7 +627,12 @@ function xpathUses(
 					classifiedInstanceId(path.id, facts.instanceSources.get(path.id)) ===
 						"commcaresession"
 				) {
-					const session = sessionUse(path.steps, context, facts);
+					const session = sessionUse(
+						path.steps,
+						context,
+						facts,
+						holdsLookupCount,
+					);
 					if (session !== undefined) uses.add(session.key, session.valueClass);
 				}
 				if (node.left !== undefined) visit(node.left, node);

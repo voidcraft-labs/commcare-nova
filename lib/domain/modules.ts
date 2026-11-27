@@ -36,11 +36,13 @@ import { z } from "zod";
 import { formIconRefSchema, moduleIconRefSchema } from "./builtinIcons";
 import { caseFormContextSchema } from "./caseFormContext";
 import { uniqueCaseMappingRows } from "./caseMappingRows";
+import { isAdvancedCaseIndexIdentifier } from "./caseOperationIdentifiers";
 import {
 	authoredCasePropertyNameSchema,
 	readCasePropertyNameSchema,
 } from "./casePropertyName";
 import type { CasePropertyDataType } from "./casePropertyTypes";
+import { BOUNDED_FLAT_FOLLOWUP_MAXIMUM } from "./caseSelectionLimits";
 import { COMMCARE_DATE_PATTERN_REGEX } from "./commCareDatePattern";
 import { detailTabSpans, detailTabsSchema } from "./detailTabSchema";
 import { entryPointSchema } from "./entryPoints";
@@ -50,6 +52,7 @@ import type {
 	RelationStep,
 } from "./expression/types";
 import {
+	caseTypeNameSchema,
 	conditionSchema,
 	relationPathSchema,
 	relationStepSchema,
@@ -62,6 +65,7 @@ import {
 	persistableJsonPositiveIntegerSchema,
 } from "./jsonNumber";
 import { lookupOptionsSourceSchema } from "./lookupCarriers";
+import { lookupTableIdSchema } from "./lookupIds";
 import { lookupReadSchema, sameLookupRead } from "./lookupRead";
 import { menuBadgeSchema } from "./menuBadge";
 import { type MediaAssetId, mediaAssetIdSchema } from "./multimedia";
@@ -69,7 +73,12 @@ import {
 	formerNavigationMediaSchema,
 	navigationMediaSchema,
 } from "./navigationMedia";
-import { CASE_NODE_ATTRIBUTE_PROPERTIES } from "./standardCaseProperties";
+import { searchResultDetailTextSchema } from "./searchResultDetailShape";
+import {
+	CASE_NODE_ATTRIBUTE_PROPERTIES,
+	isDeviceOnlyCaseProperty,
+	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
+} from "./standardCaseProperties";
 import { type Uuid, uuidSchema } from "./uuid";
 
 // ── Sort + visibility — common column slots ──────────────────────
@@ -1091,6 +1100,9 @@ const calculatedColumnSchema = columnBase.extend({
 			"Show this calculation as formatted text. Workers on Web Apps can follow Markdown links in a case result.",
 		),
 	expression: valueSchema,
+	searchResultDetail: searchResultDetailTextSchema.optional(),
+	/** Keep the native spelling of a property read from its own inline result. */
+	inlineResultProperty: z.literal(true).optional(),
 	loadBehavior: columnLoadBehaviorSchema.optional(),
 });
 
@@ -1760,6 +1772,66 @@ export function searchInputNameRefusal(name: string): string | undefined {
 		: SEARCH_INPUT_NAME_REJECTION;
 }
 
+export const SEARCH_ADDRESS_PARTS = [
+	"full",
+	"geopoint",
+	"street",
+	"city",
+	"district",
+	"county",
+	"zipcode",
+	"postcode",
+	"region",
+	"state_long",
+	"state_short",
+	"us_state",
+	"us_state_short",
+	"country",
+	"country_short",
+] as const;
+
+/** A saved Web Apps subscription to one event name with no component separator.
+ * An address picker cannot have this name, so the subscription is never invoked. */
+export const UNMATCHED_ADDRESS_TOPIC_PATTERN =
+	/^[A-Za-z_][A-Za-z0-9_]*\|\|[A-Za-z_][A-Za-z0-9_]*$/;
+
+const ADDRESS_SELECTOR_SEGMENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** A plain text receiver clears when its active publisher supplies no such component. */
+export function isSearchAddressClearComponent(component: string): boolean {
+	return (
+		ADDRESS_SELECTOR_SEGMENT.test(component) &&
+		!(SEARCH_ADDRESS_PARTS as readonly string[]).includes(component) &&
+		!(component in Object.prototype)
+	);
+}
+
+export const searchAddressReceiverSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("address"),
+		source: uuidSchema,
+		parts: z.array(z.enum(SEARCH_ADDRESS_PARTS)).min(1),
+	}),
+	z.strictObject({
+		kind: z.literal("address-clear"),
+		source: uuidSchema,
+		component: z.string().refine(isSearchAddressClearComponent),
+		suffix: z.string().regex(ADDRESS_SELECTOR_SEGMENT).optional(),
+	}),
+	z.strictObject({
+		kind: z.literal("unsubscribed"),
+		topic: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/),
+		fields: z
+			.string()
+			.regex(/^[A-Za-z_][A-Za-z0-9_]*(?:\|\|[A-Za-z_][A-Za-z0-9_]*)*$/),
+	}),
+	z.strictObject({
+		kind: z.literal("unsubscribed-topic"),
+		topic: z.string().regex(UNMATCHED_ADDRESS_TOPIC_PATTERN),
+	}),
+]);
+export type SearchAddressReceiver = z.infer<typeof searchAddressReceiverSchema>;
+
 // Common slots present on every SearchInputDef arm.
 //
 // `name` is written as an attribute value (`<prompt key="X">`), a string
@@ -1774,7 +1846,18 @@ const searchInputBase = z.strictObject({
 		.string()
 		.regex(SEARCH_INPUT_NAME_PATTERN, SEARCH_INPUT_NAME_REJECTION),
 	label: z.string(),
+	group: uuidSchema.optional(),
 });
+
+/**
+ * Localized heading for an ordered set of Search fields. Its placement and
+ * members are independent of a project's wire identifiers.
+ */
+export const searchInputGroupSchema = z.strictObject({
+	uuid: uuidSchema,
+	label: z.string().trim().min(1),
+});
+export type SearchInputGroup = z.infer<typeof searchInputGroupSchema>;
 
 /**
  * Whether a worker must answer a prompt before Search runs. `{}` is
@@ -1833,6 +1916,7 @@ export type SearchInputValidation = z.infer<typeof searchInputValidationSchema>;
  */
 const visibleSearchInputBase = searchInputBase
 	.extend({
+		addressReceiver: searchAddressReceiverSchema.optional(),
 		hint: z.string().min(1).optional(),
 		required: searchInputRequiredSchema.optional(),
 		validation: searchInputValidationSchema.optional(),
@@ -1935,6 +2019,25 @@ z.globalRegistry.add(searchInputLookupOptionsSchema, {
 	id: "SearchInputLookupOptions",
 });
 
+/** The worker chooses the name of an open record in their own restore.
+ * The separate lookup table remains selected in the HQ editor. Its rows
+ * provide no answers on the device. */
+const restoredCaseNameSearchOptionsSchema = z.strictObject({
+	kind: z.literal("restored-case-names"),
+	tableId: lookupTableIdSchema,
+	caseType: caseTypeNameSchema,
+});
+export type RestoredCaseNameSearchOptions = z.infer<
+	typeof restoredCaseNameSearchOptionsSchema
+>;
+const ordinarySearchInputOptionsSchema = z.discriminatedUnion("kind", [
+	searchInputLookupOptionsSchema,
+	restoredCaseNameSearchOptionsSchema,
+]);
+export type OrdinarySearchInputOptions = z.infer<
+	typeof ordinarySearchInputOptionsSchema
+>;
+
 /** The column whose text orders a Search question's lookup choices. */
 export function searchInputLookupSortColumnId(
 	options: SearchInputLookupOptions,
@@ -1951,7 +2054,8 @@ export function searchInputLookupSortColumnId(
 export function withCanonicalSearchInputOptions<T extends SearchInputDef>(
 	input: T,
 ): T {
-	if (!isSelectSearchInput(input)) return input;
+	if (!isSelectSearchInput(input) || input.options.kind !== "lookup")
+		return input;
 	const { sortColumnId, ...options } = input.options;
 	if (
 		sortColumnId === undefined ||
@@ -1978,7 +2082,7 @@ export const simpleSelectSearchInputSchema = visibleSearchInputBase
 	.extend({
 		...simpleSearchInputSlots,
 		type: z.enum(SELECT_SEARCH_INPUT_TYPES),
-		options: searchInputLookupOptionsSchema,
+		options: ordinarySearchInputOptionsSchema,
 		default: valueSchema.optional(),
 		mode: selectSearchInputModeSchema.optional(),
 	})
@@ -2012,11 +2116,43 @@ export const advancedSelectSearchInputSchema = visibleSearchInputBase
 	.extend({
 		kind: z.literal("advanced"),
 		type: z.enum(SELECT_SEARCH_INPUT_TYPES),
-		options: searchInputLookupOptionsSchema,
+		options: ordinarySearchInputOptionsSchema,
 		default: valueSchema.optional(),
 		predicate: conditionSchema,
 	})
 	.strict();
+
+/** A project search defines what each answer means. The field can send its
+ * answer under its name or only supply another parameter's expression. */
+const projectParameter = {
+	kind: z.literal("parameter"),
+	sendAnswer: z.boolean(),
+};
+export const projectScalarSearchInput = visibleSearchInputBase
+	.extend({
+		...projectParameter,
+		type: z.enum(SCALAR_SEARCH_INPUT_TYPES),
+		default: valueSchema.optional(),
+	})
+	.strict();
+export const projectRangeSearchInput = visibleSearchInputBase
+	.extend({
+		...projectParameter,
+		type: z.literal("date-range"),
+	})
+	.strict();
+export const projectChoiceSearchInput = visibleSearchInputBase
+	.extend({
+		...projectParameter,
+		type: z.enum(SELECT_SEARCH_INPUT_TYPES),
+		options: searchInputLookupOptionsSchema,
+		default: valueSchema.optional(),
+	})
+	.strict();
+export type ProjectParameterSearchInput =
+	| z.infer<typeof projectScalarSearchInput>
+	| z.infer<typeof projectRangeSearchInput>
+	| z.infer<typeof projectChoiceSearchInput>;
 
 /**
  * Hidden search input — a value Nova computes when the Search screen opens
@@ -2041,9 +2177,62 @@ export const advancedSelectSearchInputSchema = visibleSearchInputBase
 export const hiddenSearchInputSchema = searchInputBase
 	.extend({
 		kind: z.literal("hidden"),
+		/** Send the computed value to the search supplied by the project space. */
+		sendAnswer: z.literal(true).optional(),
 		value: valueSchema.optional(),
 	})
 	.strict();
+
+const savedAddressText = z
+	.string()
+	.regex(/^[^'\p{Cc}\p{Cs}\uFEFF\uFFFE\uFFFF]+$/u)
+	.refine((value) => value.trim() !== "");
+
+/** The stored address is read independently of the Search answer. */
+export const SAVED_ADDRESS_WORKER_FIELDS = [
+	"username",
+	"userid",
+	"deviceid",
+	"appversion",
+] as const;
+
+export const savedSearchAddressDefaultSchema = z.union([
+	savedAddressText,
+	z.tuple([savedAddressText, savedAddressText]),
+	z.strictObject({
+		prefix: savedAddressText,
+		worker: z.enum(SAVED_ADDRESS_WORKER_FIELDS),
+	}),
+]);
+export type SavedSearchAddressDefault = z.infer<
+	typeof savedSearchAddressDefaultSchema
+>;
+
+/** A Web Apps search for a place supplies other prompts by identity. It
+ * does not bind an ordinary search answer. */
+export const addressSearchInputSchema = searchInputBase.extend({
+	name: z
+		.string()
+		.regex(
+			/^[A-Za-z_][A-Za-z0-9_]*$/,
+			"Use letters, numbers or underscores in an address field name.",
+		),
+	kind: z.literal("address"),
+	type: z.literal("address"),
+	excludeFromRequest: z.literal(true).optional(),
+	/** Imported setting preserved on export. It does not supply a Search answer. */
+	savedDefault: savedSearchAddressDefaultSchema.optional(),
+	// Match the optional slots read by shared prompt projections without
+	// allowing expressions or answer-entry settings on an address picker.
+	required: z.never().optional(),
+	validation: z.never().optional(),
+	default: z.never().optional(),
+	hidden: z.never().optional(),
+	addressReceiver: z.never().optional(),
+	hint: z.string().min(1).optional(),
+	allowBlank: z.never().optional(),
+});
+export type AddressSearchInput = z.infer<typeof addressSearchInputSchema>;
 
 /**
  * Exact seven-arm union over two authoring dimensions:
@@ -2053,7 +2242,7 @@ export const hiddenSearchInputSchema = searchInputBase
  *
  * This cannot be a Zod `discriminatedUnion("kind", ...)`: simple and advanced
  * each appear in three arms. Keeping the widget split structural is what makes
- * a scalar range mode, a choice input without a table, or a
+ * a scalar range mode, a choice input without a source, or a
  * required hidden value unrepresentable.
  */
 export const searchInputDefSchema = z.union([
@@ -2063,6 +2252,10 @@ export const searchInputDefSchema = z.union([
 	advancedScalarSearchInputSchema,
 	advancedDateRangeSearchInputSchema,
 	advancedSelectSearchInputSchema,
+	projectScalarSearchInput,
+	projectRangeSearchInput,
+	projectChoiceSearchInput,
+	addressSearchInputSchema,
 	hiddenSearchInputSchema,
 ]);
 export type SimpleScalarSearchInputDef = z.infer<
@@ -2095,10 +2288,12 @@ export type AdvancedSearchInputDef =
 	| AdvancedSelectSearchInputDef;
 /** Every arm a worker can see and answer. */
 export type VisibleSearchInputDef =
+	| ProjectParameterSearchInput
 	| SimpleSearchInputDef
 	| AdvancedSearchInputDef;
-/** Every arm that names a lookup table for its choices. */
+/** Every arm that has dynamic choices. */
 export type SelectSearchInputDef =
+	| z.infer<typeof projectChoiceSearchInput>
 	| SimpleSelectSearchInputDef
 	| AdvancedSelectSearchInputDef;
 
@@ -2111,7 +2306,15 @@ export function isHiddenSearchInput(
 export function isVisibleSearchInput(
 	input: SearchInputDef,
 ): input is VisibleSearchInputDef {
-	return input.kind !== "hidden";
+	return input.kind !== "hidden" && input.kind !== "address";
+}
+
+export type SearchAnswerInput = Exclude<SearchInputDef, { kind: "address" }>;
+
+export function isSearchAnswerInput(
+	input: SearchInputDef,
+): input is SearchAnswerInput {
+	return input.kind !== "address";
 }
 
 export function isSelectSearchInput(
@@ -2123,8 +2326,8 @@ export function isSelectSearchInput(
 /** The inputs a worker sees on the Search screen, in authored order. */
 export function visibleSearchInputs(
 	inputs: readonly SearchInputDef[],
-): VisibleSearchInputDef[] {
-	return inputs.filter(isVisibleSearchInput);
+): Exclude<SearchInputDef, { kind: "hidden" }>[] {
+	return inputs.filter((input) => input.kind !== "hidden");
 }
 
 /** The device expression that supplies a visible prompt’s starting value. */
@@ -2140,7 +2343,7 @@ export function searchInputDefault(
  * input binds whatever text its expression printed.
  */
 export function searchInputRuntimeValueType(
-	input: SearchInputDef,
+	input: SearchAnswerInput,
 ): CasePropertyDataType {
 	return input.kind === "hidden"
 		? "text"
@@ -2164,7 +2367,8 @@ export const SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE =
 export function searchInputRequiredMessage(
 	input: SearchInputDef,
 ): string | undefined {
-	if (input.kind === "hidden" || input.required === undefined) return undefined;
+	if (!isVisibleSearchInput(input) || input.required === undefined)
+		return undefined;
 	if (input.required.noMessage === true) return "";
 	return input.required.message ?? SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE;
 }
@@ -2186,7 +2390,7 @@ export const COMMCARE_SEARCH_INVALID_MESSAGE =
 export function searchInputValidationMessage(
 	input: SearchInputDef,
 ): string | undefined {
-	if (input.kind === "hidden" || input.validation === undefined)
+	if (!isVisibleSearchInput(input) || input.validation === undefined)
 		return undefined;
 	return input.validation.message ?? COMMCARE_SEARCH_INVALID_MESSAGE;
 }
@@ -2201,7 +2405,7 @@ export function searchCheckMessageRefusal(
 	input: SearchInputDef,
 ): string | undefined {
 	if (
-		input.kind !== "hidden" &&
+		isVisibleSearchInput(input) &&
 		input.required?.noMessage === true &&
 		input.required.message !== undefined
 	)
@@ -2213,7 +2417,9 @@ export function searchCheckMessageRefusal(
 export function searchInputOptions(
 	input: SearchInputDef,
 ): SearchInputLookupOptions | undefined {
-	return isSelectSearchInput(input) ? input.options : undefined;
+	return isSelectSearchInput(input) && input.options.kind === "lookup"
+		? input.options
+		: undefined;
 }
 
 /**
@@ -2241,7 +2447,7 @@ export interface SearchInputScreenPredicate {
 export function searchInputScreenExpressions(
 	input: SearchInputDef,
 ): readonly SearchInputScreenPredicate[] {
-	if (input.kind === "hidden") return [];
+	if (!isVisibleSearchInput(input)) return [];
 	const out: SearchInputScreenPredicate[] = [];
 	if (input.required?.when !== undefined) {
 		out.push({ slot: "required", predicate: input.required.when });
@@ -2333,6 +2539,7 @@ export function rangeMode(): Extract<SearchInputMode, { kind: "range" }> {
 
 /** Slots every visible prompt may carry beside its widget-specific ones. */
 interface SearchInputVisibleSlots {
+	readonly addressReceiver?: SearchAddressReceiver;
 	readonly hint?: string;
 	readonly required?: SearchInputRequired;
 	readonly validation?: SearchInputValidation;
@@ -2382,6 +2589,7 @@ function withSearchInputCommonSlots<T extends Record<string, unknown>>(
 	slots: SearchInputCommonSlots,
 ): T & SearchInputCommonSlots {
 	const out: T & {
+		addressReceiver?: SearchAddressReceiver;
 		default?: Expression;
 		hint?: string;
 		required?: SearchInputRequired;
@@ -2389,6 +2597,8 @@ function withSearchInputCommonSlots<T extends Record<string, unknown>>(
 		allowBlank?: true;
 		hidden?: true;
 	} = { ...base };
+	if (slots.addressReceiver !== undefined)
+		out.addressReceiver = slots.addressReceiver;
 	if (slots.default !== undefined) out.default = slots.default;
 	if (slots.hint !== undefined) out.hint = slots.hint;
 	if (slots.required !== undefined) out.required = slots.required;
@@ -2456,23 +2666,13 @@ export function simpleSearchInputDef(
 		| SimpleDateRangeSearchInputSlots
 		| SimpleSelectSearchInputSlots = {},
 ): SimpleSearchInputDef {
-	const out = {
-		uuid,
-		kind: "simple",
-		name,
-		label,
-		type,
-		property,
+	const candidate: Record<string, unknown> = {
+		...withSearchInputCommonSlots(
+			{ uuid, kind: "simple", name, label, type, property },
+			slots,
+		),
 	};
-	const candidate: Record<string, unknown> = { ...out };
 	if (slots.matching) candidate.matching = slots.matching;
-	if ("default" in slots && slots.default !== undefined)
-		candidate.default = slots.default;
-	if (slots.hint !== undefined) candidate.hint = slots.hint;
-	if (slots.required !== undefined) candidate.required = slots.required;
-	if (slots.validation !== undefined) candidate.validation = slots.validation;
-	if (slots.allowBlank === true) candidate.allowBlank = true;
-	if (slots.hidden === true) candidate.hidden = true;
 	if ("options" in slots) candidate.options = slots.options;
 	if (slots.via !== undefined && slots.via.kind !== "self")
 		candidate.via = slots.via;
@@ -2798,12 +2998,78 @@ export function simpleSearchInputHasCoherentRangeWidget(
 	);
 }
 
+/** The ordinary dynamic properties a parent-path Search field can match. */
+export function isParentPathSearchProperty(property: string): boolean {
+	return (
+		/^[A-Za-z][A-Za-z0-9_]*$/.test(property) &&
+		authoredCasePropertyNameSchema.safeParse(property).success &&
+		!Object.hasOwn(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES, property) &&
+		!isDeviceOnlyCaseProperty(property) &&
+		!["name", "case_type", "closed_on", "commcare_search_score"].includes(
+			property,
+		)
+	);
+}
+
+export const MAX_PARENT_PATH_SEARCH_LINKS = 3;
+export const MAX_PARENT_PATH_SEARCH_DATE_LINKS = 6;
+
+function parentPathSearchKey(
+	input: Pick<SimpleSearchInputDef, "property" | "via" | "type" | "mode">,
+): string | undefined {
+	const path = input.via;
+	return path?.kind === "ancestor" &&
+		(input.type === "text" || input.type === "date") &&
+		(input.mode === undefined || input.mode.kind === "exact") &&
+		path.via.length <=
+			(input.type === "date"
+				? MAX_PARENT_PATH_SEARCH_DATE_LINKS
+				: MAX_PARENT_PATH_SEARCH_LINKS) &&
+		path.via.every(
+			(step) =>
+				step.identifier === "parent" && step.throughCaseType === undefined,
+		) &&
+		isParentPathSearchProperty(input.property)
+		? `${"parent/".repeat(path.via.length)}${input.property}`
+		: undefined;
+}
+
+/** The worker sends the typed parent path. Nova authors address the field by
+ * its UUID and see its own name. Each hop repeats the same typed edge. */
+export function parentPathSearchRequestKey(
+	input: SearchInputDef,
+): string | undefined {
+	return input.kind === "simple" && input.matching === "project-space"
+		? parentPathSearchKey(input)
+		: undefined;
+}
+
+/** Settings that would give a parent Search field another runtime use. */
+export function parentPathSearchSettingsFit(
+	input: SimpleSearchInputDef,
+): boolean {
+	return (
+		input.group === undefined &&
+		input.default === undefined &&
+		!input.hidden &&
+		input.required === undefined &&
+		input.validation === undefined &&
+		!input.allowBlank &&
+		input.addressReceiver === undefined &&
+		input.label.trim() !== ""
+	);
+}
+
+export function searchInputRequestKey(input: SearchInputDef): string {
+	return parentPathSearchRequestKey(input) ?? input.name;
+}
+
 /**
  * Whether a simple field can take the project space's own matching
  * (`matching: "project-space"`): its prompt rides the bare key CommCare HQ
- * matches by its own rule, so it searches this case's own property under the
- * property's name (`name` is the case's name), with exact matching or a date
- * range. HQ then matches the answer whatever the property's type, so a field
+ * matches by its own rule. The key names this case's own property, or an
+ * ordinary property across up to three parent links for text or six for a
+ * single date. HQ matches the answer whatever the property's type, so a field
  * whose widget doesn't fit the property's type can still search it there.
  * Shared by the commit gate and the builder so the builder offers the
  * matching, and the widgets it admits, exactly where the gate does.
@@ -2814,6 +3080,7 @@ export function projectSpaceMatchingFits(
 		"name" | "property" | "via" | "type" | "mode"
 	>,
 ): boolean {
+	if (parentPathSearchKey(input) !== undefined) return true;
 	return (
 		(input.via === undefined || input.via.kind === "self") &&
 		(input.name === "name" ? "case_name" : input.name) === input.property &&
@@ -3017,27 +3284,18 @@ export function multiSelectSearchInputRefusal(
  * so Nova must not invent one — the authoring surface measures and
  * states the consequence instead.
  */
+/** The authored connection vocabulary. The whole name becomes one case-index
+ * path step in the group function and the selected-record companion. */
+export const caseTileGroupingIdentifierSchema = z
+	.string()
+	.regex(
+		/^[A-Za-z_][A-Za-z0-9_.-]*$/,
+		"Start with a letter or underscore. Use letters, numbers, underscores, hyphens, or periods.",
+	);
+
 export const caseTileGroupingSchema = z.strictObject({
-	/**
-	 * The case-index identifier whose target is the group key —
-	 * `parent` for the relationship a `CaseType.parent_type`
-	 * declares (`lib/commcare/xform/caseBlocks.ts` emits that
-	 * identifier literally), or the identifier an advanced case
-	 * operation's link carries.
-	 *
-	 * Drawn from the same XML-element-name vocabulary
-	 * `RelationStep.identifier` uses, for the same reason: it is
-	 * written straight into the emitted `string(./index/<id>)` path
-	 * step, so anything outside that class would emit an expression
-	 * the runtime cannot parse. Constraining it here is what makes
-	 * the emitter total — there is no escaping step anywhere.
-	 */
-	identifier: z
-		.string()
-		.regex(
-			XML_ELEMENT_NAME_PATTERN,
-			"A grouping connection name must start with a letter or underscore and contain only letters, digits, or underscores. It is written straight into the group's `string(./index/…)` path step, so characters outside that class emit an expression the runtime cannot parse.",
-		),
+	/** The index whose target is the group key, such as parent or site.parent. */
+	identifier: caseTileGroupingIdentifierSchema,
 	/**
 	 * Rows of the tile that form the group header, counted from the
 	 * top. Always stored and always emitted: the two sides default
@@ -3224,13 +3482,16 @@ export type CaseTileLayout = z.infer<typeof caseTileLayoutSchema>;
  * stored, so legacy documents remain byte-identical and there is no second
  * spelling such as `{ kind: "single" }`.
  *
- * The upper bound is a Nova product invariant shared by Builder, Preview,
- * submission, and both export paths. The runtime still defends the received
- * set, but an authored app can never request a larger batch.
+ * The maximum above the ordinary authoring range is conditional on the
+ * bounded flat-close topology. The document validator owns that cross-form
+ * condition; the runtime enforces its own independent resource limits.
  */
 export const caseSelectionSchema = z.strictObject({
 	kind: z.literal("multiple"),
-	maximum: persistableJsonPositiveIntegerSchema.max(100),
+	maximum: persistableJsonPositiveIntegerSchema.max(
+		BOUNDED_FLAT_FOLLOWUP_MAXIMUM,
+	),
+	autoSelect: z.literal(true).optional(),
 });
 export type CaseSelection = z.infer<typeof caseSelectionSchema>;
 
@@ -3296,6 +3557,7 @@ export const searchFilterTargetSchema = z.discriminatedUnion("kind", [
 		ancestors: z.tuple([relationStepSchema], relationStepSchema).optional(),
 	}),
 	z.strictObject({ kind: z.literal("record-id") }),
+	z.strictObject({ kind: z.literal("include-related-records") }),
 	z.strictObject({
 		kind: z.literal("record-name"),
 		ancestors: z.tuple([relationStepSchema], relationStepSchema).optional(),
@@ -3335,36 +3597,88 @@ export type SearchFilterTarget = z.infer<typeof searchFilterTargetSchema>;
  * (`case_search/utils.py::CaseSearchQueryBuilder._apply_sort`). The device
  * list may still show the returned records in its own order.
  */
+const searchRequestOrderTermSchema = z
+	.strictObject({
+		property: authoredCasePropertyNameSchema,
+		/** The record name read by HQ's `name` key rather than `case_name`. */
+		recordName: z.literal(true).optional(),
+		comparison: z.enum(["text", "number", "date"]),
+		direction: z.enum(["ascending", "descending"]),
+		/** A default filter brought in from HQ that left these to HQ's
+		 *  defaults (text, ascending) keeps leaving them. */
+		implicitComparison: z.literal(true).optional(),
+		implicitDirection: z.literal(true).optional(),
+	})
+	.refine((term) => !term.recordName || term.property === "case_name", {
+		error: "Choose the record name.",
+	})
+	.refine((term) => !term.implicitComparison || term.comparison === "text", {
+		error: "Choose a comparison for this property.",
+	})
+	.refine((term) => !term.implicitDirection || term.direction === "ascending", {
+		error: "Choose a direction for this property.",
+	});
+
 export const searchRequestOrderSchema = z
-	.array(
-		z
-			.strictObject({
-				property: authoredCasePropertyNameSchema,
-				/** The record name read by HQ's `name` key rather than `case_name`. */
-				recordName: z.literal(true).optional(),
-				comparison: z.enum(["text", "number", "date"]),
-				direction: z.enum(["ascending", "descending"]),
-				/** A default filter brought in from HQ that left these to HQ's
-				 *  defaults (text, ascending) keeps leaving them. */
-				implicitComparison: z.literal(true).optional(),
-				implicitDirection: z.literal(true).optional(),
-			})
-			.refine((term) => !term.recordName || term.property === "case_name", {
-				error: "Choose the record name.",
-			})
-			.refine(
-				(term) => !term.implicitComparison || term.comparison === "text",
-				{
-					error: "Choose a comparison for this property.",
-				},
-			)
-			.refine(
-				(term) => !term.implicitDirection || term.direction === "ascending",
-				{ error: "Choose a direction for this property." },
-			),
-	)
+	.array(searchRequestOrderTermSchema)
 	.min(1);
 export type SearchRequestOrder = z.infer<typeof searchRequestOrderSchema>;
+
+/** The built-in index tries number, date, then text for this property, with
+ * missing values last. Choosing it discards all earlier request order terms. */
+const searchFilterResetTermSchema = z.strictObject({
+	property: authoredCasePropertyNameSchema,
+	comparison: z.literal("indexed-fallback"),
+	direction: z.literal("ascending"),
+});
+export const searchFilterOrderSchema = z
+	.array(z.union([searchRequestOrderTermSchema, searchFilterResetTermSchema]))
+	.min(1)
+	.refine(
+		(order) =>
+			order.length === 1 ||
+			order.every((term) => term.comparison !== "indexed-fallback"),
+		{ error: "Give the automatic comparison its own order filter." },
+	);
+const discardedSearchOrderTermSchema = z.strictObject({
+	property: authoredCasePropertyNameSchema,
+	comparison: z.literal("discarded"),
+	savedComparison: z
+		.string()
+		.regex(/^[A-Za-z][A-Za-z0-9_-]*$/)
+		.max(64),
+	savedDirectionSigns: z.enum(["", "+", "-", "++", "+-", "-+", "--"]),
+});
+const storedSearchFilterOrderSchema = z
+	.array(
+		z.union([
+			searchRequestOrderTermSchema,
+			searchFilterResetTermSchema.extend({
+				savedSuffix: z.literal("obsolete").optional(),
+			}),
+			discardedSearchOrderTermSchema,
+		]),
+	)
+	.min(1)
+	.refine(
+		(order) =>
+			order.length === 1 ||
+			order.every(
+				(term) =>
+					term.comparison !== "indexed-fallback" &&
+					term.comparison !== "discarded",
+			) ||
+			((order.length === 2 || order.length === 3) &&
+				order[0].comparison === "date" &&
+				order[0].direction === "descending" &&
+				order[1].comparison === "indexed-fallback" &&
+				order[1].savedSuffix === "obsolete" &&
+				(order[2] === undefined ||
+					(order[2].comparison === "indexed-fallback" &&
+						order[2].savedSuffix === undefined))),
+		{ error: "Give the automatic comparison or saved order its own filter." },
+	);
+export type SearchFilterOrder = z.infer<typeof storedSearchFilterOrderSchema>;
 
 export const searchValueFilterSchema = z.strictObject({
 	uuid: uuidSchema,
@@ -3376,11 +3690,24 @@ export const searchValueFilterSchema = z.strictObject({
 export const searchOrderFilterSchema = z.strictObject({
 	uuid: uuidSchema,
 	kind: z.literal("order"),
-	order: searchRequestOrderSchema,
+	order: storedSearchFilterOrderSchema,
 });
+export const searchRecordTypeRowSchema = z.strictObject({
+	uuid: uuidSchema,
+	kind: z.literal("request-record-type"),
+	caseType: caseTypeNameSchema,
+});
+export const searchRelatedIdRowSchema = z.strictObject({
+	uuid: uuidSchema,
+	kind: z.literal("related-record-id"),
+	property: authoredCasePropertyNameSchema,
+});
+
 export const searchFilterSchema = z.union([
 	searchValueFilterSchema,
 	searchOrderFilterSchema,
+	searchRecordTypeRowSchema,
+	searchRelatedIdRowSchema,
 ]);
 export type SearchFilter = z.infer<typeof searchFilterSchema>;
 export type SearchValueFilter = z.infer<typeof searchValueFilterSchema>;
@@ -3388,6 +3715,219 @@ export function searchFilterUsesValue(
 	filter: SearchFilter,
 ): filter is SearchValueFilter {
 	return "target" in filter;
+}
+
+/** Case type names are identities in the app catalog. HQ reads the menu
+ * roster as a set. Retain request-only types separately: their primary hits
+ * consume the search limit and can be read by a form without being choices. */
+export const otherRecordTypesSchema = z
+	.array(caseTypeNameSchema)
+	.min(1)
+	.refine(
+		(types) => new Set(types).size === types.length,
+		"Choose each record type once.",
+	);
+
+export function menuRecordTypes(
+	primary: string,
+	config?: Pick<CaseListConfig, "additionalCaseTypes">,
+): string[] {
+	return [
+		primary,
+		...[...new Set(config?.additionalCaseTypes)]
+			.filter((type) => type !== primary)
+			.sort(),
+	];
+}
+
+/** Primary hits sent by search, including those a form can read even when the
+ * menu offers no choice of that type. */
+export function requestedRecordTypes(
+	primary: string,
+	config?: CaseListConfig,
+): string[] {
+	return [
+		...new Set([
+			...menuRecordTypes(primary, config),
+			...(config?.searchFilters ?? []).flatMap((filter) =>
+				"kind" in filter && filter.kind === "request-record-type"
+					? [filter.caseType]
+					: [],
+			),
+		]),
+	];
+}
+
+/** Whether the selected physical record can supply an ordinary menu datum. */
+export function menuOffersRecordType(
+	module: Pick<Module, "caseType" | "caseListConfig"> | undefined,
+	type: string,
+): boolean {
+	return (
+		!!module?.caseType &&
+		(module.caseType === type ||
+			!!module.caseListConfig?.additionalCaseTypes?.includes(type))
+	);
+}
+
+/** A case list can open a companion on Android and use its returned text to search. */
+const deviceLookupName = z.string().trim().min(1);
+const deviceLookupExtraName = deviceLookupName.refine(
+	(name) => name !== "force_xpath_parsing",
+);
+export const CASE_LIST_LOOKUP_WORKER_FIELDS = ["username", "userid"] as const;
+export type CaseListLookupWorkerField =
+	(typeof CASE_LIST_LOOKUP_WORKER_FIELDS)[number];
+const deviceLookupSumOperand = z.strictObject({
+	kind: z.literal("term"),
+	term: z.strictObject({
+		kind: z.literal("literal"),
+		value: z.number().int().min(0).max(2_147_483_647),
+	}),
+});
+const deviceLookupExtraSchema = z.union([
+	z.strictObject({ name: deviceLookupExtraName, value: z.string() }),
+	z.strictObject({
+		name: deviceLookupExtraName,
+		expression: z.strictObject({
+			kind: z.literal("term"),
+			term: z.strictObject({
+				kind: z.literal("session-context"),
+				field: z.enum(CASE_LIST_LOOKUP_WORKER_FIELDS),
+			}),
+		}),
+	}),
+	z.strictObject({
+		name: deviceLookupExtraName,
+		expression: z
+			.strictObject({
+				kind: z.literal("arith"),
+				op: z.literal("+"),
+				left: deviceLookupSumOperand,
+				right: deviceLookupSumOperand,
+			})
+			.refine(
+				(sum) => sum.left.term.value + sum.right.term.value <= 2_147_483_647,
+				"The two numbers must add up to 2,147,483,647 or less.",
+			),
+	}),
+]);
+export type DeviceLookupExtra = z.infer<typeof deviceLookupExtraSchema>;
+export const caseListLookupResultPropertySchema =
+	readCasePropertyNameSchema.refine(
+		(name) =>
+			name === "case_name" ||
+			(!Object.hasOwn(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES, name) &&
+				!["case_type", "category", "state", "index", "attachment"].includes(
+					name,
+				)),
+		"Choose the record name, a custom text property, or the record ID.",
+	);
+
+export const caseListDeviceLookupSchema = z
+	.strictObject({
+		action: deviceLookupName,
+		label: deviceLookupName,
+		icon: mediaAssetIdSchema.optional(),
+		resultHeading: caseListWordingSchema.optional(),
+		resultProperty: caseListLookupResultPropertySchema.optional(),
+		automatic: z.literal(true).optional(),
+		evaluateExtras: z.literal(true).optional(),
+		extras: z.array(deviceLookupExtraSchema).min(1),
+		responses: z.array(deviceLookupName).min(1),
+	})
+	.superRefine(({ extras, responses, resultHeading, resultProperty }, ctx) => {
+		if (resultProperty !== undefined && resultHeading === undefined)
+			ctx.addIssue({
+				code: "custom",
+				path: ["resultProperty"],
+				message:
+					"Show match confidence to choose a property for the returned key.",
+			});
+		const names = extras.map(({ name }) => name);
+		if (new Set(names).size !== names.length)
+			ctx.addIssue({
+				code: "custom",
+				path: ["extras"],
+				message: "Give each value sent to the app a different name.",
+			});
+		if (new Set(responses).size !== responses.length)
+			ctx.addIssue({
+				code: "custom",
+				path: ["responses"],
+				message: "Use each response name once.",
+			});
+	});
+export type CaseListDeviceLookup = z.infer<typeof caseListDeviceLookupSchema>;
+
+export const SEARCH_ADDRESS_RECEIVER_MESSAGES = {
+	"receiver-type":
+		"An address can fill a visible text or multiple-choice field.",
+	"unmatched-topic-type":
+		"A saved address topic without a picker can stay on a visible text field. Clear the topic to change the field’s type.",
+	"single-choice":
+		"Web Apps can select a different lookup value when an address fills a single-choice Search field. Link a text or multiple-choice field instead.",
+	"source-link":
+		"Choose an address field from this Search screen or clear the link.",
+	"duplicate-receiver":
+		"Choose different address parts or a different address field for each linked choice field.",
+};
+
+export function searchAddressReceiverProblem(
+	input: VisibleSearchInputDef,
+	inputs: readonly SearchInputDef[],
+): keyof typeof SEARCH_ADDRESS_RECEIVER_MESSAGES | undefined {
+	const receiver = input.addressReceiver;
+	if (receiver === undefined) return undefined;
+	if (receiver.kind === "address-clear") {
+		if (input.hidden === true || input.type !== "text") return "receiver-type";
+		return inputs.some(
+			(source) => source.kind === "address" && source.uuid === receiver.source,
+		)
+			? undefined
+			: "source-link";
+	}
+	if (receiver.kind === "unsubscribed-topic")
+		return input.hidden !== true && input.type === "text"
+			? undefined
+			: "unmatched-topic-type";
+	if (
+		input.hidden === true ||
+		(input.type !== "text" &&
+			input.type !== "select" &&
+			input.type !== "multi-select")
+	)
+		return "receiver-type";
+	if (input.type === "select" && receiver.kind === "address")
+		return "single-choice";
+	const active = inputs.some(
+		(source) =>
+			source.kind === "address" &&
+			(receiver.kind === "address"
+				? source.uuid === receiver.source
+				: source.name === receiver.topic),
+	);
+	if (active !== (receiver.kind === "address")) return "source-link";
+	if (receiver.kind === "address") {
+		const parts = receiver.parts.join("||");
+		if (
+			inputs.some(
+				(other) =>
+					other.uuid !== input.uuid &&
+					isVisibleSearchInput(other) &&
+					other.hidden !== true &&
+					(other.type === "text" ||
+						other.type === "select" ||
+						other.type === "multi-select") &&
+					other.addressReceiver?.kind === "address" &&
+					other.addressReceiver.source === receiver.source &&
+					other.addressReceiver.parts.join("||") === parts &&
+					(input.type !== "text" || other.type !== "text"),
+			)
+		)
+			return "duplicate-receiver";
+	}
+	return undefined;
 }
 
 export const caseListConfigSchema = z
@@ -3415,8 +3955,10 @@ export const caseListConfigSchema = z
 		contextAboveForm: caseFormContextSchema.optional(),
 		filter: conditionSchema.optional(),
 		searchCondition: conditionSchema.optional(),
+		additionalCaseTypes: otherRecordTypesSchema.optional(),
 		searchFilters: z.array(searchFilterSchema).min(1).optional(),
 		searchInputs: z.array(searchInputDefSchema),
+		searchInputGroups: z.array(searchInputGroupSchema).min(1).optional(),
 		/**
 		 * How many cases a worker can carry forward from Results. Absence is the
 		 * ordinary single-case flow; the stored arm is multiple-only so one intent
@@ -3445,6 +3987,7 @@ export const caseListConfigSchema = z
 		 * space's `CASE_LIST_OPTIMIZATIONS` gates.
 		 */
 		optimizations: z.literal(true).optional(),
+		deviceLookup: caseListDeviceLookupSchema.optional(),
 		/**
 		 * Tile layout for the Results surface. Absent ≡ the ordinary row
 		 * layout. See `caseTileLayoutSchema`.
@@ -3452,6 +3995,67 @@ export const caseListConfigSchema = z
 		tile: caseTileLayoutSchema.optional(),
 	})
 	.superRefine((config, ctx) => {
+		for (const [index, input] of config.searchInputs.entries()) {
+			if (!isVisibleSearchInput(input)) continue;
+			const problem = searchAddressReceiverProblem(input, config.searchInputs);
+			if (problem !== undefined)
+				ctx.addIssue({
+					code: "custom",
+					path: ["searchInputs", index, "addressReceiver"],
+					message: SEARCH_ADDRESS_RECEIVER_MESSAGES[problem],
+				});
+		}
+		if (config.searchInputGroups && !config.searchInputs.length)
+			ctx.addIssue({
+				code: "custom",
+				path: ["searchInputGroups"],
+				message: "Add a Search field before adding headings.",
+			});
+		const groupOrder = new Map<Uuid, number>();
+		for (const [index, group] of (config.searchInputGroups ?? []).entries()) {
+			if (groupOrder.has(group.uuid)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["searchInputGroups", index, "uuid"],
+					message: "Each Search heading needs its own identity.",
+				});
+			}
+			groupOrder.set(group.uuid, index);
+		}
+		let lastGroup = -1;
+		for (const [index, input] of config.searchInputs.entries()) {
+			if (!groupOrder.size && input.group === undefined) continue;
+			const position =
+				input.group === undefined ? undefined : groupOrder.get(input.group);
+			if (position === undefined || position < lastGroup) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["searchInputs", index, "group"],
+					message:
+						position === undefined
+							? "Choose a heading in this Search for every field."
+							: "Keep each heading's fields together and in heading order.",
+				});
+			} else {
+				lastGroup = position;
+			}
+		}
+		if (
+			config.deviceLookup?.resultHeading !== undefined &&
+			config.tile !== undefined
+		)
+			ctx.addIssue({
+				code: "custom",
+				path: ["deviceLookup", "resultHeading"],
+				message: "Show lookup confidence in a case list with rows.",
+			});
+		if (config.deviceLookup && config.tile?.namedSlots)
+			ctx.addIssue({
+				code: "custom",
+				path: ["deviceLookup"],
+				message:
+					"Use a list or a custom case tile to look up cases with an Android app.",
+			});
 		if (
 			config.tile?.rawSlots &&
 			(!config.tile.namedSlots ||
@@ -3616,6 +4220,21 @@ export const caseListConfigSchema = z
 	});
 export type CaseListConfig = z.infer<typeof caseListConfigSchema>;
 
+/** Group definitions and their fields in Search display order. */
+export function searchInputGroupsWithMembers(config: {
+	searchInputGroups?: readonly SearchInputGroup[];
+	searchInputs: readonly SearchInputDef[];
+}): Array<SearchInputGroup & { inputs: SearchInputDef[] }> {
+	const groups = (config.searchInputGroups ?? []).map((group) => ({
+		...group,
+		inputs: [] as SearchInputDef[],
+	}));
+	const byUuid = new Map(groups.map((group) => [group.uuid, group]));
+	for (const input of config.searchInputs)
+		if (input.group !== undefined) byUuid.get(input.group)?.inputs.push(input);
+	return groups;
+}
+
 /** Whether HQ keeps a load behavior on this column: one it reads through an
  *  expression as plain text or markdown (a calculation without translated
  *  text, or a link), `DetailColumn.supports_optimizations`. */
@@ -3684,7 +4303,10 @@ export function caseSelectionCanFlowBetweenModules(
 ): boolean {
 	if (
 		sourceModule.caseType === undefined ||
-		sourceModule.caseType !== targetModule.caseType
+		sourceModule.caseType !== targetModule.caseType ||
+		!menuRecordTypes(sourceModule.caseType, sourceModule.caseListConfig).every(
+			(type) => menuOffersRecordType(targetModule, type),
+		)
 	) {
 		return false;
 	}
@@ -3814,6 +4436,25 @@ export type SearchScreenTitle = z.infer<typeof searchScreenTitleSchema>;
 
 export const ordinaryCaseSearchConfigSchema = z
 	.strictObject({
+		/** Uses the search supplied by this connected project space. The extra
+		 * inputs are named values, evaluated when the worker submits the search. */
+		projectSearch: z
+			.strictObject({
+				searchUuid: uuidSchema,
+				defaults: z.array(
+					z.strictObject({
+						uuid: uuidSchema,
+						name: z.string().min(1),
+						value: valueSchema,
+					}),
+				),
+			})
+			.optional(),
+		/** One additional record whose ID each match carries. */
+		relatedRecordIdProperty: authoredCasePropertyNameSchema.optional(),
+		/** Absent follows the information displayed by the list. */
+		relatedRecords: z.enum(["hierarchy", "details"]).optional(),
+
 		// Owner-availability slot.
 		// `excludedOwnerIds` evaluates ONCE, before a case is selected, to a
 		// space-separated list of owner ids whose cases are excluded from every
@@ -3921,12 +4562,15 @@ export function caseSearchConfigHasAuthoredSettings(
 	return (
 		config.excludedOwnerIds !== undefined ||
 		config.requestOrder !== undefined ||
+		config.relatedRecordIdProperty !== undefined ||
+		config.relatedRecords !== undefined ||
 		config.searchScreenTitle !== undefined ||
 		config.searchScreenSubtitle !== undefined ||
 		config.searchButtonDisplayCondition !== undefined ||
 		config.workflow !== undefined ||
 		config.formsReadSearch !== undefined ||
-		config.searchOnClear !== undefined
+		config.searchOnClear !== undefined ||
+		config.projectSearch !== undefined
 	);
 }
 
@@ -3973,6 +4617,14 @@ export function isDedicatedOwnerFilter(filter: SearchFilter): boolean {
 	);
 }
 
+/** The connected project space runs this menu’s search. */
+export function projectSearchOf(
+	module: Pick<Module, "caseSearchConfig"> | undefined,
+) {
+	const config = module?.caseSearchConfig;
+	return isOrdinaryCaseSearchConfig(config) ? config.projectSearch : undefined;
+}
+
 /** The title a worker reads: the authored text, "Search" where none is
  *  authored, or null for a search with no title. The one reader. */
 export function searchScreenTitleText(
@@ -4013,7 +4665,8 @@ export function caseSearchConfigAfterFinalInputRemoval(
 		action.searchButtonDisplayCondition !== undefined ||
 		action.workflow !== undefined ||
 		action.formsReadSearch !== undefined ||
-		action.searchOnClear !== undefined;
+		action.searchOnClear !== undefined ||
+		action.projectSearch !== undefined;
 	if (searchContentRemains || hasSearchActionSetting) return action;
 	if (action.excludedOwnerIds !== undefined) {
 		return { ...action, searchActionEnabled: false };
@@ -4118,6 +4771,22 @@ const menuFormSourceSchema = z.strictObject({
 		.optional(),
 });
 export type MenuFormSource = z.infer<typeof menuFormSourceSchema>;
+/** HQ's Case List editor accepts an ASCII initial letter followed by Python word
+ * characters (letters, numbers and underscore). Its suite loader recognizes
+ * certain built-in instances by substring and cannot host them as search names. */
+export const searchResultsNameSchema = z
+	.string()
+	.refine(
+		(name) => /^[A-Za-z][\p{L}\p{N}_]*$/u.test(name),
+		"Choose a name that starts with A to Z or a to z. The rest can use letters, numbers and underscores.",
+	)
+	.refine(
+		(name) =>
+			!["casedb", "ledgerdb", "fixture", "session"].some((word) =>
+				name.includes(word),
+			),
+		"This name overlaps a reserved name. You can use another name, such as FamilySearch.",
+	);
 
 export const moduleSchema = z.strictObject({
 	/** A second route to the source menu's actual forms. The menu owns its appearance,
@@ -4134,6 +4803,14 @@ export const moduleSchema = z.strictObject({
 	parentModuleUuid: uuidSchema.optional(),
 	/** Select a parent record from this module before selecting this module's records. */
 	parentCaseModuleUuid: uuidSchema.optional(),
+	/** The exact child link chosen by an imported Advanced entry's manual load.
+	 * Its source parent binds it to this selection when writers use several links. */
+	parentCaseLink: z
+		.strictObject({
+			parentUuid: uuidSchema,
+			identifier: z.string().refine(isAdvancedCaseIndexIdentifier),
+		})
+		.optional(),
 	caseType: z.string().optional(),
 	/**
 	 * The module's case list as its own menu entry, after its forms (HQ's
@@ -4177,6 +4854,8 @@ export const moduleSchema = z.strictObject({
 	/** The menu contributes a grid when form menus use individual layouts. */
 	menuLayout: z.literal("grid").optional(),
 	caseListConfig: caseListConfigSchema.optional(),
+	/** Which set of answers this menu keeps when a worker runs more than one search. */
+	searchResultsName: searchResultsNameSchema.optional(),
 	caseSearchConfig: caseSearchConfigSchema.optional(),
 	/** Image shown on the module's home-screen tile. */
 	icon: moduleIconRefSchema.optional(),

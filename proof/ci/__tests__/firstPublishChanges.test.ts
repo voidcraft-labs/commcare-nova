@@ -10,7 +10,9 @@
 // the three proofs a run's evidence writes; a `proof3` row, a difference
 // a worker meets, only under an entry that touches workers, but a value a
 // search sends CommCare HQ, which no worker meets apart from the cases HQ
-// answers with, and proof 3 compares those apart; and each
+// answers with, and the paired group identities of a legacy Search heading.
+// The source judge certifies that heading's paired spelling and the native
+// judge compares wording and behavior separately. Each
 // object's `placeKinds` the kinds of place its entry stands at. Otherwise
 // the lane would accept a stored-app difference the register does not allow,
 // a behavior difference under an entry that declares none, or a place of a
@@ -47,18 +49,18 @@ const CHECKS = new Set(["source", "proof1", "proof2", "proof3"]);
 // (`proof/checks/xform_parts.py`).
 const FORM_SOURCE = "/_attachments/*";
 const FORM_PART = `${FORM_SOURCE}/`;
+const LEGACY_SEARCH_GROUP_REKEY = "legacy-search-group-wording-rekeyed";
 
-// The step of a trace path above a value a search sent CommCare HQ, as the lane's expectations read it
-// (`proof/matrix/test_expectations.py::SEARCH_QUERY`): HQ ANDs each value as one more filter
-// (`case_search/utils.py::CaseSearchQueryBuilder._apply_filter`), so how the values are cut is no
-// difference a worker meets; the cases HQ answers with are, at the list's rows and the request's
-// `answered`, which no such row names.
-const SEARCH_QUERY = "_xpath_query";
+// Values carried in an HQ Search request. Proof 3 separately compares HQ's
+// answers and what the worker sees.
+const SEARCH_REQUEST_PARAMETER =
+	/^\/runs\/\*\/trace\/\*\/(?:requests\/\*\/)?params\/(?:_xpath_query|commcare_sort)\/\*$/;
 
 function searchSent(row: Row): boolean {
 	return (
 		row.check === "proof3" &&
-		row.path.split("/").slice(-2).includes(SEARCH_QUERY)
+		row.artifact.startsWith("trace@") &&
+		SEARCH_REQUEST_PARAMETER.test(row.path)
 	);
 }
 
@@ -96,11 +98,48 @@ describe("proof/first-publish-changes.json", () => {
 				FIRST_PUBLISH_CHANGES[one.change as CurrentFirstPublishChangeId];
 			const appWide = "appWide" in entry.at;
 			const source = one.rows.filter((row) => row.check === "source");
+			if (one.change === LEGACY_SEARCH_GROUP_REKEY) {
+				// The source comparison gives the certified locale pair its own class.
+				// The recorded paths name the two locale entries and their owning group.
+				expect(entry.paths).toEqual([
+					"/translations/*/*",
+					"/modules/*/search_config/properties/*/group_key",
+				]);
+				expect(source).toEqual([
+					...["removed", "added"].map((kind) => ({
+						check: "source",
+						artifact: "app.json",
+						path: "/translations/*/search_group_heading",
+						kind,
+					})),
+					{
+						check: "source",
+						artifact: "app.json",
+						path: "/translations/*/identical_search_group_heading",
+						kind: "removed",
+					},
+					...["removed", "changed"].map((kind) => ({
+						check: "source",
+						artifact: "app.json",
+						path: "/translations/*/replaced_dormant_search_group_heading",
+						kind,
+					})),
+					{
+						check: "source",
+						artifact: "app.json",
+						path: "/translations/*/removed_dormant_search_group_heading",
+						kind: "removed",
+					},
+				]);
+				continue;
+			}
 			for (const row of source)
 				expect([one.change, row.artifact, row.kind]).toEqual([
 					one.change,
 					"app.json",
-					undefined,
+					one.change === "search-address-receiver-suffix-removed"
+						? "changed"
+						: undefined,
 				]);
 			// The change that stands everywhere holds a form's source only by the part classes a run's
 			// evidence writes (`python3 -m proof.checks.changes rows`), never every part at once, and
@@ -155,16 +194,36 @@ describe("proof/first-publish-changes.json", () => {
 	});
 
 	it("allows a difference a worker meets only under a change that touches workers", () => {
-		for (const one of load())
-			if (one.rows.some((row) => row.check === "proof3" && !searchSent(row)))
-				expect([
-					one.change,
-					FIRST_PUBLISH_CHANGES[one.change as CurrentFirstPublishChangeId]
-						.touchesWorkers,
-				]).toEqual([one.change, true]);
+		for (const one of load()) {
+			const { touchesWorkers } =
+				FIRST_PUBLISH_CHANGES[one.change as CurrentFirstPublishChangeId];
+			const behavior = one.rows.filter((row) => row.check === "proof3");
+			if (one.change === LEGACY_SEARCH_GROUP_REKEY) {
+				// Formplayer includes the group key on each member and maps the same
+				// displayed heading under that key. The native judge holds both together.
+				expect(touchesWorkers).toBe(false);
+				expect(behavior).toEqual(
+					["/response", "/response/queryResponse"].flatMap((response) => {
+						const prefix = `/runs/*/steps/*${response}`;
+						return [
+							{ path: `${prefix}/displays/*/groupKey`, kind: "changed" },
+							{ path: `${prefix}/groupHeaders/*`, kind: "removed" },
+							{ path: `${prefix}/groupHeaders/*`, kind: "added" },
+						].map((role) => ({
+							check: "proof3",
+							artifact: "formplayer@*",
+							...role,
+						}));
+					}),
+				);
+				continue;
+			}
+			if (behavior.some((row) => !searchSent(row)))
+				expect([one.change, touchesWorkers]).toEqual([one.change, true]);
+		}
 	});
 
-	it("reads as a value a search sends only a step of `_xpath_query`, never what HQ answered or a screen", () => {
+	it("reads Search query and order values only from request parameter paths", () => {
 		const row = (path: string): Row => ({
 			check: "proof3",
 			artifact: "trace@B",
@@ -174,7 +233,16 @@ describe("proof/first-publish-changes.json", () => {
 		expect(
 			searchSent(row("/runs/*/trace/*/requests/*/params/_xpath_query/*")),
 		).toBe(true);
+		expect(searchSent(row("/runs/*/trace/*/params/commcare_sort/*"))).toBe(
+			true,
+		);
+		expect(
+			searchSent(row("/runs/*/trace/*/requests/*/params/commcare_sort/*")),
+		).toBe(true);
 		expect(searchSent(row("/runs/*/trace/*/requests/*/answered"))).toBe(false);
+		expect(searchSent(row("/runs/*/trace/*/rows/*/commcare_sort/*"))).toBe(
+			false,
+		);
 		expect(searchSent(row("/runs/*/trace/*/rows/*"))).toBe(false);
 		expect(
 			searchSent({

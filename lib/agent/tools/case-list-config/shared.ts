@@ -45,7 +45,9 @@ import { z } from "zod";
 import { fixedSearchRangeExpression } from "@/lib/commcare/searchRangeStartingValue";
 import { RESERVED_SEARCH_INPUT_NAMES } from "@/lib/commcare/suite/case-search/reservedInputNames";
 import { columnNotOnListMessage } from "@/lib/commcare/validator/rules/case-list/columnNotOnList";
+import { deepEqual } from "@/lib/doc/deepEqual";
 import {
+	addressSearchInputSchema,
 	advancedDateRangeSearchInputSchema,
 	advancedScalarSearchInputSchema,
 	advancedSelectSearchInputSchema,
@@ -80,8 +82,18 @@ import {
 	type Expression,
 	expressionReadsCaseData,
 	expressionReferencesAnySearchInput,
+	isRelationPath,
+	literal,
+	term,
 	valueSchema,
 } from "@/lib/domain/expression";
+import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
+import { isSearchRequiredCaseQuery } from "@/lib/domain/expression/ruleSets";
+import {
+	projectChoiceSearchInput,
+	projectRangeSearchInput,
+	projectScalarSearchInput,
+} from "@/lib/domain/modules";
 import {
 	caseWriteViaInputSchema,
 	toCaseWriteVia,
@@ -376,7 +388,7 @@ const linkColumnInputArm = linkColumnArm.omit(columnToolOwnedSlots).extend({
 	),
 });
 const calculatedColumnInputArm = calculatedColumnArm
-	.omit(columnToolOwnedSlots)
+	.omit({ ...columnToolOwnedSlots, inlineResultProperty: true })
 	.extend({
 		...columnInputSlots,
 		sort: columnSortInput(
@@ -384,6 +396,10 @@ const calculatedColumnInputArm = calculatedColumnArm
 		),
 		texts: calculatedColumnArm.shape.texts.describe(
 			"Reusable wording in the calculated field. Give each piece its own UUID and source-language label, then read it using case-text('UUID') in the calculation. Keep each UUID when editing its wording. Translated calculations display and sort in the worker’s language.",
+		),
+
+		searchResultDetail: calculatedColumnArm.shape.searchResultDetail.describe(
+			"Show one submitted text prompt on a standalone Search result's Details. Available for Web Apps when Search opens before Results. Set notOnList to true and use a literal text expression for the ordinary case. Use that menu's offered text input UUID. Prefix and suffix may be empty. An unanswered prompt contributes empty text. Use text alone to show fixed wording on Search results.",
 		),
 		expression: valueExpressionInputSchema,
 	});
@@ -566,20 +582,20 @@ export const SA_SEARCH_INPUT_TYPES = SEARCH_INPUT_TYPES;
 /**
  * The Search-screen boundary the commit gate also enforces, said at the
  * tool boundary so the model reads the reason beside its own call. Every
- * slot here evaluates before any case is selected: a case read can never
- * hold. A hidden value additionally fires before anyone types, so it may
- * not read another input either.
+ * slot here evaluates before any case is selected. A requirement can count
+ * restored cases of one type. Hidden values open before anyone answers.
  */
 function refineSearchInputBoundary(
 	input:
 		| {
-				kind: "simple" | "advanced";
+				kind: "simple" | "advanced" | "parameter";
 				type: SearchInputType;
 				default?: Expression;
 				required?: { when?: Expression };
 				validation?: { rule: Expression };
 		  }
-		| { kind: "hidden"; value?: Expression },
+		| { kind: "hidden"; value?: Expression }
+		| { kind: "address" },
 	ctx: z.RefinementCtx,
 ): void {
 	if (input.kind === "hidden") {
@@ -602,6 +618,7 @@ function refineSearchInputBoundary(
 		}
 		return;
 	}
+	if (input.kind === "address") return;
 	if (input.default !== undefined && expressionReadsCaseData(input.default)) {
 		ctx.addIssue({
 			code: "custom",
@@ -612,13 +629,23 @@ function refineSearchInputBoundary(
 	}
 	if (
 		input.required?.when !== undefined &&
-		expressionReadsCaseData(input.required.when)
+		expressionReadsCaseData(
+			mapExpressionAst(input.required.when, {
+				// Ignore only the checked count while looking for other case reads.
+				mapExpression: (node) =>
+					node.kind === "count" &&
+					!isRelationPath(node.via) &&
+					isSearchRequiredCaseQuery(node.via)
+						? term(literal(0))
+						: undefined,
+			}),
+		)
 	) {
 		ctx.addIssue({
 			code: "custom",
 			path: ["required", "when"],
 			message:
-				"A required condition runs on the Search screen before any case is selected, so it cannot read case properties or relationships. Compare other Search answers (#search/name), fixed values, or worker/session values.",
+				"A Search requirement can count the worker’s restored cases of one type, optionally matching a text property to a fixed value. It can also compare Search answers (#search/name), fixed values, or worker information.",
 		});
 	}
 	if (
@@ -706,42 +733,70 @@ const startingRangeSchema = z
 	])
 	.describe(STARTING_RANGE_DESCRIPTION);
 
+const authoredAddressSearchInputSchema = addressSearchInputSchema.omit({
+	uuid: true,
+	group: true,
+	required: true,
+	validation: true,
+	default: true,
+	hidden: true,
+	addressReceiver: true,
+	savedDefault: true,
+});
+
 export const searchInputDefInputSchema = z
 	.union([
-		simpleScalarSearchInputSchema.omit({ uuid: true }).extend({
+		simpleScalarSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			...searchInputUuidSlot,
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 		}),
-		simpleDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+		simpleDateRangeSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			default: startingRangeSchema.optional(),
 			...searchInputUuidSlot,
 			...visibleSearchInputSlots,
 		}),
-		simpleSelectSearchInputSchema.omit({ uuid: true }).extend({
+		simpleSelectSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			...searchInputUuidSlot,
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 		}),
-		advancedScalarSearchInputSchema.omit({ uuid: true }).extend({
-			...searchInputUuidSlot,
-			...visibleSearchInputSlots,
-			default: valueExpressionInputSchema.optional(),
-			predicate: predicateInputSchema,
-		}),
-		advancedDateRangeSearchInputSchema.omit({ uuid: true }).extend({
-			default: startingRangeSchema.optional(),
-			...searchInputUuidSlot,
-			...visibleSearchInputSlots,
-			predicate: predicateInputSchema,
-		}),
-		advancedSelectSearchInputSchema.omit({ uuid: true }).extend({
+		advancedScalarSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			...searchInputUuidSlot,
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 			predicate: predicateInputSchema,
 		}),
-		hiddenSearchInputSchema.omit({ uuid: true }).extend({
+		advancedDateRangeSearchInputSchema
+			.omit({ uuid: true, group: true })
+			.extend({
+				default: startingRangeSchema.optional(),
+				...searchInputUuidSlot,
+				...visibleSearchInputSlots,
+				predicate: predicateInputSchema,
+			}),
+		advancedSelectSearchInputSchema.omit({ uuid: true, group: true }).extend({
+			...searchInputUuidSlot,
+			...visibleSearchInputSlots,
+			default: valueExpressionInputSchema.optional(),
+			predicate: predicateInputSchema,
+		}),
+		projectScalarSearchInput.omit({ uuid: true, group: true }).extend({
+			...searchInputUuidSlot,
+			...visibleSearchInputSlots,
+			default: valueExpressionInputSchema.optional(),
+		}),
+		projectRangeSearchInput.omit({ uuid: true, group: true }).extend({
+			...searchInputUuidSlot,
+			...visibleSearchInputSlots,
+		}),
+		projectChoiceSearchInput.omit({ uuid: true, group: true }).extend({
+			...searchInputUuidSlot,
+			...visibleSearchInputSlots,
+			default: valueExpressionInputSchema.optional(),
+		}),
+		authoredAddressSearchInputSchema.extend(searchInputUuidSlot),
+		hiddenSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			...searchInputUuidSlot,
 			/* The bare AST node, so the wire projection keeps it a `$ref`; a
 			 * `.describe()` here would clone the node past the projection's
@@ -756,34 +811,48 @@ export type SearchInputDefInput = z.infer<typeof searchInputDefInputSchema>;
  * by the enclosing tool and cannot be changed by the body. */
 export const searchInputUpdateInputSchema = z
 	.union([
-		simpleScalarSearchInputSchema.omit({ uuid: true }).extend({
+		simpleScalarSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 		}),
-		simpleDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+		simpleDateRangeSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			default: startingRangeSchema.optional(),
 			...visibleSearchInputSlots,
 		}),
-		simpleSelectSearchInputSchema.omit({ uuid: true }).extend({
+		simpleSelectSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 		}),
-		advancedScalarSearchInputSchema.omit({ uuid: true }).extend({
-			...visibleSearchInputSlots,
-			default: valueExpressionInputSchema.optional(),
-			predicate: predicateInputSchema,
-		}),
-		advancedDateRangeSearchInputSchema.omit({ uuid: true }).extend({
-			default: startingRangeSchema.optional(),
-			...visibleSearchInputSlots,
-			predicate: predicateInputSchema,
-		}),
-		advancedSelectSearchInputSchema.omit({ uuid: true }).extend({
+		advancedScalarSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 			predicate: predicateInputSchema,
 		}),
-		hiddenSearchInputSchema.omit({ uuid: true }).extend({
+		advancedDateRangeSearchInputSchema
+			.omit({ uuid: true, group: true })
+			.extend({
+				default: startingRangeSchema.optional(),
+				...visibleSearchInputSlots,
+				predicate: predicateInputSchema,
+			}),
+		advancedSelectSearchInputSchema.omit({ uuid: true, group: true }).extend({
+			...visibleSearchInputSlots,
+			default: valueExpressionInputSchema.optional(),
+			predicate: predicateInputSchema,
+		}),
+		projectScalarSearchInput.omit({ uuid: true, group: true }).extend({
+			...visibleSearchInputSlots,
+			default: valueExpressionInputSchema.optional(),
+		}),
+		projectRangeSearchInput.omit({ uuid: true, group: true }).extend({
+			...visibleSearchInputSlots,
+		}),
+		projectChoiceSearchInput.omit({ uuid: true, group: true }).extend({
+			...visibleSearchInputSlots,
+			default: valueExpressionInputSchema.optional(),
+		}),
+		authoredAddressSearchInputSchema,
+		hiddenSearchInputSchema.omit({ uuid: true, group: true }).extend({
 			value: valueExpressionInputSchema.optional(),
 		}),
 	])
@@ -845,6 +914,13 @@ export function stampColumnUuid(
 	return bindWorkerColumn(
 		{
 			...body,
+			// The typed calculation stays editable without teaching tools a native spelling.
+			...(body.kind === "calculated" &&
+				previous?.kind === "calculated" &&
+				previous.inlineResultProperty &&
+				deepEqual(previous.expression, body.expression) && {
+					inlineResultProperty: true,
+				}),
 			...((body.kind === "image-map" || body.kind === "id-mapping") && {
 				mapping: body.mapping.map((row) => {
 					if (row.uuid !== undefined) return row;

@@ -47,6 +47,7 @@ import {
 	type SearchAnswerFieldDependent,
 	searchAnswerFieldDependents,
 } from "./searchReadDependents";
+import { offerSearchNameMutations } from "./searchResultsNaming";
 
 /**
  * Turn Forms read the search on for the module, or nothing when its forms
@@ -68,6 +69,7 @@ export function formsReadSearchOnMutations(
 		"workflow" in mod.caseSearchConfig &&
 		searchOpensOnList(mod.caseSearchConfig.workflow);
 	return [
+		...offerSearchNameMutations(doc, moduleUuid, { turnsInline: true }),
 		{
 			kind: "updateModule",
 			uuid: moduleUuid,
@@ -437,6 +439,7 @@ export function searchAnswerFields(
 	const inputs = mod?.caseListConfig?.searchInputs ?? [];
 	const fields: SearchAnswerField[] = [];
 	for (const input of inputs) {
+		if (input.kind === "address") continue;
 		const property =
 			input.kind === "hidden"
 				? hiddenPromptSavesAs(input.name)
@@ -468,7 +471,7 @@ export function searchAnswerFields(
 
 /** The field one prompt's answer is carried in, by the prompt's kind. */
 function searchAnswerField(
-	input: SearchInputDef,
+	input: Exclude<SearchInputDef, { kind: "address" }>,
 	base: {
 		readonly uuid: Uuid;
 		readonly id: string;
@@ -483,6 +486,8 @@ function searchAnswerField(
 		case "date":
 			return { kind: "date", uuid, id, label, default_value };
 		case "select":
+			if (input.options.kind !== "lookup")
+				return { kind: "text", uuid, id, label, default_value };
 			return {
 				kind: "single_select",
 				uuid,
@@ -493,6 +498,8 @@ function searchAnswerField(
 			};
 		case "checkboxes":
 		case "multi-select":
+			if (input.options.kind !== "lookup")
+				return { kind: "text", uuid, id, label, default_value };
 			return {
 				kind: "multi_select",
 				uuid,

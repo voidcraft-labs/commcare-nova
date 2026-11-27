@@ -310,6 +310,9 @@ export function documentSummary(
 			const field = doc.fields[uuid];
 			const location = locations.get(uuid);
 			if (field === undefined || location === undefined) continue;
+			// HQ lists controls and data leaves. A positioned Save to Case
+			// wrapper has no control, and its leaves belong to the case region.
+			if (field.kind === "case_change") continue;
 			const path = (location.path as FormPath).toXPath();
 			if (field.kind === "connect_activity") {
 				// HQ's get_questions enumerates the leaves of the submitted

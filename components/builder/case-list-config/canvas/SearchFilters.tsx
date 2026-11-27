@@ -24,8 +24,18 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression";
-import { isOrdinaryCaseSearchConfig } from "@/lib/domain/modules";
-import { CANONICAL_STANDARD_CASE_PROPERTY_LABELS } from "@/lib/domain/standardCaseProperties";
+import {
+	isOrdinaryCaseSearchConfig,
+	searchRequestOrderSchema,
+} from "@/lib/domain/modules";
+import {
+	moduleAllowsSearchIndexFallback,
+	searchOrderResetPosition,
+} from "@/lib/domain/searchOrder";
+import {
+	CANONICAL_STANDARD_CASE_PROPERTY_LABELS,
+	isDeviceOnlyCaseProperty,
+} from "@/lib/domain/standardCaseProperties";
 import { newUuid } from "../uuid";
 import { SearchResultOrder } from "./SearchResultOrder";
 
@@ -35,6 +45,7 @@ export type SearchFilterEdit = NonNullable<
 
 interface Props {
 	readonly moduleUuid: Uuid;
+	readonly requestedTypes: readonly string[];
 	readonly filters: readonly SearchFilter[];
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
@@ -47,6 +58,7 @@ interface Props {
 export function SearchFilters({
 	moduleUuid,
 	filters,
+	requestedTypes,
 	caseTypes,
 	currentCaseType,
 	knownInputs,
@@ -60,20 +72,35 @@ export function SearchFilters({
 	const search = isOrdinaryCaseSearchConfig(module?.caseSearchConfig)
 		? module.caseSearchConfig
 		: undefined;
-	const properties =
-		caseTypes
-			.find((type) => type.name === currentCaseType)
-			?.properties.map((property) => ({
-				value: property.name,
-				label: projectProse(property.label) || property.name,
-			})) ?? [];
-	// The record's own information HQ's search index also holds
-	// (`case_search/const.py::INDEXED_METADATA_BY_KEY`).
+	const propertyOptions = new Map<string, { value: string; label: string }>();
+	for (const type of caseTypes) {
+		if (!requestedTypes.includes(type.name)) continue;
+		for (const property of type.properties)
+			if (!propertyOptions.has(property.name))
+				propertyOptions.set(property.name, {
+					value: property.name,
+					label: projectProse(property.label) || property.name,
+				});
+	}
+	const relatedProperties = [...propertyOptions.keys()].filter(
+		(property) => !isDeviceOnlyCaseProperty(property),
+	);
+	const properties = [...propertyOptions.values()];
+	// The record's own indexed information also works for every type.
 	for (const [value, label] of Object.entries(
 		CANONICAL_STANDARD_CASE_PROPERTY_LABELS,
 	))
-		if (!properties.some((option) => option.value === value))
-			properties.push({ value, label });
+		if (!propertyOptions.has(value)) properties.push({ value, label });
+	const orderProperties = properties.filter(
+		({ value }) => !isDeviceOnlyCaseProperty(value),
+	);
+	const resetIndex = searchOrderResetPosition(filters);
+	const canUseFallback =
+		module !== undefined && moduleAllowsSearchIndexFallback(module);
+	const fallbackProperties = relatedProperties.filter(
+		(property) =>
+			!Object.hasOwn(CANONICAL_STANDARD_CASE_PROPERTY_LABELS, property),
+	);
 	const [adding, setAdding] = useState(false);
 	const [text, setText] = useState("");
 	const [chosen, setChosen] = useState<SearchFilterTarget>({
@@ -83,6 +110,10 @@ export function SearchFilters({
 	// to every project space. A default-filter spelling brought in from HQ
 	// keeps its place and its own label below.
 	const options: { label: string; target: SearchFilterTarget }[] = [
+		{
+			label: "Include related records when a value is present",
+			target: { kind: "include-related-records" },
+		},
 		{ label: "Record ID", target: { kind: "record-id" } },
 		{ label: "Record owner", target: { kind: "owner" } },
 		{
@@ -195,6 +226,34 @@ export function SearchFilters({
 			</Select>
 		);
 	}
+
+	function settingPicker(
+		label: string,
+		options: readonly string[],
+		value: string | undefined,
+		onPick: (value: string) => void,
+	) {
+		const choices = [...new Set([...options, ...(value ? [value] : [])])];
+		return (
+			<Select
+				value={value ?? ""}
+				onValueChange={(picked) => {
+					if (picked) onPick(picked);
+				}}
+			>
+				<SelectTrigger aria-label={label}>
+					<SelectValue>{value || label}</SelectValue>
+				</SelectTrigger>
+				<SelectContent>
+					{choices.map((option) => (
+						<SelectItem key={option} value={option}>
+							{option}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		);
+	}
 	return (
 		<section
 			aria-label="Search filters"
@@ -215,7 +274,7 @@ export function SearchFilters({
 				</p>
 				<SearchResultOrder
 					order={search?.requestOrder ?? []}
-					properties={properties}
+					properties={orderProperties}
 					onChange={(order) =>
 						commitMany([
 							{
@@ -223,7 +282,9 @@ export function SearchFilters({
 								uuid: moduleUuid,
 								patch: {},
 								caseSearchConfigPatch: {
-									requestOrder: order.length ? order : null,
+									requestOrder: order.length
+										? searchRequestOrderSchema.parse(order)
+										: null,
 								},
 							},
 						])
@@ -236,10 +297,20 @@ export function SearchFilters({
 					key={row.uuid}
 					className="space-y-2 rounded-lg border border-white/[0.07] p-3"
 				>
+					{"order" in row && index < resetIndex && (
+						<p className="text-xs text-nova-text-secondary">
+							A later order filter replaces this one.
+						</p>
+					)}
 					{"order" in row ? (
 						<SearchResultOrder
 							order={row.order}
-							properties={properties}
+							properties={orderProperties}
+							fallbackProperties={
+								canUseFallback && (resetIndex === -1 || resetIndex === index)
+									? fallbackProperties
+									: []
+							}
 							onChange={(order) =>
 								onEdit(
 									order.length
@@ -248,7 +319,7 @@ export function SearchFilters({
 								)
 							}
 						/>
-					) : (
+					) : "target" in row ? (
 						<>
 							{picker(row.target, (target) =>
 								onEdit({
@@ -279,6 +350,30 @@ export function SearchFilters({
 								constraint={{ accepts: "any" }}
 							/>
 						</>
+					) : row.kind === "request-record-type" ? (
+						settingPicker(
+							"Record type to include in the search request",
+							caseTypes.map((type) => type.name),
+							row.caseType,
+							(caseType) =>
+								onEdit({
+									operation: "replace",
+									uuid: row.uuid,
+									filter: { ...row, caseType },
+								}),
+						)
+					) : (
+						settingPicker(
+							"Property holding the related record ID",
+							relatedProperties,
+							row.property,
+							(property) =>
+								onEdit({
+									operation: "replace",
+									uuid: row.uuid,
+									filter: { ...row, property },
+								}),
+						)
 					)}
 					<div className="flex flex-wrap gap-2">
 						{index > 0 && (
@@ -334,7 +429,7 @@ export function SearchFilters({
 									kind: "order",
 									order: [
 										{
-											property: properties[0].value,
+											property: orderProperties[0]?.value ?? "case_name",
 											comparison: "text",
 											direction: "ascending",
 										},
@@ -351,6 +446,37 @@ export function SearchFilters({
 					</p>
 				</div>
 			)}
+
+			{canEdit &&
+				settingPicker(
+					"Include another record type in the request",
+					caseTypes.map((type) => type.name),
+					undefined,
+					(caseType) =>
+						onEdit({
+							operation: "add",
+							filter: {
+								uuid: newUuid(),
+								kind: "request-record-type",
+								caseType,
+							},
+						}),
+				)}
+			{canEdit &&
+				relatedProperties.length > 0 &&
+				!filters.some(
+					(row) => "kind" in row && row.kind === "related-record-id",
+				) &&
+				settingPicker(
+					"Include the record named by a property",
+					relatedProperties,
+					undefined,
+					(property) =>
+						onEdit({
+							operation: "add",
+							filter: { uuid: newUuid(), kind: "related-record-id", property },
+						}),
+				)}
 			{canEdit &&
 				(adding ? (
 					<div className="space-y-2">

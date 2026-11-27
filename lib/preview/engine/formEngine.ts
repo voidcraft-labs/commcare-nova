@@ -1,3 +1,7 @@
+import { moduleUuidOfForm } from "@/lib/domain";
+import { androidAppInputMember } from "@/lib/domain/fields/androidApp";
+import { workerChoiceProse, workerFieldProseSlot } from "../workerProse";
+import type { CompletedFormSearch } from "./xpathInstances";
 /**
  * FormEngine — reactive form engine backed by a Zustand store.
  *
@@ -25,7 +29,11 @@
 
 import { v4 as uuidv4 } from "uuid";
 import { createStore, type StoreApi } from "zustand/vanilla";
-import { caseOptionsNodeset } from "@/lib/commcare/caseOptions";
+import { androidAppRequest } from "@/lib/commcare";
+import {
+	availableCasesNodeset,
+	caseOptionsNodeset,
+} from "@/lib/commcare/caseOptions";
 import { formSharingPlan } from "@/lib/commcare/casePlacementPlan";
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
 import { lookupOptionsNodeset } from "@/lib/commcare/lookupOptions";
@@ -39,7 +47,11 @@ import {
 	xformDataRootRuntimeAttributes,
 } from "@/lib/commcare/xform/dataRootAttributes";
 import { repeatCountBaseName } from "@/lib/commcare/xform/generatedNodes";
-import { itextIdFor } from "@/lib/commcare/xform/itextIds";
+import {
+	itextIdFor,
+	itextProseSlot,
+	itextTranslationUnitId,
+} from "@/lib/commcare/xform/itextIds";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import type { WireTermBindings } from "@/lib/commcare/xpath/wire/fromExpression";
 import { caseById, casePropertyStep } from "@/lib/commcare/xpath/wire/rowScope";
@@ -47,9 +59,9 @@ import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import type {
 	BlueprintDoc,
-	CaseOptionsSource,
 	CaseSelectionCardinality,
 	CaseType,
+	DeviceCaseOptionsSource,
 	Field,
 	FieldProseSlot,
 	Form,
@@ -63,6 +75,7 @@ import type {
 import {
 	type ContainerField,
 	caseScalarTextGuardIsChecked,
+	effectiveAppLocalization,
 	fieldPreload,
 	fieldProseTemplate,
 	formCaseWriteViews,
@@ -88,12 +101,19 @@ import type {
 } from "@/lib/domain/expression/types";
 import { fieldHasWorkerControl } from "@/lib/domain/fieldForm";
 import { formRootName } from "@/lib/domain/formAnswerRoot";
+import type { FormBehaviorRole } from "@/lib/domain/forms";
+import { resolveAppLanguage } from "@/lib/domain/localization";
 import {
 	effectiveQueryRepeatPlacement,
 	type QueryRepeatPlacement,
 } from "@/lib/domain/queryRepeatPlacement";
 import { usesNumberKeypad } from "@/lib/domain/questionDisplay";
 import { directRepeatCountReference } from "@/lib/domain/repeatCount";
+import { filledProse } from "@/lib/domain/translationFill";
+import {
+	itextUnitTranslationId,
+	snapshotTranslationUnits,
+} from "@/lib/domain/translationUnits";
 import { normalizeJavaIntegerLexical } from "@/lib/preview/xpath/javaInteger";
 import {
 	type QuestionMessage,
@@ -104,6 +124,7 @@ import { type PreviewPlatformRules, previewPlatformRules } from "../platform";
 import { runtimeMessage } from "../runtimeMessages";
 import {
 	androidCalendarCanBeEmpty,
+	androidDatetimePickerValue,
 	isoOfCalendarDay,
 	localToday,
 } from "../workerCalendar";
@@ -134,6 +155,7 @@ import {
 	snapshotXPathWorkerInstance,
 } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
+import { type AndroidAppReturn, androidAppWrites } from "./androidAppReturn";
 import {
 	type CoreAnswerType,
 	castAnswerText,
@@ -182,6 +204,7 @@ import {
 import {
 	rebaseOntoContext,
 	remapInstancePath,
+	repeatRowsAtPath,
 	stripIndices,
 } from "./instancePaths";
 import {
@@ -252,11 +275,15 @@ function resolvedLabelTextsOf(
 	return entries.length === 0 ? undefined : Object.fromEntries(entries);
 }
 
-function optionProseSlot(field: Field, optionUuid: Uuid): ProseSlotRef {
+function optionProseSlot(
+	field: Field,
+	optionUuid: Uuid,
+	slot: "option_label" | "option_extended_text",
+): ProseSlotRef {
 	return {
 		entity: "field",
 		uuid: field.uuid,
-		slot: "option_label",
+		slot,
 		member: { optionUuid },
 	};
 }
@@ -441,6 +468,12 @@ export interface FormEngineInput {
 	 * the emitter reads too). Absent, no question is guarded.
 	 */
 	caseScalarTextGuards?: Readonly<Record<string, CaseScalarTextGuard>>;
+	/** The root case IDs whose setvalues run after authored field defaults. */
+	readonly rootCaseCreates?: readonly {
+		readonly uuid: Uuid;
+		readonly datum?: string;
+		readonly exact?: true;
+	}[];
 	/** The form's uuid — used as the root key into `fieldOrder`. */
 	formUuid: Uuid;
 	/** Entry that opened this content. Identifies the receipt and capture scope. */
@@ -517,6 +550,8 @@ export interface FormEngineRuntimeOptions {
 		readonly preserveAllValues: boolean;
 	};
 
+	/** Capture additional ID setvalues on the authoritative opening evaluation. */
+	readonly captureOpeningCaseIds?: boolean;
 	/** Construct only the immutable form world. `initializeAsync` performs the
 	 * structural/default/cascade stages before the controller publishes it. */
 	readonly stagedAsync?: boolean;
@@ -537,6 +572,7 @@ export interface FormEngineRuntimeOptions {
 	 *  the `results:inline` instance. Absent, the form has no search
 	 *  results to read. */
 	readonly searchResults?: SearchResultsSnapshot;
+	readonly searches?: readonly CompletedFormSearch[];
 	/** The device the form runs on (`previewDevice.ts`): the platform whose
 	 *  screens, recalculation and day numbers the engine plays, and the
 	 *  session context values it supplies. Absent means a Web Apps device with
@@ -558,6 +594,7 @@ export interface FormEngineEntryCheckpoint {
 		string,
 		RepeatInitializationSnapshot,
 	])[];
+	readonly caseCreateIds?: Readonly<Record<string, string>>;
 	readonly activeSectionUuid?: Uuid;
 	/** The screen the entry is on (`FormScreenPage.path`). */
 	readonly activeScreenPath?: string;
@@ -686,12 +723,25 @@ export class FormEngine {
 	 *  field slice rooted at its one form. Rebuilt whenever the input
 	 *  is re-supplied. */
 	private printDoc: BlueprintDoc;
+
+	private validationMessageSlot(field: Field) {
+		return workerFieldProseSlot(
+			field,
+			"validate_msg",
+			this.printDoc.forms[this.inputFormUuid] ?? {},
+			this.device.platform,
+		);
+	}
+
 	private inputFormUuid: Uuid;
 	private readonly openingAssignments: NonNullable<
 		FormEngineInput["openingAssignments"]
 	>;
 	private readonly entryUuid: Uuid;
 	private requiresSelectedRecord: boolean;
+	readonly #rootCaseCreates: FormEngineInput["rootCaseCreates"];
+	private readonly openingCreateIds = new Map<Uuid, string>();
+	private readonly openingOperationIdBindings = new Map<Uuid, WireExpr>();
 	private expressions: FormExpressionRuntime;
 	/** The document a field's case writes and its bind type are read from. */
 	private caseWriteDoc: BlueprintDoc;
@@ -750,7 +800,8 @@ export class FormEngine {
 	 *  keyed by tree identity so every tree rebuild refreshes it lazily. */
 	private fieldPathsCache: ReadonlyMap<Uuid, string> = new Map();
 	private fieldPathsCacheTree: FieldTreeNode[] | undefined;
-	private datePathTemplates: string[] = [];
+	private calendarPathTemplates: { path: string; kind: "date" | "datetime" }[] =
+		[];
 	/** Live repeat-instance counts for the DAG's generic→concrete
 	 *  materialization. Arrow property so it can pass as a bare callback. */
 	private repeatCounts = (repeatPath: string): number =>
@@ -846,6 +897,9 @@ export class FormEngine {
 		);
 		this.caseData = caseData ?? new Map();
 		this.searchAnswers = runtimeOptions.searchAnswers ?? new Map();
+		this.#rootCaseCreates = runtimeOptions.captureOpeningCaseIds
+			? input.rootCaseCreates
+			: undefined;
 		this.sessionData = runtimeOptions.sessionData ?? {};
 		const ownerWithoutPlace = ownerMovesToNoPlace(
 			input.form.caseOperations,
@@ -876,9 +930,16 @@ export class FormEngine {
 			...(runtimeOptions.selectedCases === undefined
 				? {}
 				: { selectedCases: runtimeOptions.selectedCases }),
+			...(runtimeOptions.searches === undefined
+				? {}
+				: { searches: runtimeOptions.searches }),
 			...(runtimeOptions.searchResults === undefined
 				? {}
 				: { searchResults: runtimeOptions.searchResults }),
+			menus: input.doc.modules,
+			searchResultsName:
+				input.doc.modules[moduleUuidOfForm(input.doc, input.formUuid) ?? ""]
+					?.searchResultsName,
 			organization: input.doc,
 		});
 		for (const node of this.secondaryInstances
@@ -943,8 +1004,79 @@ export class FormEngine {
 
 	// ── Public API ───────────────────────────────────────────────────
 
+	/** Android evaluates the localized descriptor from the whole saved form.
+	 * Presence of an empty text is distinct from a missing key on disk. */
+	async savedFormDescriptor(
+		evaluateAsync?: FormEngineAsyncEvaluator,
+	): Promise<string | undefined> {
+		const carrier =
+			this.printDoc.forms[this.inputFormUuid]?.savedFormDescriptorText?.carrier;
+		if (!carrier) return undefined;
+		const unit = snapshotTranslationUnits(this.printDoc).get(
+			itextTranslationUnitId(carrier),
+		);
+		if (!unit) return undefined;
+		const localization = effectiveAppLocalization(this.printDoc.localization);
+		const language =
+			this.presentationLanguage &&
+			localization.languageOrder.includes(this.presentationLanguage)
+				? this.presentationLanguage
+				: localization.defaultLanguage;
+		const template = filledProse(this.printDoc, unit, language);
+		const slot = itextProseSlot(carrier);
+		let descriptor = "";
+		for (const part of template?.parts ?? []) {
+			if (part.kind === "text") {
+				descriptor += part.text;
+			} else {
+				const source = this.expressions.prose(part, slot);
+				descriptor += xpathToString(
+					evaluateAsync
+						? await evaluateAsync(source, "/")
+						: evaluate(source, this.createEvalContext("/")),
+				);
+			}
+		}
+		return descriptor;
+	}
+
 	/** Structured-clone projection for one evaluation: the world's instances
 	 * on its first request, then only the values and relevance that changed. */
+	/** The server signs this once with the authorized form opening. */
+	initialCreateIds(): Readonly<Record<string, string>> | undefined {
+		return this.openingCreateIds.size > 0
+			? Object.fromEntries(this.openingCreateIds)
+			: undefined;
+	}
+
+	/** Resolve the text Core reads as a pragma at the initialized form root. */
+	async readBehaviorText(
+		role: FormBehaviorRole,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<string | null> {
+		const carrier = this.printDoc.forms[this.inputFormUuid]?.[role]?.carrier;
+		if (!carrier) return null;
+		const unitId = itextUnitTranslationId(carrier);
+		const unit = snapshotTranslationUnits(this.printDoc).get(unitId);
+		if (!unit) return null;
+		const language = resolveAppLanguage(
+			this.printDoc.localization,
+			this.presentationLanguage ?? undefined,
+		);
+		const template = filledProse(this.printDoc, unit, language);
+		const slot = itextProseSlot(carrier);
+		const parts: string[] = [];
+		for (const part of template.parts)
+			parts.push(
+				part.kind === "text"
+					? part.text
+					: xpathToString(
+							await evaluateAsync(this.expressions.prose(part, slot), "/"),
+						),
+			);
+		return parts.join("");
+	}
+
 	workerInstances(
 		path: string,
 		world?: FormEngineWorkerWorld,
@@ -1063,6 +1195,9 @@ export class FormEngine {
 			state: this.store.getState(),
 			repeatKeys: [...this.repeatInstanceKeys],
 			pendingSectionRepeats: [...this.pendingSectionRepeats],
+			...(this.openingCreateIds.size > 0 && {
+				caseCreateIds: this.initialCreateIds(),
+			}),
 			activeSectionUuid: this.activeSectionUuid,
 			activeScreenPath: this.activeScreenPath,
 			allSectionsEntered: this.allSectionsEntered,
@@ -1074,6 +1209,12 @@ export class FormEngine {
 	 * heal untouched defaults afterward; this is never a client submission input. */
 	restoreEntryCheckpoint(checkpoint: FormEngineEntryCheckpoint): void {
 		this.instance.restoreCheckpoint(checkpoint.instance);
+		this.openingCreateIds.clear();
+		this.openingOperationIdBindings.clear();
+		for (const [uuid, id] of Object.entries(checkpoint.caseCreateIds ?? {})) {
+			this.openingCreateIds.set(uuid as Uuid, id);
+			this.openingOperationIdBindings.set(uuid as Uuid, w.str(id));
+		}
 		this.pendingSectionRepeats = new Map(checkpoint.pendingSectionRepeats);
 		this.activeSectionUuid = checkpoint.activeSectionUuid;
 		this.activeScreenPath = checkpoint.activeScreenPath;
@@ -1092,7 +1233,7 @@ export class FormEngine {
 			),
 		);
 		this.store.setState(state, true);
-		this.drawAndroidDates(this.activeScreenPath);
+		this.drawAndroidCalendarPickers(this.activeScreenPath);
 	}
 
 	/** Local required/type errors have no validation DAG node. Constraint
@@ -1197,7 +1338,7 @@ export class FormEngine {
 		}
 		if (Object.keys(updates).length > 0) this.store.setState(updates);
 		await this.settleLiveRepeatsAsync(evaluateAsync, beforeInsertion);
-		this.drawAndroidDates(this.activeScreenPath);
+		this.drawAndroidCalendarPickers(this.activeScreenPath);
 	}
 
 	async touchAsync(
@@ -1361,7 +1502,11 @@ export class FormEngine {
 	 *  Returns whether the instance takes the answer: false for one the
 	 *  platform's number keypad refused, which changes nothing the form reads
 	 *  and so opens no request. */
-	setValue(path: string, typed: string): boolean {
+	setValue(
+		path: string,
+		typed: string,
+		source: "worker-input" | "android-app" = "worker-input",
+	): boolean {
 		const current = this.store.getState()[path];
 		if (current === undefined || current === DEFAULT_ENGINE_STATE) return false;
 		/* A Text question with a number keypad plays the platform's keypad:
@@ -1369,7 +1514,10 @@ export class FormEngine {
 		 * earlier answer in the instance when its pattern refuses the typed one,
 		 * sends nothing, and shows its message (`answerShapeError`). */
 		const field = this.findField(path);
-		const { shown: value, stores } = this.keypadAnswer(path, typed, field);
+		const { shown: value, stores } =
+			source === "android-app"
+				? { shown: typed, stores: true }
+				: this.keypadAnswer(path, typed, field);
 		const isCapture = field !== undefined && isCaptureFieldKind(field.kind);
 		if (stores) {
 			if (this.asyncRuntime) this.stagedValues.set(path, value);
@@ -1386,11 +1534,16 @@ export class FormEngine {
 				(current.keypadRefused === true) !== !stores ||
 				(current.androidPickerDay !== undefined &&
 					current.androidPickerDay !== value) ||
+				(current.androidPickerDatetime !== undefined &&
+					current.androidPickerDatetime !== value) ||
 				(isCapture && current.captureFileName !== value))
 		) {
 			const cleared =
-				value === "" && this.rules.datePicker === "shows-a-day"
-					? this.findField(path)
+				value === "" &&
+				this.rules.datePicker === "shows-a-day" &&
+				(field?.kind === "date" || field?.kind === "datetime") &&
+				field.androidApp === undefined
+					? field
 					: undefined;
 			updates[path] = withKeypadRefused(
 				{
@@ -1401,6 +1554,12 @@ export class FormEngine {
 						androidPickerDay: androidCalendarCanBeEmpty(cleared.calendar)
 							? ""
 							: isoOfCalendarDay(localToday()),
+					}),
+					...(cleared?.kind === "datetime" && {
+						androidPickerDatetime: androidDatetimePickerValue(
+							"",
+							this.castZone,
+						),
 					}),
 					...(isCapture && { captureFileName: value }),
 				},
@@ -1446,7 +1605,7 @@ export class FormEngine {
 		this.settleLiveRepeats();
 		if (!this.asyncRuntime) {
 			this.reenterActiveScreen();
-			this.drawAndroidDates(this.activeScreenPath);
+			this.drawAndroidCalendarPickers(this.activeScreenPath);
 		}
 		return true;
 	}
@@ -1718,8 +1877,186 @@ export class FormEngine {
 			this.fieldWrites(field),
 		);
 
-	/** The data type Core gives a field's node, from the bind the XForm
-	 * emitter writes for it. */
+	private androidAppRowKey(path: string): string {
+		return repeatRowsAtPath(path)
+			.map(({ repeat, index }) => {
+				const field = this.findField(repeat);
+				if (field?.kind !== "repeat")
+					throw new Error("The Android app question's repeat row has changed.");
+				return `\u0000${field.uuid}:${this.getRepeatInstanceKey(repeat, index)}`;
+			})
+			.join("");
+	}
+
+	/** Open one installed-app interaction at its concrete worker row. The
+	 * request captures the selected action and the initiating row identities. */
+	private androidAppDefinitionAt(path: string) {
+		const field = this.findField(path);
+		const setting =
+			field && "androidApp" in field ? field.androidApp : undefined;
+		if (!this.rules.androidAppAnswers || !field || !setting) return undefined;
+		const owner =
+			setting.kind === "open-app"
+				? field
+				: this.caseWriteDoc.fields[setting.question];
+		if (owner?.kind !== "text" || owner.androidApp?.kind !== "open-app")
+			return undefined;
+		const action = owner.androidApp;
+		const current = this.getState(path).value;
+		const rowIdentity = this.androidAppRowKey(path);
+		const destinations = action.receive.map((result) => {
+			const template = this.fieldPathsByUuid().get(result.question);
+			if (!template)
+				throw new Error(
+					`The result "${result.name}" has no question in this form.`,
+				);
+			const target = rebaseOntoContext(template, path);
+			const targetField = this.findField(target);
+			if (!targetField)
+				throw new Error(
+					`The result "${result.name}" has no question in this row.`,
+				);
+			return {
+				...result,
+				path: target,
+				kind: targetField.kind,
+				id: targetField.id,
+				capture: isCaptureFieldKind(targetField.kind),
+			};
+		});
+		return {
+			field,
+			action,
+			path,
+			signature: JSON.stringify([
+				path,
+				field.uuid,
+				field.kind,
+				owner.uuid,
+				action,
+				rowIdentity,
+				destinations,
+			]),
+			destinations,
+			current,
+			ownerUuid: owner.uuid,
+		};
+	}
+
+	async openAndroidApp(path: string, evaluateAsync?: FormEngineAsyncEvaluator) {
+		const launch = this.androidAppDefinitionAt(path);
+		if (!launch || !this.effectivelyVisiblePaths().has(path)) return undefined;
+		const action = launch.action;
+		const lastInput = new Map(
+			action.send.map((input, index) => [input.name, index]),
+		);
+		const args = [];
+		for (const index of lastInput.values()) {
+			const input = action.send[index];
+			if (!input) throw new Error("An Android app input was removed.");
+			const source = this.expressions.lower(input.value, {
+				entity: "field",
+				uuid: launch.ownerUuid,
+				slot: "android_app_input",
+				member: androidAppInputMember(action.send, index),
+			});
+			const value = evaluateAsync
+				? await evaluateAsync(source, path)
+				: evaluate(source, this.createEvalContext(path));
+			args.push({
+				name: input.name,
+				text: xpathToString(value),
+				truth: toBoolean(value),
+			});
+		}
+		const destinations = launch.destinations.map((destination) => {
+			const target = this.findField(destination.path);
+			const label =
+				this.getState(destination.path).resolvedLabel ??
+				(target && proseSource(target, "label", this.printDoc));
+			return { ...destination, label: label || destination.id };
+		});
+		return {
+			...launch,
+			destinations,
+			parameters: androidAppRequest(args, launch.current),
+		};
+	}
+
+	androidAppResult(path: string, signature: string, result: AndroidAppReturn) {
+		const launch = this.androidAppDefinitionAt(path);
+		if (
+			launch?.signature !== signature ||
+			!launch ||
+			!this.effectivelyVisiblePaths().has(path)
+		)
+			return undefined;
+		const response = androidAppWrites(
+			launch.field.uuid,
+			launch.action,
+			result,
+			{
+				registration: (outcome) =>
+					runtimeMessage(
+						this.presentationLanguage,
+						{
+							success: "androidAppRegistrationSaved",
+							partial: "androidAppRegistrationPartial",
+							failed: "androidAppRegistrationFailed",
+						}[outcome] as
+							| "androidAppRegistrationSaved"
+							| "androidAppRegistrationPartial"
+							| "androidAppRegistrationFailed",
+					),
+				scanned: (count) =>
+					runtimeMessage(
+						this.presentationLanguage,
+						"androidAppFingersScanned",
+						{ count },
+					),
+			},
+		);
+		const writes = response.writes.map((write) => {
+			const template = this.fieldPathsByUuid().get(write.question);
+			if (!template) throw new Error("A result question was removed.");
+			const target = rebaseOntoContext(template, path);
+			const field = this.findField(target);
+			if (!field) throw new Error("A result question was removed.");
+			const binary =
+				isCaptureFieldKind(field.kind) && write.capture !== undefined;
+			if (binary)
+				return {
+					kind: "capture" as const,
+					field: field.uuid,
+					captureKind: field.kind,
+					path: target,
+					file: write.capture?.file,
+					slotKey: `${field.uuid}\u0000${this.androidAppRowKey(target)}`,
+				};
+			const cast =
+				write.value === ""
+					? { ok: true as const, text: "" }
+					: castAnswerText(
+							this.answerTypeOf(field),
+							write.value,
+							this.castZone,
+						);
+			if (!cast.ok)
+				throw new Error(
+					`The returned value does not fit the question "${field.id}".`,
+				);
+			return {
+				kind: "answer" as const,
+				field: field.uuid,
+				path: target,
+				value: cast.text,
+			};
+		});
+		// A native result leaves one final answer per node. Only its final file needs staging.
+		return [...new Map(writes.map((write) => [write.path, write])).values()];
+	}
+
+	/** The data type Core gives a field’s node from its emitted bind. */
 	private answerTypeOf(field: Field): CoreAnswerType {
 		return coreAnswerType(this.bindTypeOf(field), field.kind);
 	}
@@ -2120,8 +2457,9 @@ export class FormEngine {
 		return this.validateWhere(() => true, true);
 	}
 
-	/** The native screen commit supplies OK for each passive trigger. The web
-	 * client also supplies it for interactive messages at submit. Check
+	/** The native screen commit supplies OK for each passive trigger. A
+	 * floating banner hides its trigger and keeps its existing answer. The web
+	 * client also supplies OK for interactive messages and banners at submit. Check
 	 * relevance after every answer: a dependent prompt can now be visible. */
 	private *messagesToConfirm(
 		include: (path: string) => boolean,
@@ -2134,12 +2472,14 @@ export class FormEngine {
 			const state = this.store.getState()[path];
 			if (state?.visible === false) continue;
 			if (field.kind === "label") {
+				const floating =
+					this.rules.questionBanner && field.banner !== undefined;
 				if (
 					include(path) &&
 					this.instance.get(path) !== "OK" &&
 					this.workerRelevantPaths().has(path) &&
 					(this.rules.messageConfirmation === "automatic" ||
-						!field.askForConfirmation)
+						(!field.askForConfirmation && !floating))
 				)
 					yield path;
 			} else if (field.kind === "repeat") {
@@ -2420,80 +2760,125 @@ export class FormEngine {
 		return { screens, prompts };
 	}
 
-	/** A native date control is constructed with an answer, or with the
-	 * device's current civil day. Only when the worker leaves does Android
-	 * ask the widget for that day. A fresh control after a return or a
-	 * relevance change is constructed again from the instance. */
-	private drawAndroidDates(screenPath: string | undefined): void {
+	/** Native calendar pickers display an answer or the device clock. The
+	 * form sees their value when the worker leaves the live screen. */
+	private drawAndroidCalendarPickers(screenPath: string | undefined): void {
 		if (this.rules.datePicker !== "shows-a-day") return;
 		this.fieldPathsByUuid();
-		if (this.datePathTemplates.length === 0) return;
+		if (this.calendarPathTemplates.length === 0) return;
 
 		const visible = this.effectivelyVisiblePaths();
 		const states = this.store.getState();
 		const updates: EngineStoreState = {};
 		let today: string | undefined;
-		for (const template of this.datePathTemplates) {
-			for (const path of this.materializePaths(template)) {
+		let now: string | undefined;
+		for (const template of this.calendarPathTemplates) {
+			const picker =
+				template.kind === "date" ? "androidPickerDay" : "androidPickerDatetime";
+			for (const path of this.materializePaths(template.path)) {
 				const state = states[path];
 				if (!state) continue;
+				let shown: string | undefined;
 				if (
 					screenPath &&
 					this.containsControl(screenPath, path) &&
-					visible.has(path) &&
-					!state.value
+					visible.has(path)
 				) {
-					if (state.androidPickerDay === undefined) {
+					if (template.kind === "date" && !state.value) {
 						today ??= isoOfCalendarDay(localToday());
-						updates[path] = { ...state, androidPickerDay: today };
+						shown = state.androidPickerDay ?? today;
+					} else if (template.kind === "datetime") {
+						if (state.value) {
+							shown = androidDatetimePickerValue(state.value, this.castZone);
+						} else {
+							now ??= androidDatetimePickerValue("", this.castZone);
+							shown = state.androidPickerDatetime ?? now;
+						}
 					}
-				} else if (state.androidPickerDay !== undefined) {
-					const { androidPickerDay: _shown, ...answer } = state;
-					updates[path] = answer;
+				}
+				if (shown !== state[picker]) {
+					const { [picker]: _previous, ...answer } = state;
+					updates[path] =
+						shown === undefined ? answer : { ...answer, [picker]: shown };
 				}
 			}
 		}
 		if (Object.keys(updates).length > 0) this.store.setState(updates);
 	}
 
-	/** Day suggestions are owned by the live screen. Materializing the
-	 * blueprint's date paths excludes removed fields and removed repeat rows. */
-	pendingScreenDays(): { path: string; day: string }[] {
+	/** Only a rendered picker can commit its displayed answer. */
+	private pendingCalendarAnswers(): { path: string; value: string }[] {
 		const screenPath = this.activeScreenPath;
 		if (this.rules.datePicker !== "shows-a-day" || !screenPath) return [];
-		this.fieldPathsByUuid();
-		this.drawAndroidDates(screenPath);
-		return this.datePathTemplates.flatMap((template) =>
-			this.materializePaths(template).flatMap((path) => {
+		this.drawAndroidCalendarPickers(screenPath);
+		return this.calendarPathTemplates.flatMap((template) =>
+			this.materializePaths(template.path).flatMap((path) => {
 				const state = this.store.getState()[path];
-				return this.containsControl(screenPath, path) &&
-					state?.androidPickerDay &&
-					!state.value
-					? [{ path, day: state.androidPickerDay }]
+				const value = state?.androidPickerDay ?? state?.androidPickerDatetime;
+				return value &&
+					state?.value !== value &&
+					this.containsControl(screenPath, path)
+					? [{ path, value }]
 					: [];
 			}),
+		);
+	}
+
+	/** Leaving a single-question Android screen commits the text widget's
+	 * nonempty answer even when it equals the stored value. That can
+	 * replace a dependent repeat value that was just seeded. */
+	private pendingScreenTextDefault():
+		| { path: string; value: string }
+		| undefined {
+		const path = this.activeScreenPath;
+		if (!this.rules.commitStartingTextOnScreenExit || !path) return undefined;
+		const state = this.store.getState()[path];
+		const field = this.findField(path);
+		if (
+			!state?.value ||
+			state.edited ||
+			!state.valid ||
+			field?.kind !== "text" ||
+			field.androidApp !== undefined ||
+			usesNumberKeypad(field, this.device.platform) ||
+			!this.workerRelevantPaths().has(path) ||
+			!this.startingValueSource(field)
+		)
+			return undefined;
+		return { path, value: state.value };
+	}
+
+	hasScreenAnswersToSave(): boolean {
+		return (
+			this.pendingCalendarAnswers().length > 0 ||
+			this.pendingScreenTextDefault() !== undefined
 		);
 	}
 
 	/** Save the displayed answers from this actual visit through the same
 	 * value/cascade boundary as an explicit worker edit. Validation of a
 	 * different screen is only an inspection and never calls this. */
-	saveScreenDates(): string[] {
+	saveScreenAnswers(): string[] {
 		const saved: string[] = [];
-		for (const { path, day } of this.pendingScreenDays()) {
+		for (const { path, value } of this.pendingCalendarAnswers()) {
+			const state = this.getState(path);
 			if (
-				this.getState(path).androidPickerDay === day &&
-				this.setValue(path, day)
+				(state.androidPickerDay ?? state.androidPickerDatetime) === value &&
+				state.value !== value &&
+				this.setValue(path, value)
 			)
 				saved.push(path);
 		}
+		const textDefault = this.pendingScreenTextDefault();
+		if (textDefault && this.setValue(textDefault.path, textDefault.value))
+			saved.push(textDefault.path);
 		return saved;
 	}
 
-	async saveScreenDatesAsync(
+	async saveScreenAnswersAsync(
 		evaluate: FormEngineAsyncEvaluator,
 	): Promise<void> {
-		const paths = this.saveScreenDates();
+		const paths = this.saveScreenAnswers();
 		if (paths.length) {
 			await this.settleValueChangesAsync(paths, evaluate);
 			await this.reenterActiveScreenAsync(evaluate);
@@ -2552,7 +2937,7 @@ export class FormEngine {
 	): boolean {
 		const access = this.workerRepeatAccess(path, uuid, action);
 		if (typeof access !== "string") return access;
-		this.saveScreenDates();
+		this.saveScreenAnswers();
 		return (
 			this.validateScreen(access) &&
 			this.workerRepeatAccess(path, uuid, action) !== false
@@ -2567,7 +2952,7 @@ export class FormEngine {
 	): Promise<boolean> {
 		const access = this.workerRepeatAccess(path, uuid, action);
 		if (typeof access !== "string") return access;
-		await this.saveScreenDatesAsync(evaluate);
+		await this.saveScreenAnswersAsync(evaluate);
 		return (
 			(await this.validateScreenAsync(access, evaluate)) &&
 			this.workerRepeatAccess(path, uuid, action) !== false
@@ -2604,7 +2989,7 @@ export class FormEngine {
 		if (path === this.rootPath) {
 			this.enterAllSections();
 			this.activeScreenPath = path;
-			this.drawAndroidDates(path);
+			this.drawAndroidCalendarPickers(path);
 			return;
 		}
 		const section = this.sectionAtScreenPath(path);
@@ -2613,7 +2998,7 @@ export class FormEngine {
 			return;
 		}
 		this.activeScreenPath = path;
-		this.drawAndroidDates(path);
+		this.drawAndroidCalendarPickers(path);
 	}
 
 	async enterScreenAsync(
@@ -2623,7 +3008,7 @@ export class FormEngine {
 		if (path === this.rootPath) {
 			await this.enterAllSectionsAsync(evaluateAsync);
 			this.activeScreenPath = path;
-			this.drawAndroidDates(path);
+			this.drawAndroidCalendarPickers(path);
 			return;
 		}
 		const section = this.sectionAtScreenPath(path);
@@ -2632,7 +3017,7 @@ export class FormEngine {
 			return;
 		}
 		this.activeScreenPath = path;
-		this.drawAndroidDates(path);
+		this.drawAndroidCalendarPickers(path);
 	}
 
 	private sectionAtScreenPath(path: string): Uuid | undefined {
@@ -2988,6 +3373,7 @@ export class FormEngine {
 			this.lookupData ?? undefined,
 			{
 				searchInputInstanceId: INLINE_SEARCH_INPUT_INSTANCE_ID,
+				operationIds: this.openingOperationIdBindings,
 				workerProperty: this.workerProperty,
 				datumId: session.datumId,
 				formCaseProperty: this.formCaseProperty(session.formCaseProperty),
@@ -3035,7 +3421,7 @@ export class FormEngine {
 
 	private expressionSource(
 		field: Field,
-		slot: FieldExpressionSlotRef["slot"],
+		slot: Exclude<FieldExpressionSlotRef["slot"], "android_app_input">,
 	): string | undefined {
 		return this.expressions.source({ entity: "field", uuid: field.uuid, slot });
 	}
@@ -3172,6 +3558,7 @@ export class FormEngine {
 
 		const relevant = this.effectivelyVisiblePaths();
 		const repeatScopes = new Map<string, SubmissionAnswerEntry[][]>();
+		const parentIterations = new Map<string, number[]>();
 		const scopeFor = (repeatUuid: string): SubmissionAnswerEntry[][] => {
 			const existing = repeatScopes.get(repeatUuid);
 			if (existing !== undefined) return existing;
@@ -3215,6 +3602,7 @@ export class FormEngine {
 			nodes: ReadonlyArray<FieldTreeNode>,
 			pathPrefix: string,
 			inherited: ReadonlyArray<SubmissionAnswerEntry>,
+			parentIteration?: number,
 		): SubmissionAnswerEntry[] => {
 			const level: SubmissionAnswerEntry[] = [];
 			const deferredRepeats: Array<{
@@ -3253,8 +3641,19 @@ export class FormEngine {
 					if (!this.repeatRowRelevant(node.field, path, i, repeatState))
 						continue;
 					const enclosing = [...inherited, ...level];
-					const own = collectLevel(node.children, `${path}[${i}]`, enclosing);
+					const iteration = iterations.length;
+					const own = collectLevel(
+						node.children,
+						`${path}[${i}]`,
+						enclosing,
+						iteration,
+					);
 					iterations.push([...enclosing, ...own]);
+					if (parentIteration !== undefined) {
+						const parents = parentIterations.get(node.field.uuid) ?? [];
+						parents.push(parentIteration);
+						parentIterations.set(node.field.uuid, parents);
+					}
 				}
 			}
 			return level;
@@ -3266,6 +3665,9 @@ export class FormEngine {
 			repeats: [...repeatScopes.entries()].map(([repeat, iterations]) => ({
 				repeat,
 				iterations,
+				...(parentIterations.has(repeat) && {
+					parentIterations: parentIterations.get(repeat),
+				}),
 			})),
 		};
 	}
@@ -4518,13 +4920,26 @@ export class FormEngine {
 						fieldProseTemplate(field, "label"),
 						resolve(fieldProseSlot(field, "label")),
 					);
+					const textForm = this.printDoc.forms[this.inputFormUuid] ?? {};
+					const hintSlot = workerFieldProseSlot(
+						field,
+						"hint",
+						textForm,
+						this.device.platform,
+					);
+					const helpSlot = workerFieldProseSlot(
+						field,
+						"help",
+						textForm,
+						this.device.platform,
+					);
 					const nextHint = await resolveLabelAsync(
-						fieldProseTemplate(field, "hint"),
-						resolve(fieldProseSlot(field, "hint")),
+						fieldProseTemplate(field, hintSlot),
+						resolve(fieldProseSlot(field, hintSlot)),
 					);
 					const nextHelp = await resolveLabelAsync(
-						fieldProseTemplate(field, "help"),
-						resolve(fieldProseSlot(field, "help")),
+						fieldProseTemplate(field, helpSlot),
+						resolve(fieldProseSlot(field, helpSlot)),
 					);
 					const labelTexts = new Map<LabelTextSlot, string>();
 					for (const slot of LABEL_TEXT_SLOTS) {
@@ -4558,9 +4973,15 @@ export class FormEngine {
 					) {
 						const entries: Array<readonly [string, string]> = [];
 						for (const option of field.optionsSource.options) {
+							const { template, slot } = workerChoiceProse(
+								field,
+								option,
+								textForm,
+								this.device.platform,
+							);
 							const label = await resolveLabelAsync(
-								option.label,
-								resolve(optionProseSlot(field, option.uuid)),
+								template,
+								resolve(optionProseSlot(field, option.uuid, slot)),
 							);
 							if (label !== undefined) entries.push([option.uuid, label]);
 						}
@@ -4596,15 +5017,15 @@ export class FormEngine {
 						break;
 					}
 					const next =
-						field.optionsSource.kind === "cases"
-							? await this.computeCaseChoicesAsync(
+						field.optionsSource.kind === "lookup"
+							? this.computeLookupChoices(
+									field.optionsSource,
+									this.createEvalContext(path, updates),
+								)
+							: await this.computeCaseChoicesAsync(
 									field.optionsSource,
 									path,
 									evaluateAsync,
-								)
-							: this.computeLookupChoices(
-									field.optionsSource,
-									this.createEvalContext(path, updates),
 								);
 					if (next === undefined) break;
 					if (!lookupChoicesEqual(next, choices)) {
@@ -4840,13 +5261,26 @@ export class FormEngine {
 							fieldProseTemplate(f, "label"),
 							resolve(fieldProseSlot(f, "label")),
 						);
+						const textForm = this.printDoc.forms[this.inputFormUuid] ?? {};
+						const hintSlot = workerFieldProseSlot(
+							f,
+							"hint",
+							textForm,
+							this.device.platform,
+						);
+						const helpSlot = workerFieldProseSlot(
+							f,
+							"help",
+							textForm,
+							this.device.platform,
+						);
 						const rh = resolveLabel(
-							fieldProseTemplate(f, "hint"),
-							resolve(fieldProseSlot(f, "hint")),
+							fieldProseTemplate(f, hintSlot),
+							resolve(fieldProseSlot(f, hintSlot)),
 						);
 						const rhelp = resolveLabel(
-							fieldProseTemplate(f, "help"),
-							resolve(fieldProseSlot(f, "help")),
+							fieldProseTemplate(f, helpSlot),
+							resolve(fieldProseSlot(f, helpSlot)),
 						);
 						const rtexts = resolvedLabelTextsOf((slot) =>
 							resolveLabel(
@@ -4873,9 +5307,15 @@ export class FormEngine {
 							f.optionsSource.kind === "inline"
 								? Object.fromEntries(
 										f.optionsSource.options.flatMap((option) => {
+											const { template, slot } = workerChoiceProse(
+												f,
+												option,
+												textForm,
+												this.device.platform,
+											);
 											const value = resolveLabel(
-												option.label,
-												resolve(optionProseSlot(f, option.uuid)),
+												template,
+												resolve(optionProseSlot(f, option.uuid, slot)),
 											);
 											return value === undefined
 												? []
@@ -4916,9 +5356,9 @@ export class FormEngine {
 						f.optionsSource.kind !== "inline"
 					) {
 						const next =
-							f.optionsSource.kind === "cases"
-								? this.computeCaseChoices(f.optionsSource, ctx)
-								: this.computeLookupChoices(f.optionsSource, ctx);
+							f.optionsSource.kind === "lookup"
+								? this.computeLookupChoices(f.optionsSource, ctx)
+								: this.computeCaseChoices(f.optionsSource, ctx);
 						/* `undefined` is the typed loading state: no snapshot captured
 						 * yet (the cold-load race before the builder session's fetch
 						 * settles). The renderer shows loading, and the controller's
@@ -5098,18 +5538,26 @@ export class FormEngine {
 					? await resolveConstraintMessageAsync(
 							async () =>
 								(await resolveLabelAsync(
-									fieldProseTemplate(field, "validate_msg"),
+									fieldProseTemplate(field, this.validationMessageSlot(field)),
 									async (part) =>
 										xpathToString(
 											await evaluateAsync(
 												this.expressions.prose(
 													part,
-													fieldProseSlot(field, "validate_msg"),
+													fieldProseSlot(
+														field,
+														this.validationMessageSlot(field),
+													),
 												),
 												path,
 											),
 										),
-								)) ?? proseSource(field, "validate_msg", this.printDoc),
+								)) ??
+								proseSource(
+									field,
+									this.validationMessageSlot(field),
+									this.printDoc,
+								),
 						)
 					: undefined) ?? runtimeMessage(this.presentationLanguage, "invalid"));
 		if (valid !== state.valid || errorMessage !== state.errorMessage) {
@@ -5175,18 +5623,26 @@ export class FormEngine {
 					? resolveConstraintMessage(
 							() =>
 								resolveLabel(
-									fieldProseTemplate(field, "validate_msg"),
+									fieldProseTemplate(field, this.validationMessageSlot(field)),
 									(part) =>
 										xpathToString(
 											evaluate(
 												this.expressions.prose(
 													part,
-													fieldProseSlot(field, "validate_msg"),
+													fieldProseSlot(
+														field,
+														this.validationMessageSlot(field),
+													),
 												),
 												ctx,
 											),
 										),
-								) ?? proseSource(field, "validate_msg", this.printDoc),
+								) ??
+								proseSource(
+									field,
+									this.validationMessageSlot(field),
+									this.printDoc,
+								),
 						)
 					: undefined) ?? runtimeMessage(this.presentationLanguage, "invalid"));
 
@@ -5458,6 +5914,30 @@ export class FormEngine {
 			}
 		}
 		if (prefix === this.rootPath && insertedPath === undefined && !healing) {
+			this.openingCreateIds.clear();
+			this.openingOperationIdBindings.clear();
+			for (const create of this.#rootCaseCreates ?? []) {
+				const source = create.exact
+					? this.expressions.source({
+							entity: "form",
+							uuid: this.inputFormUuid,
+							slot: "case_operation_target_expression",
+							member: { operationUuid: create.uuid },
+						})
+					: create.datum === undefined
+						? "uuid()"
+						: undefined;
+				let caseId = this.sessionData[create.datum ?? ""] ?? "";
+				if (source !== undefined) {
+					const value = yield { source, path: prefix };
+					if (isAsyncNodesetValues(value))
+						throw new Error("Expected one case ID.");
+					caseId = xpathToString(value);
+					this.openingCreateIds.set(create.uuid, caseId);
+				}
+				this.openingOperationIdBindings.set(create.uuid, w.str(caseId));
+			}
+
 			// HQ appends its case reads after the authored ready actions. At
 			// this event a repeat template alone does not supply a target.
 			// SetValueAction applies the answer cast and fires dependents before
@@ -6229,7 +6709,7 @@ export class FormEngine {
 		if (!resolved) this.activeSectionUuid = undefined;
 		else if (resolved.uuid !== sectionUuid) this.enterSection(resolved.uuid);
 		else this.activeScreenPath = resolved.path;
-		this.drawAndroidDates(resolved?.path);
+		this.drawAndroidCalendarPickers(resolved?.path);
 	}
 
 	async enterSectionAsync(
@@ -6254,7 +6734,7 @@ export class FormEngine {
 		else if (resolved.uuid !== sectionUuid)
 			await this.enterSectionAsync(resolved.uuid, evaluateAsync);
 		else this.activeScreenPath = resolved.path;
-		this.drawAndroidDates(resolved?.path);
+		this.drawAndroidCalendarPickers(resolved?.path);
 	}
 
 	/** Nova context recovery re-evaluates untouched defaults with retained row
@@ -6558,8 +7038,9 @@ export class FormEngine {
 	 *  coverage-keyed rebuild resolves them when fresh data arrives.
 	 *  Only a COVERED snapshot evaluates, so `lookupChoicesFromNodeset`'s
 	 *  identity throws stay a genuine validation-bypass surface. */
-	private caseChoiceDataCovered(source: CaseOptionsSource): boolean {
+	private caseChoiceDataCovered(source: DeviceCaseOptionsSource): boolean {
 		return (
+			source.kind === "available-cases" ||
 			source.filter === undefined ||
 			predicateLookupsCovered(source.filter, this.lookupData ?? undefined)
 		);
@@ -6617,48 +7098,67 @@ export class FormEngine {
 	}
 
 	private caseChoiceQuery(
-		source: CaseOptionsSource,
+		source: DeviceCaseOptionsSource,
 		questionPath: string,
 	): string {
 		return serializeWire(
-			caseOptionsNodeset(
-				source,
-				this.choiceContext(questionPath),
-				{
-					...this.choiceBindings(questionPath),
-					...(this.lookupData && {
-						lookup: {
-							naming: this.lookupData.naming,
-							instanceScope: "xform" as const,
+			source.kind === "available-cases"
+				? availableCasesNodeset(source)
+				: caseOptionsNodeset(
+						source,
+						this.choiceContext(questionPath),
+						{
+							...this.choiceBindings(questionPath),
+							...(this.lookupData && {
+								lookup: {
+									naming: this.lookupData.naming,
+									instanceScope: "xform" as const,
+								},
+							}),
 						},
-					}),
-				},
-				this.expressions.projection,
-			),
+						this.expressions.projection,
+					),
 			{ target: "preview" },
 		).text;
 	}
 
 	private caseChoicesForIds(
-		source: CaseOptionsSource,
+		source: DeviceCaseOptionsSource,
 		ids: readonly string[],
 	): readonly LookupChoice[] {
-		const labelPath = emitCasePropertyWirePath(source.labelProperty);
-		return ids.map((value) => {
+		const labelPath = emitCasePropertyWirePath(
+			source.kind === "cases" ? source.labelProperty : "case_name",
+		);
+		const sortPath =
+			source.kind !== "cases" || source.sortProperty === undefined
+				? undefined
+				: emitCasePropertyWirePath(source.sortProperty);
+		const choices = ids.map((value) => {
 			const node = this.choiceCaseNodes.get(value);
 			if (!node)
 				throw new Error(
 					`Case choice ${value} is missing from the captured case database.`,
 				);
-			const label = labelPath.startsWith("@")
-				? node.attributes(labelPath.slice(1))[0]
-				: node.children(labelPath)[0];
-			return { key: value, value, label: xpathToString(label?.value() ?? "") };
+			const readText = (path: string) => {
+				const leaf = path.startsWith("@")
+					? node.attributes(path.slice(1))[0]
+					: node.children(path)[0];
+				return xpathToString(leaf?.value() ?? "");
+			};
+			return {
+				choice: { key: value, value, label: readText(labelPath) },
+				sortText: sortPath === undefined ? "" : readText(sortPath),
+			};
 		});
+		if (sortPath !== undefined)
+			choices.sort((a, b) =>
+				a.sortText < b.sortText ? -1 : a.sortText > b.sortText ? 1 : 0,
+			);
+		return choices.map(({ choice }) => choice);
 	}
 
 	private computeCaseChoices(
-		source: CaseOptionsSource,
+		source: DeviceCaseOptionsSource,
 		ctx: EvalContext,
 	): readonly LookupChoice[] | undefined {
 		if (!this.hasCaseSnapshot || !this.caseChoiceDataCovered(source))
@@ -6676,7 +7176,7 @@ export class FormEngine {
 	}
 
 	private async computeCaseChoicesAsync(
-		source: CaseOptionsSource,
+		source: DeviceCaseOptionsSource,
 		path: string,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<readonly LookupChoice[] | undefined> {
@@ -6754,12 +7254,20 @@ export class FormEngine {
 	private fieldPathsByUuid(): ReadonlyMap<Uuid, string> {
 		if (this.fieldPathsCacheTree !== this.tree) {
 			const paths = new Map<Uuid, string>();
-			this.datePathTemplates = [];
+			this.calendarPathTemplates = [];
 			const walk = (nodes: FieldTreeNode[], prefix: string): void => {
 				for (const node of nodes) {
 					const nodePath = `${prefix}/${node.field.id}`;
 					paths.set(node.field.uuid, nodePath);
-					if (node.field.kind === "date") this.datePathTemplates.push(nodePath);
+					// An Android app replaces the normal picker and its suggested value.
+					if (
+						(node.field.kind === "date" || node.field.kind === "datetime") &&
+						node.field.androidApp === undefined
+					)
+						this.calendarPathTemplates.push({
+							path: nodePath,
+							kind: node.field.kind,
+						});
 					if (node.children) walk(node.children, nodePath);
 				}
 			};

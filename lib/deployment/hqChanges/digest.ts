@@ -28,6 +28,7 @@ import type {
 } from "../reading/projectData/reviewTypes";
 import {
 	canonicalTargetIdentity,
+	type SearchDestinationChange,
 	type TargetIdentity,
 } from "../targetIdentity";
 
@@ -38,6 +39,10 @@ export interface HqChangesDigestInput {
 	};
 	/** The reviewed mapping and its continuous claim of this HQ app. */
 	readonly authority: ReturnType<typeof appConfirmationScope>;
+	readonly projectSearchReview?: {
+		readonly endings: number;
+		readonly changes: readonly SearchDestinationChange[];
+	};
 	/** The stored baseline's `source_digest`: the source the base reading read. */
 	readonly baselineDigest: string;
 	readonly approvedRemovals?: readonly string[];
@@ -50,6 +55,20 @@ export interface HqChangesDigestInput {
 	readonly sourceDigest: string;
 	/** The app's head sequence the plan was computed at. */
 	readonly headSeq: number;
+	/** The exact destination, principal and profile changes the explicit review will record. */
+	readonly installationReview?: {
+		readonly app: string;
+		readonly actor: string;
+		readonly project: string;
+		readonly server: string;
+		readonly domain: string;
+		readonly remoteApp: string;
+		readonly workingVersion: number;
+		readonly mapping: string;
+		readonly deployment: string;
+		readonly endings: number;
+		readonly changes: readonly import("../targetIdentity").InstallationReviewChange[];
+	};
 	/** Every path the reference publishes, settled against the source now. */
 	readonly media: readonly HqMediaPath[];
 	/** Baseline file ids at the paths whose meaning the decision used. */
@@ -86,9 +105,15 @@ export function hqChangesReviewDigest(input: HqChangesDigestInput): string {
 			next: canonicalTargetIdentity(input.identity.next),
 		},
 		authority: input.authority,
+		...(input.projectSearchReview && {
+			projectSearchReview: input.projectSearchReview,
+		}),
 		baselineDigest: input.baselineDigest,
 		sourceDigest: input.sourceDigest,
 		headSeq: input.headSeq,
+		...(input.installationReview && {
+			installationReview: input.installationReview,
+		}),
 		media: [...input.media]
 			.sort((a, b) =>
 				a.wirePath < b.wirePath ? -1 : a.wirePath > b.wirePath ? 1 : 0,

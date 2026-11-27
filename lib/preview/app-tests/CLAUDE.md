@@ -117,7 +117,10 @@ and refusing the assigned-case exclusion only where Results are read; and it
 walks a menu's parent case as Preview does (`parentCaseSelection.ts`), asking
 for it before the menu's screen only where Core does, going on at the
 parent's row unless the datum it chooses for names a details screen, and
-letting every case chosen after a screen go when Back returns to it. A session's
+letting every case chosen after a screen go when Back returns to it. Runtime
+version 20 covers the Step 7 model and worker behavior, including Search
+result and Details context, Android picker answers on screen exit, and
+numeric comparison before an only-if-changed case write. A session's
 platform is its own `platform`, else the start's, else the one the saved app
 previews on by default (`context.ts::appTestPlatform`, which refuses a platform
 the app does not declare with `platformUnavailableSentence`); the session keeps
@@ -285,6 +288,8 @@ An already chosen form command completes selection without rechecking its menu
 offering condition; a returned module menu evaluates its offerings normally.
 Back from the form
 returns to the original Results/Details destination, not the transient chooser.
+
+The bounded 101-case close is tested in the same isolated namespace as other case submissions. Its manual action accepts the ordered set across Results pages and checks every selected record against the worker's current list. The automatic action uses datum order and refuses overflow. The entry retains a scoped selected-case snapshot and leaves the full device restore idle. The store commits its one close receipt atomically.
 
 Form observations return only the current page’s questions, available sections,
 the canonical presentation hierarchy and whether Submit is offered. Presentation

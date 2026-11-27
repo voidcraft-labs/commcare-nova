@@ -22,7 +22,10 @@ import {
 	csqlPositionAt,
 	csqlPositions,
 } from "@/lib/domain/expression/csqlPositions";
-import { literalShape } from "@/lib/domain/expression/ruleSets";
+import {
+	firstRestoredSearchProperty,
+	literalShape,
+} from "@/lib/domain/expression/ruleSets";
 import {
 	searchIndexedComparison,
 	searchIndexedValueKind,
@@ -70,7 +73,10 @@ import { parseHqJsonText } from "../../hq/jsonText";
 import { lookupWireNaming } from "../../lookup/naming";
 import { type SourceTable, tableOf } from "../../sourceKeys";
 import { searchWireShape } from "../../suite/case-search/searchWireShape";
-import { searchInputInstanceId } from "../../suite/case-search/types";
+import {
+	inlineSearchInstance,
+	searchInputInstanceId,
+} from "../../suite/case-search/types";
 import { rethrowWorkStop } from "../../workMeter";
 import { type FormSyntax, literalInstanceId } from "../../xpath/formSyntax";
 import {
@@ -530,7 +536,7 @@ interface BindState {
 	 *  selection or membership Nova prints so. */
 	readonly proposals: boolean;
 	/** The device values bound to a value that reads a lookup table's row. */
-	readonly tableReads: Set<FormSyntax>;
+	readonly tableReads: Map<FormSyntax, Expression>;
 }
 
 const COMPARISONS: SourceTable<ComparisonKind> = tableOf({
@@ -692,7 +698,8 @@ function bindDevice(node: FormSyntax, state: BindState): Expression {
 			: bound.bound.candidate;
 	const query = deviceQuery(value);
 	if (query !== undefined) refuseWith(DEVICE_QUERY, query);
-	if (readsTableRow(value)) state.tableReads.add(node);
+	if (readsTableRow(value) || firstRestoredSearchProperty(value) !== undefined)
+		state.tableReads.set(node, value);
 	return value;
 }
 
@@ -719,7 +726,10 @@ function deviceQuery(value: Expression): string | undefined {
 		visitExpression(expression) {
 			if (found !== undefined || chosen.has(expression)) return;
 			if (expression.kind === "project") {
-				if (readChosenCaseProperty(expression) !== undefined) {
+				if (
+					readChosenCaseProperty(expression) !== undefined ||
+					firstRestoredSearchProperty(expression) !== undefined
+				) {
 					chosen.add(expression.of);
 					return;
 				}
@@ -746,6 +756,16 @@ function deviceEnv(env: SearchRowEnv): ExpressionReadEnv {
 			sourceNames: new Map(),
 			itextUnits: new Map(),
 			instanceSources: new Map(),
+			factories: {
+				namedResults: new Set(
+					Object.values(env.doc.modules).flatMap((menu) =>
+						menu.searchResultsName === undefined
+							? []
+							: [inlineSearchInstance(menu.searchResultsName)],
+					),
+				),
+				scrubbedReportSlugs: new Set(),
+			},
 			generatedValues: new Map(),
 			operationIdPaths: new Map(),
 			recordDialect: () => undefined,
@@ -1882,7 +1902,7 @@ function bindCsql(
 	options: { readonly text: string; readonly proposals: boolean },
 ): {
 	readonly bound: Bound;
-	readonly tableReads: ReadonlySet<FormSyntax>;
+	readonly tableReads: ReadonlyMap<FormSyntax, Expression>;
 } {
 	const state: BindState = {
 		context,
@@ -1890,7 +1910,7 @@ function bindCsql(
 		text: options.text,
 		prefix: markerPrefix(constantTexts(parts)),
 		proposals: options.proposals,
-		tableReads: new Set(),
+		tableReads: new Map(),
 	};
 	const bound = bindCsqlParts(parts, state, rowCaseType(context));
 	return { bound, tableReads: state.tableReads };
@@ -1914,7 +1934,10 @@ function emissionContext(
 	const moduleUuid = context.slot.uuid as Uuid;
 	const mod = env.doc.modules[moduleUuid];
 	const config = mod === undefined ? undefined : effectiveCaseSearchConfig(mod);
-	const wire = config === undefined ? undefined : searchWireShape(config);
+	const wire =
+		config === undefined
+			? undefined
+			: searchWireShape(config, mod?.searchResultsName);
 	return {
 		types: context,
 		bindings: {
@@ -2465,11 +2488,25 @@ export function readSearchFilterRow(
 				rethrowWorkStop(error);
 				continue;
 			}
-			const level = guards(row, tree, prefix);
+			const firstRowReads = new Set(
+				[...tableReads].flatMap(([node, value]) =>
+					(value.kind === "table-lookup" && value.where.kind === "match-all") ||
+					firstRestoredSearchProperty(value) !== undefined
+						? [node]
+						: [],
+				),
+			);
+			// The typed first-row lookup or case read supplies exactly one
+			// named value. Its print adds the guards missing in the source.
+			const level =
+				guards(row, tree, prefix) ??
+				(firstRowReads.size > 0
+					? guards(row, tree, prefix, firstRowReads)
+					: undefined);
 			if (level === undefined) {
 				if (
 					tableReads.size > 0 &&
-					guards(row, tree, prefix, tableReads) !== undefined
+					guards(row, tree, prefix, new Set(tableReads.keys())) !== undefined
 				)
 					tableReadDiffers = true;
 				if (!differs) {
@@ -2545,6 +2582,7 @@ function comparedRowTypes(
  *  with only Nova's guards around them. Undefined where it writes neither. */
 export function searchRowLevel(
 	source: FormSyntax,
+	sourceText: string,
 	predicate: Expression,
 	context: ExpressionContext,
 	env: SearchRowEnv,
@@ -2555,11 +2593,26 @@ export function searchRowLevel(
 		const withheld = withDeviceRewritesWithheld(emission, new Set());
 		if (exact(source, predicate, withheld)) return "guards";
 		const tree = emitCsqlTree(predicate, withheld);
-		return rowSkeletons(source).some(
-			(row) =>
-				guards(row, tree, markerPrefix(constantTexts(row.parts))) !== undefined,
+		if (
+			rowSkeletons(source).some(
+				(row) =>
+					guards(row, tree, markerPrefix(constantTexts(row.parts))) !==
+					undefined,
+			)
 		)
-			? "guards"
+			return "guards";
+		const classes = searchRowRuntimeClasses(predicate);
+		if (
+			!classes.includes("first-lookup-cell") &&
+			!classes.includes("first-restored-case-property")
+		)
+			return undefined;
+		// Row placement must use the same narrow import allowance as binding.
+		// Rebind the source and compare identities so a different table, column
+		// or selected property cannot match solely because both need guards.
+		const rebound = readSearchFilterRow(sourceText, context, env);
+		return rebound.ok && sameJson(rebound.predicate, predicate)
+			? rebound.level
 			: undefined;
 	} catch (error) {
 		rethrowWorkStop(error);
@@ -2732,6 +2785,8 @@ function coreNumberText(value: number): string {
 export type SearchRowRuntimeClass =
 	| "conditional-choice"
 	| "case-or-datum-terms"
+	| "first-lookup-cell"
+	| "first-restored-case-property"
 	| "session-context-drift-term"
 	| "session-context-window-width-term"
 	| "session-context-applanguage-term";
@@ -2781,6 +2836,13 @@ export function searchRowRuntimeClasses(
 			if (expression.kind === "when-input-present")
 				presence.add(expression.input);
 			if (
+				expression.kind === "table-lookup" &&
+				expression.where.kind === "match-all"
+			)
+				found.add("first-lookup-cell");
+			if (firstRestoredSearchProperty(expression) !== undefined)
+				found.add("first-restored-case-property");
+			if (
 				expression.kind === "project" &&
 				readChosenCaseProperty(expression) !== undefined
 			)
@@ -2814,6 +2876,8 @@ export function searchRowRuntimeClasses(
 	const order: readonly SearchRowRuntimeClass[] = [
 		"conditional-choice",
 		"case-or-datum-terms",
+		"first-lookup-cell",
+		"first-restored-case-property",
 		"session-context-drift-term",
 		"session-context-window-width-term",
 		"session-context-applanguage-term",

@@ -51,8 +51,11 @@ const LEVEL: OrganizationLevel = {
 	},
 	addressBook: { reach: "own-branch" },
 };
-const fixture = endpointWireFixture("multiple");
-const doc =
+const withInstallations = params.has("installations");
+// Several-case entry is Web Apps only. Use single-case entry for downloads
+// that also exercise an Android-capable app.
+const fixture = endpointWireFixture(withInstallations ? "single" : "multiple");
+const baseDoc =
 	params.get("persona") === "true"
 		? {
 				...fixture,
@@ -64,6 +67,24 @@ const doc =
 				organizationLevelOrder: [LEVEL_UUID],
 			}
 		: fixture;
+const doc = {
+	...baseDoc,
+	appSettings: {
+		...baseDoc.appSettings,
+		...(params.has("webOnly") && { runsOnlyOn: "web-apps" as const }),
+		...(withInstallations && {
+			installationProfiles: Object.fromEntries(
+				["", "Team", "Team"].map((name, i) => {
+					const uuid = asUuid(`0199a000-0000-7000-8000-00000000a00${i}`);
+					return [
+						uuid,
+						{ uuid, name, languages: ["eng"], requiresPracticeWorker: i === 2 },
+					];
+				}),
+			),
+		}),
+	},
+};
 const viewer = params.get("viewer") === "true";
 /* The member's Project role: `admin` may stop publishing, `editor` may not. */
 const role = params.get("role") ?? undefined;
@@ -136,9 +157,10 @@ async function loadCompatibility(
 async function downloadCcz(target: {
 	readonly server: string;
 	readonly domain: string;
+	readonly installationProfileUuid?: string;
 }): Promise<PublishDownloadOutcome> {
 	const response = await fetch(
-		`/publishing/download/ccz?server=${target.server}&domain=${target.domain}`,
+		`/publishing/download/ccz?server=${target.server}&domain=${target.domain}${target.installationProfileUuid ? `&profile=${target.installationProfileUuid}` : ""}`,
 	);
 	return response.json();
 }

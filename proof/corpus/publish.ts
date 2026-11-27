@@ -1,3 +1,5 @@
+import type { InstallationProfileBinding } from "@/lib/commcare/wireIdentity";
+
 /**
  * What Nova's publish sends CommCare HQ for one corpus document, captured
  * from Nova's own client.
@@ -166,7 +168,7 @@ import {
 	type ProjectSpaceCompatibilityReport,
 	projectSpaceCompatibilityProbePlan,
 } from "@/lib/commcare/projectSpaceCompatibility";
-import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
+import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { streamZip } from "@/lib/commcare/streamZip";
 import gateEntries from "@/lib/commcare/surface/entries/gates.json";
 import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
@@ -183,6 +185,7 @@ import type { ValidationError } from "@/lib/commcare/validator/errors";
 import {
 	type ColumnFieldWordRow,
 	DERIVED_WIRE_IDENTITY,
+	type ProjectSearchBinding,
 	targetWireIdentity,
 	type WireIdentity,
 	type WireIdentityOverride,
@@ -335,6 +338,7 @@ import {
 	type MediaKind,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
+import { assignedLookupStaysAtSource } from "@/lib/export/boundaryFindings";
 import {
 	type ExportMode,
 	type LookupTarget,
@@ -360,6 +364,7 @@ import type { FirstPublishChangeId } from "@/lib/publish/firstPublishChangeIds";
 import { renderManualImportGuide } from "@/lib/publish/manualImportGuide";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { CORPUS_COMMCARE_VERSION } from "./configurations";
+import { PROOF_DOMAIN, PROOF_SERVER } from "./defaults";
 import {
 	type HqSideRecorded,
 	type HqSideSaves,
@@ -385,11 +390,7 @@ import {
 	withTargetPeer,
 } from "./targetPeer";
 
-/** The CommCare server every capture targets; only its catalog origin reaches the bytes. */
-export const PROOF_SERVER: CommCareServer = "production";
-
-/** `proof/hq/configuration.py::DEFAULT_DOMAIN`. */
-export const PROOF_DOMAIN = "nova-proof";
+export { PROOF_DOMAIN, PROOF_SERVER } from "./defaults";
 
 /** The Project a corpus document without lookup data belongs to. */
 const PROOF_PROJECT = "proof-corpus";
@@ -504,6 +505,7 @@ export interface NovaPublishVerdict {
 		readonly flags: readonly VerdictFlag[];
 		/** The flags the capability needs off, by symbol, sorted; absent where none is. */
 		readonly flagsOff?: readonly string[];
+		readonly flagsAny?: readonly string[];
 		readonly runtimeProbes: readonly string[];
 	}[];
 	readonly advisories: readonly {
@@ -531,6 +533,7 @@ export interface NovaPublishVerdict {
 		 * (a capability's `featureFlagsOff`); absent where none is.
 		 */
 		readonly flagsOff?: readonly string[];
+		readonly flagsAny?: readonly (readonly string[])[];
 	};
 	/**
 	 * The `corehq/privileges.py` constants of the plan privileges Nova's
@@ -604,10 +607,16 @@ function planPrivileges(
 	return [
 		...new Set(
 			uses.flatMap((use) => {
-				const constants = PRIVILEGE_CONSTANTS.get(use.gate) ?? [];
-				if (constants.length === 0) {
+				const candidates = PRIVILEGE_CONSTANTS.get(use.gate) ?? [];
+				// The intent gate names two choices. Capture the one Nova asked
+				// for, using the constant with that privilege's slug.
+				const constants =
+					use.gate === "privilege/templated_intents+custom_intents"
+						? candidates.filter((name) => name === use.id.toUpperCase())
+						: candidates;
+				if (constants.length !== 1) {
 					throw new Error(
-						`Nova's publish asks for the plan privilege ${use.id}, and the gate entry ${use.gate} in lib/commcare/surface/entries/gates.json names no privilege constant. Give the entry its surface key, privilege:<constant>.`,
+						`Nova's publish asks for the plan privilege ${use.id}, and the gate entry ${use.gate} in lib/commcare/surface/entries/gates.json does not name exactly one matching privilege constant. Give the entry its surface key, privilege:<constant>.`,
 					);
 				}
 				return constants;
@@ -688,16 +697,23 @@ export function novaPublishVerdict(
 	const confirmations = confirmationKinds(doc, source);
 	const capabilities = plan.capabilities.map((item) => {
 		const off = flagsOffSymbols(item.featureFlagsOff);
+		const any = verdictFlags(item.featureFlagsAny ?? []).map(
+			({ symbol }) => symbol,
+		);
 		return {
 			id: item.capability.id,
 			flags: verdictFlags(item.featureFlags),
 			...(off.length > 0 && { flagsOff: off }),
+			...(any.length > 0 && { flagsAny: any }),
 			runtimeProbes: [...item.runtimeProbes],
 		};
 	});
 	const flagsOff = [
 		...new Set(capabilities.flatMap((item) => item.flagsOff ?? [])),
 	].sort();
+	const flagsAny = capabilities.flatMap((item) =>
+		item.flagsAny ? [item.flagsAny] : [],
+	);
 	return {
 		capabilities,
 		advisories: plan.advisories.map((item) => ({
@@ -720,6 +736,7 @@ export function novaPublishVerdict(
 				commtrackEnabled: false as const,
 			}),
 			...(flagsOff.length > 0 && { flagsOff }),
+			...(flagsAny.length > 0 && { flagsAny }),
 		},
 		planPrivileges: planPrivileges(doc, source),
 	};
@@ -747,9 +764,21 @@ export function minimumConfiguration(
 			`Nova's publish requires ${both.join(", ")} on for one of these documents and off for another, so no project space takes them all; publish them to separate project spaces.`,
 		);
 	}
+	const selected = new Set(flags);
+	for (const alternatives of verdicts.flatMap(
+		(v) => v.minimumConfiguration.flagsAny ?? [],
+	)) {
+		if (alternatives.some((flag) => selected.has(flag))) continue;
+		const allowed = alternatives.find((flag) => !off.has(flag));
+		if (allowed === undefined)
+			throw new Error(
+				`Nova's publish needs at least one of ${alternatives.join(", ")} on and this set of apps requires them all off.`,
+			);
+		selected.add(allowed);
+	}
 	return {
 		id: "minimum",
-		flags,
+		flags: [...selected].sort(),
 		caseSearchEnabled: verdicts.some(
 			(v) => v.minimumConfiguration.caseSearchEnabled,
 		),
@@ -1765,11 +1794,20 @@ async function managedDataEdge(
 			`Corpus document ${prepared.source.id} reads ${elsewhere.map((definition) => definition.tag).join(", ")}, which CommCare HQ manages from another project space than ${peer.state.domain}. The capture's peer is one project space, so give the tables the origin of the project space the capture publishes to.`,
 		);
 	}
+	const sourceTarget = { server: PROOF_SERVER, domain: peer.state.domain };
+	const assignedAtOrigin = new Set(
+		managed
+			.filter((definition) =>
+				assignedLookupStaysAtSource(definition, sourceTarget),
+			)
+			.map((definition) => definition.id),
+	);
 	for (const definition of managed) {
 		if (
-			definition.workerAccess === "assigned" ||
-			requiresLookupProjection(definition.hq) ||
-			!data.rowsByTable.has(definition.id)
+			!assignedAtOrigin.has(definition.id) &&
+			(definition.workerAccess === "assigned" ||
+				requiresLookupProjection(definition.hq) ||
+				!data.rowsByTable.has(definition.id))
 		) {
 			throw new Error(
 				`The capture needs the source's verified global rows for ${definition.tag} before comparing its managed copy.`,
@@ -1778,7 +1816,11 @@ async function managedDataEdge(
 	}
 	const expected = inlineWorkbookReceipts(
 		data,
-		new Set(managed.map((table) => table.id)),
+		new Set(
+			managed
+				.filter((table) => !assignedAtOrigin.has(table.id))
+				.map((table) => table.id),
+		),
 	);
 	const hqTables = await readTables(peer, prepared);
 	const reads = await mapWithConcurrency(
@@ -1798,6 +1840,20 @@ async function managedDataEdge(
 		},
 	);
 	for (const { definition, table, rows } of reads) {
+		if (assignedAtOrigin.has(definition.id)) {
+			if (
+				table.id !== definition.hq?.remoteId ||
+				table.isGlobal ||
+				!definition.columns.every(({ wireName }) =>
+					table.fields.includes(wireName),
+				)
+			) {
+				throw new Error(
+					`The assigned source ${definition.tag} no longer matches its retained HQ inventory.`,
+				);
+			}
+			continue;
+		}
 		const intent = expected.get(definition.id);
 		if (
 			table.id === definition.hq?.remoteId &&
@@ -2732,6 +2788,12 @@ export interface BringInRecord {
 	readonly review: HqChangesReview;
 	/** Exact places in the current reading when the review newly lists the removal of unshown form media. */
 	readonly unshownMediaPlaces?: readonly string[];
+	/** Exact columns in the current reading with legacy related text whose generated keys change. */
+	readonly legacyRelatedCaseTextPlaces?: readonly string[];
+	/** Exact owning Search rows and locale keys the current reading respells. */
+	readonly legacySearchGroupWordingPlaces?: readonly string[];
+	/** Exact stored default order rows normalized by the current reading. */
+	readonly searchOrderSuffixPlaces?: readonly string[];
 	/** `brought-in`: the change was committed; `recorded`: nothing in the app changed. */
 	readonly taken: "brought-in" | "recorded";
 	/** Whether the bring-in removed changes made in Nova (the plan applied to the published document). */
@@ -2968,6 +3030,9 @@ async function reviewOverPeer(input: {
 			`A review of ${prepared.source.id} could not read the app's source from the capture peer (${JSON.stringify(read)}).`,
 		);
 	}
+	const hqVersion = peer.saveCounter();
+	if (hqVersion === null)
+		throw new Error("The reviewed app is missing from the capture peer.");
 	const source = read.source;
 	const remoteRevision = peer.saveCounter();
 	if (remoteRevision === null)
@@ -3035,6 +3100,7 @@ async function reviewOverPeer(input: {
 		target,
 		readingId: CAPTURE_READING_ID,
 		deployment: CAPTURE_DEPLOYMENT,
+		workingVersion: remoteRevision,
 		live,
 		baseline,
 		since,
@@ -3150,7 +3216,7 @@ async function reviewOverPeer(input: {
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
 		...(caseListActionsApplied !== undefined && { caseListActionsApplied }),
 		reference,
-		overrides: input.targetIdentity.entities,
+		targetIdentity: input.targetIdentity,
 		media: { published, base: null, now: null },
 	});
 	if (first.kind === "no-base") {
@@ -3660,8 +3726,17 @@ async function bringInOverPeer(input: {
 				`Nova's review of ${id} read a menu or form the peer's summary does not hold (${read.at}), which acceptance refuses before a review answers.`,
 			);
 		}
+		// The saved-source comparison checks the raw reading and requires
+		// the declaration under which this HQ review read it to be offered.
+		// Keep the declaration without changing the raw question structure.
 		reading = {
-			doc: storedDocument(checked.draft.doc),
+			doc: storedDocument({
+				...checked.draft.doc,
+				appSettings: {
+					...checked.draft.doc.appSettings,
+					runsOnlyOn: checked.declaration.runsOnlyOn ?? undefined,
+				},
+			}),
 			identity: read.rows.map(
 				({ entityKind, novaEntityUuid, uniqueId, xmlns }) => ({
 					entityKind,
@@ -3684,6 +3759,30 @@ async function bringInOverPeer(input: {
 				unshownMediaPlaces: firstPublishChangePlaces(
 					checked.declaration.firstPublishFacts,
 					["unshown-form-media-removed"],
+				)[0].places,
+			}),
+			...(checked?.plan.publishChanges.includes(
+				"legacy-related-case-text-rekeyed",
+			) && {
+				legacyRelatedCaseTextPlaces: firstPublishChangePlaces(
+					checked.declaration.firstPublishFacts,
+					["legacy-related-case-text-rekeyed"],
+				)[0].places,
+			}),
+			...(checked?.plan.publishChanges.includes(
+				"legacy-search-group-wording-rekeyed",
+			) && {
+				legacySearchGroupWordingPlaces: firstPublishChangePlaces(
+					checked.declaration.firstPublishFacts,
+					["legacy-search-group-wording-rekeyed"],
+				)[0].places,
+			}),
+			...(checked?.plan.publishChanges.includes(
+				"search-order-unused-suffix-removed",
+			) && {
+				searchOrderSuffixPlaces: firstPublishChangePlaces(
+					checked.declaration.firstPublishFacts,
+					["search-order-unused-suffix-removed"],
 				)[0].places,
 			}),
 			taken: committed ? "brought-in" : "recorded",
@@ -3758,6 +3857,8 @@ export interface HqAuthoredA {
 	readonly mediaPaths: ReadonlyMap<string, string>;
 	readonly keyedCaseIds: readonly AdoptedKeyedCaseId[];
 	readonly columnWords: readonly ColumnFieldWordRow[];
+	readonly projectSearches?: readonly ProjectSearchBinding[];
+	readonly installationProfiles?: readonly InstallationProfileBinding[];
 }
 
 /** The held paths an export boundary takes for `mediaPaths`: each without `jr://file/`. */
@@ -4101,7 +4202,12 @@ async function adoptedA(
 			},
 		),
 		target: { server: PROOF_SERVER, domain: peer.state.domain },
-		identity: targetWireIdentity(adopted.identity, adopted.columnWords),
+		identity: targetWireIdentity(
+			adopted.identity,
+			adopted.columnWords,
+			adopted.projectSearches,
+			adopted.installationProfiles,
+		),
 		novaRevision: prepared.source.compiledAtSeq,
 		mediaFiles,
 		observedAt: CAPTURE_OBSERVED_AT,
@@ -4206,7 +4312,12 @@ export async function capturePublish(
 	const adoptedIdentity: WireIdentity =
 		adopted === undefined
 			? DERIVED_WIRE_IDENTITY
-			: targetWireIdentity(adopted.identity, adopted.columnWords);
+			: targetWireIdentity(
+					adopted.identity,
+					adopted.columnWords,
+					adopted.projectSearches,
+					adopted.installationProfiles,
+				);
 	const heldMediaPaths =
 		adopted === undefined ? undefined : heldMediaPathsOf(adopted.mediaPaths);
 	const keyedCaseIds = adopted?.keyedCaseIds ?? [];
@@ -4222,6 +4333,10 @@ export async function capturePublish(
 						([assetId, wirePath]) => ({ assetId, wirePath }),
 					),
 					columnWords: adopted.columnWords,
+					...(adopted.projectSearches?.length && {
+						projectSearches: adopted.projectSearches,
+					}),
+					installationProfiles: adopted.installationProfiles,
 				});
 	const languageNames: LanguageNames =
 		adopted === undefined ? "nova" : "target";
@@ -4654,7 +4769,12 @@ export async function localCcz(
 		readonly targetIdentity?: TargetIdentity;
 		readonly adopted?: Pick<
 			HqAuthoredA,
-			"identity" | "mediaPaths" | "keyedCaseIds" | "columnWords"
+			| "identity"
+			| "mediaPaths"
+			| "keyedCaseIds"
+			| "columnWords"
+			| "projectSearches"
+			| "installationProfiles"
 		>;
 	} = {},
 ): Promise<Buffer | LocalCczRefused | null> {
@@ -4710,7 +4830,14 @@ export async function localCcz(
 				{ server: target.server, domain: target.domain, appId: target.hqAppId },
 				adopted === undefined
 					? exported.identity
-					: targetWireIdentity(adopted.identity, adopted.columnWords),
+					: targetWireIdentity(
+							adopted.identity,
+							adopted.columnWords,
+							options.targetIdentity
+								? record.projectSearches
+								: adopted.projectSearches,
+							adopted.installationProfiles,
+						),
 				{
 					emptyCaseListText: target.emptyCaseListText,
 					earlierHqApps: target.earlierHqApps,
@@ -4742,6 +4869,7 @@ export async function localCcz(
 export async function importFile(
 	source: PublishDocument,
 	domain: string,
+	projectSearches: readonly ProjectSearchBinding[],
 ): Promise<Buffer> {
 	const choice = chooseDownloadTarget(
 		[
@@ -4769,6 +4897,7 @@ export async function importFile(
 		managedLookupWorkbooks,
 	} = prepared;
 	const hqJson = expandDoc(doc, {
+		identity: targetWireIdentity([], [], projectSearches),
 		attachmentTarget: prepared.attachmentTarget,
 		...(assets.size > 0 && { assets }),
 		...(prepared.lookupNaming && { lookupNaming: prepared.lookupNaming }),

@@ -16,13 +16,18 @@ import {
 	and,
 	anyRelationPath,
 	count as countOf,
+	eq,
 	exists,
 	gt,
 	literal,
+	prop,
 	relationStep,
 	subcasePath,
 } from "@/lib/domain/expression/builders";
-import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
+import {
+	CASEDB_READING,
+	SEARCH_READING,
+} from "@/lib/domain/expression/temporalType";
 import type { RelationPath } from "@/lib/domain/expression/types";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
@@ -82,18 +87,22 @@ async function addCase(args: {
 	caseType: string;
 	owner: string;
 	status?: string | null;
+	village?: string;
+	projectId?: string;
+	appId?: string;
 }): Promise<void> {
 	await h.pool.query(
 		`INSERT INTO cases
 		 (case_id, app_id, project_id, owner_id, case_type, case_name, status, properties)
-		 VALUES ($1, $2, $3, $4, $5, $1, $6, '{}'::jsonb)`,
+		 VALUES ($1, $2, $3, $4, $5, $1, $6, $7::jsonb)`,
 		[
 			args.id,
-			APP_ID,
-			PROJECT_ID,
+			args.appId ?? APP_ID,
+			args.projectId ?? PROJECT_ID,
 			args.owner,
 			args.caseType,
 			args.status ?? "open",
+			JSON.stringify({ village: args.village }),
 		],
 	);
 }
@@ -148,6 +157,122 @@ describe("the outer scan", () => {
 			}),
 		).resolves.toBe(2);
 	});
+
+	it.each([1, 2])(
+		"counts past a threshold of %i visible cases across pages",
+		async (threshold) => {
+			const records = store();
+			const args = {
+				reading: CASEDB_READING,
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: schemas,
+				restoreScope: RESTORE,
+				predicate: gt(
+					countOf({
+						kind: "cases",
+						source: "casedb",
+						where: [
+							eq(
+								{ kind: "case-row-type" },
+								{ kind: "case-type", caseType: "patient" },
+							),
+						],
+					}),
+					literal(threshold),
+				),
+			} as const;
+			await addCase({ id: "mine-first", caseType: "patient", owner: WORKER });
+			await addCase({ id: "other-worker", caseType: "patient", owner: OTHER });
+			await addCase({ id: "other-type", caseType: "household", owner: WORKER });
+			if (threshold === 2)
+				await addCase({ id: "mine-third", caseType: "patient", owner: WORKER });
+			await expect(records.query(args)).resolves.toEqual([]);
+			await expect(records.count(args)).resolves.toBe(0);
+
+			await addCase({ id: "mine-second", caseType: "patient", owner: WORKER });
+			await expect(records.count(args)).resolves.toBe(threshold + 1);
+			const first = await records.query({ ...args, limit: 1 });
+			const second = await records.query({ ...args, limit: 1, offset: 1 });
+			expect([...first, ...second].map((row) => row.case_id).sort()).toEqual([
+				"mine-first",
+				"mine-second",
+			]);
+
+			await h.pool.query(
+				`INSERT INTO parked_case_values
+			 (app_id, case_id, case_type, property, original_value, reason, from_type, to_type)
+			 VALUES ($1, 'mine-second', 'patient', 'size', '"big"', 'retype', 'text', 'integer')`,
+				[APP_ID],
+			);
+			await expect(records.query(args)).resolves.toEqual([]);
+			await expect(records.count(args)).resolves.toBe(0);
+		},
+	);
+
+	it.each([false, true])(
+		"displays the population count from the worker’s whole restored type (filtered %s)",
+		async (filtered) => {
+			const list = store();
+			await addCase({
+				id: "mine-alpha",
+				caseType: "patient",
+				owner: WORKER,
+				village: "north",
+			});
+			await addCase({ id: "mine-beta", caseType: "patient", owner: WORKER });
+			await addCase({
+				id: "another-worker",
+				caseType: "patient",
+				owner: OTHER,
+				village: "north",
+			});
+			await addCase({
+				id: "other-type",
+				caseType: "household",
+				owner: WORKER,
+				village: "north",
+			});
+			const args = {
+				reading: CASEDB_READING,
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: schemas,
+				restoreScope: RESTORE,
+				calculated: [
+					{
+						uuid: "restored-count",
+						deviceText: true as const,
+						expression: countOf({
+							kind: "cases",
+							source: "casedb",
+							where: [
+								eq(
+									{ kind: "case-row-type" },
+									{ kind: "case-type", caseType: "patient" },
+								),
+								...(filtered
+									? [eq(prop("patient", "village"), literal("north"))]
+									: []),
+							],
+						}),
+					},
+				],
+				limit: 1,
+			};
+			const first = await list.query(args);
+			const second = await list.query({ ...args, offset: 1 });
+			expect(
+				[...first, ...second].map((row) => [
+					row.case_id,
+					String(row.calculated?.["restored-count"]),
+				]),
+			).toEqual([
+				["mine-alpha", filtered ? "1" : "2"],
+				["mine-beta", filtered ? "1" : "2"],
+			]);
+		},
+	);
 
 	it("reads the whole tenant when no restore scope is supplied", async () => {
 		await addCase({ id: "mine", caseType: "patient", owner: WORKER });
@@ -384,6 +509,111 @@ describe("the emitted statement", () => {
 });
 
 describe("relation walks", () => {
+	it("filters and counts the actual host in the same app and Project", async () => {
+		await addCase({
+			id: "north",
+			caseType: "household",
+			owner: OTHER,
+			village: "north",
+		});
+		await addCase({
+			id: "south",
+			caseType: "household",
+			owner: OTHER,
+			village: "south",
+		});
+		await h.pool.query(`INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
+			VALUES ('foreign-app', 'other-member', 'different-project', 'Foreign', 'foreign')`);
+		await addCase({
+			id: "foreign",
+			caseType: "household",
+			owner: OTHER,
+			village: "north",
+			projectId: "different-project",
+			appId: "foreign-app",
+		});
+		await addCase({
+			id: "first",
+			caseType: "patient",
+			owner: WORKER,
+			village: "south",
+		});
+		await addCase({
+			id: "second",
+			caseType: "patient",
+			owner: WORKER,
+			village: "south",
+		});
+		await addCase({
+			id: "own",
+			caseType: "patient",
+			owner: WORKER,
+			village: "north",
+		});
+		await addCase({
+			id: "other-index",
+			caseType: "patient",
+			owner: WORKER,
+			village: "north",
+		});
+		await addCase({
+			id: "bad-host",
+			caseType: "patient",
+			owner: WORKER,
+			village: "north",
+		});
+
+		await addEdge({
+			caseId: "first",
+			ancestorId: "north",
+			identifier: "host",
+			relationship: "extension",
+		});
+		await addEdge({
+			caseId: "second",
+			ancestorId: "south",
+			identifier: "host",
+			relationship: "child",
+		});
+		await addEdge({
+			caseId: "other-index",
+			ancestorId: "north",
+			identifier: "parent",
+			relationship: "child",
+		});
+		// The legacy edge table carries no Project key. The relation lookup
+		// must refuse an older or inconsistent edge into another Project.
+		await h.pool.query(`INSERT INTO case_indices (case_id, ancestor_id, target_case_type, identifier, relationship, depth)
+		VALUES ('bad-host', 'foreign', 'household', 'host', 'child', 1)`);
+
+		const predicate = eq(
+			{
+				...prop("patient", "village", ancestorPath(relationStep("host"))),
+				readReached: true,
+			},
+			literal("north"),
+		);
+		const args = {
+			reading: CASEDB_READING,
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: schemas,
+			restoreScope: RESTORE,
+			predicate,
+		};
+		const list = store();
+		const selected = async () =>
+			(await list.query(args)).map((row) => row.case_id);
+		expect(await selected()).toEqual(["first"]);
+		await expect(list.count(args)).resolves.toBe(1);
+
+		await h.pool.query(`UPDATE case_indices SET ancestor_id =
+			CASE case_id WHEN 'first' THEN 'south' ELSE 'north' END
+			WHERE identifier = 'host' AND case_id IN ('first', 'second')`);
+		expect(await selected()).toEqual(["second"]);
+		await expect(list.count(args)).resolves.toBe(1);
+	});
+
 	/**
 	 * Anchor `household` is live. `far` is a relative of the anchor that the
 	 * worker's device does NOT hold, reachable by each relation kind. A walk

@@ -28,14 +28,18 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 import {
+	ancestorPath,
 	and,
+	count,
 	dateLiteral,
 	eq,
 	gt,
+	ifExpr,
 	input,
 	literal,
 	lt,
 	prop,
+	relationStep,
 	sessionContext,
 	term,
 	today,
@@ -90,7 +94,7 @@ if (scenario === "map") {
 	);
 }
 // Clients belong to households, whose address a column can show.
-if (scenario === "related") {
+if (scenario === "related" || scenario === "search-direct-parent") {
 	caseTypes[0] = { ...caseTypes[0], parent_type: "household" } as CaseType;
 	caseTypes.push({
 		name: "household",
@@ -104,6 +108,27 @@ if (scenario === "related") {
 		],
 	});
 }
+if (scenario === "search-nested-parent-date") {
+	caseTypes[0] = { ...caseTypes[0], parent_type: "household" };
+	caseTypes.push(
+		{
+			name: "household",
+			parent_type: "district",
+			properties: [{ name: "case_name", label: proseText("Household name") }],
+		},
+		{
+			name: "district",
+			properties: [
+				{ name: "case_name", label: proseText("District name") },
+				{
+					name: "visit_date",
+					label: proseText("Visit date"),
+					data_type: "date",
+				},
+			],
+		},
+	);
+}
 const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 config.columns = [
 	scenario === "map"
@@ -113,6 +138,24 @@ config.columns = [
 ];
 config.listColumnOrder = [nameId, dobId];
 config.detailColumnOrder = [dobId, nameId];
+if (scenario === "lookup-sum") {
+	config.deviceLookup = {
+		action: "org.nova.proof.CASE_LOOKUP",
+		label: "Find a client",
+		extras: [
+			{
+				name: "visit_limit",
+				expression: {
+					kind: "arith",
+					op: "+",
+					left: { kind: "term", term: { kind: "literal", value: 1 } },
+					right: { kind: "term", term: { kind: "literal", value: 2 } },
+				},
+			},
+		],
+		responses: ["first"],
+	};
+}
 if (scenario === "choice-labels-and-values") {
 	caseTypes[0]?.properties.push({
 		name: "village",
@@ -129,6 +172,57 @@ if (scenario.startsWith("search"))
 	config.searchInputs = [
 		simpleSearchInputDef(searchId, "name", "Name", "text", "case_name"),
 	];
+if (scenario === "search-direct-parent")
+	config.searchInputs = [
+		simpleSearchInputDef(
+			searchId,
+			"parent_address",
+			"Parent address",
+			"text",
+			"address",
+			{ matching: "project-space", via: ancestorPath(relationStep("parent")) },
+		),
+	];
+if (scenario === "search-nested-parent-date")
+	config.searchInputs = [
+		simpleSearchInputDef(
+			searchId,
+			"district_date",
+			"District date",
+			"date",
+			"visit_date",
+			{
+				matching: "project-space",
+				via: ancestorPath(relationStep("parent"), relationStep("parent")),
+			},
+		),
+	];
+if (scenario === "search-required-restored-cases") {
+	caseTypes.push({
+		name: "household",
+		properties: [{ name: "case_name", label: proseText("Household name") }],
+	});
+	config.searchInputs = [
+		simpleSearchInputDef(searchId, "region", "Region", "text", "region", {
+			required: {
+				when: gt(
+					count({
+						kind: "cases",
+						source: "casedb",
+						where: [
+							eq(
+								{ kind: "case-row-type" },
+								{ kind: "case-type", caseType: "patient" },
+							),
+						],
+					}),
+					literal(0),
+				),
+				message: "Give a region",
+			},
+		}),
+	];
+}
 if (scenario === "search-date")
 	config.searchInputs = [
 		simpleSearchInputDef(searchId, "dob", "Birth date", "date", "dob", {
@@ -148,6 +242,16 @@ if (scenario === "search-text")
 			default: term(literal("Maya")),
 		}),
 	];
+if (scenario === "search-ordered-default")
+	config.searchInputs = [
+		simpleSearchInputDef(searchId, "region", "Region", "text", "region", {
+			default: ifExpr(
+				eq(sessionContext("username"), literal("20")),
+				term(literal("north")),
+				term(literal("south")),
+			),
+		}),
+	];
 if (scenario === "search-clone")
 	config.searchInputs = [
 		advancedSearchInputDef(
@@ -161,6 +265,49 @@ if (scenario === "search-clone")
 			),
 		),
 	];
+if (
+	scenario === "search-address-removal" ||
+	scenario === "search-address-unmatched-topic"
+) {
+	const otherAddressId = uuidSchema.parse(
+		"00000000-0000-7000-8000-000000006006",
+	);
+	config.searchInputs = [
+		{
+			kind: "address",
+			type: "address",
+			uuid: searchId,
+			name: "address",
+			label: "Find an address",
+			excludeFromRequest: true,
+		},
+		{
+			kind: "address",
+			type: "address",
+			uuid: otherAddressId,
+			name: "backup_address",
+			label: "Alternative address",
+			excludeFromRequest: true,
+		},
+		{
+			...simpleSearchInputDef(siblingId, "region", "Region", "text", "region"),
+			addressReceiver:
+				scenario === "search-address-unmatched-topic"
+					? { kind: "unsubscribed-topic", topic: "address||city" }
+					: { kind: "address", source: searchId, parts: ["city"] },
+		},
+		{
+			...simpleSearchInputDef(
+				uuidSchema.parse("00000000-0000-7000-8000-000000006007"),
+				"name",
+				"Client name",
+				"text",
+				"case_name",
+			),
+			addressReceiver: { kind: "address", source: searchId, parts: ["city"] },
+		},
+	];
+}
 if (scenario === "search-dependencies") {
 	const dependency = whenInput(
 		input(searchId),
@@ -205,7 +352,8 @@ const source = buildDoc({
 	// both run in Web Apps alone.
 	...(scenario === "selection" ||
 	scenario === "results" ||
-	scenario === "search"
+	scenario === "search" ||
+	scenario === "search-nested-parent-date"
 		? { appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" } }
 		: {}),
 	caseTypes,

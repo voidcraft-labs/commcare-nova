@@ -1,6 +1,6 @@
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { menuEmittedAdvanced } from "@/lib/domain/advancedEntryDatums";
-import { advancedChainIndex } from "@/lib/domain/advancedModule";
+import { advancedMenuChainIndex } from "@/lib/domain/advancedModule";
 import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import type { ParentCaseSelection } from "./engine/caseDataBindingTypes";
@@ -39,9 +39,9 @@ export function caseSelectionRouteCaseAction(args: {
 
 /**
  * The index name `moduleUuid`'s list follows from the case chosen in its
- * parent selection, where the menu is emitted advanced: the one identifier
- * the app's child links from the menu's case type to the parent's use
- * (`advancedChainIndex`), which the chained load's nodeset reads as
+ * parent selection, where the menu is emitted advanced: the held index
+ * of the source selection, or the one identifier all child links use
+ * (`advancedMenuChainIndex`), which the chained load's nodeset reads as
  * `index/<identifier>` (`suite_xml/sections/entries.py::EntriesHelper.
  * get_parent_filter_by_ref_id`). `undefined` for a menu emitted basic, whose
  * list reads every non-extension index (`get_parent_filter`), and for a menu
@@ -60,7 +60,7 @@ export function parentCaseIndex(
 			: menuWithInheritedCaseSettings(doc, parentUuid)?.caseType;
 	if (!childType || !parentType) return undefined;
 	if (!menuEmittedAdvanced(doc, moduleUuid)) return undefined;
-	const index = advancedChainIndex(doc, childType, parentType);
+	const index = advancedMenuChainIndex(doc, moduleUuid, childType, parentType);
 	// A chain no one name follows blocks the advanced kind, so an advanced
 	// menu always has one.
 	return index.kind === "one" ? index.identifier : undefined;
@@ -79,8 +79,12 @@ export function parentCaseConstraint(
 ): ParentCaseSelection | undefined {
 	if (parentCase === undefined) return undefined;
 	const index = parentCaseIndex(doc, moduleUuid);
+	const parentUuid = doc.modules[moduleUuid]?.parentCaseModuleUuid;
+	const additionalCaseTypes =
+		parentUuid && doc.modules[parentUuid]?.caseListConfig?.additionalCaseTypes;
 	return {
 		caseType: parentCase.caseType,
+		...(additionalCaseTypes?.length && { additionalCaseTypes }),
 		caseIds: parentCase.cases.map((choice) => choice.caseId),
 		...(index !== undefined && { index }),
 	};

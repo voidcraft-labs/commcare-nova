@@ -207,8 +207,13 @@ proofs. For the final group close, run the full union of new and affected witnes
 controls shared by groups. Require no remaining `HELD-NEW` entries, no outstanding circumstance owner, no
 missing parity or exhibition, no supported base stopped as unrecognized, and no new allowance standing in for a
 feature. Compare retained expectations against actual HQ and native records. Remove exhausted
-implementation-only group labels and their tests when no production or historical reader consumes them. Publish
-the durable contracts and remove the completed roadmap and its parts from `docs/plans/`.
+implementation-only group labels and their tests when no production or historical reader consumes them.
+
+The Step 7 production release excludes the 499,998-row global lookup table that exceeds HQ’s workbook
+capacity and Nova’s supported JSON transfer. Existing transfer limits still apply and the compatibility entry
+stays open. The cutoff applies to that transfer only. The other compatibility, release, and cutover checks still apply.
+
+Publish the durable contracts and remove the completed roadmap and its parts from `docs/plans/`.
 
 ### Verification and cutover
 

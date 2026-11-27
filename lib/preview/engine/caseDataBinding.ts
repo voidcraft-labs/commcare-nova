@@ -55,6 +55,10 @@ import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
+import {
+	extractLookupReferenceOccurrences,
+	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+} from "@/lib/doc/lookupReferences";
 import type {
 	BlueprintDoc,
 	CaseListConfig,
@@ -73,13 +77,20 @@ import {
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
+import { authoredBoundedFlatSelection } from "@/lib/domain/boundedFlatClose";
 import { resolveCaseFormContext } from "@/lib/domain/caseFormContext";
-import { CASE_INDEX_NAME_PATTERN } from "@/lib/domain/caseRelations";
+import { isAdvancedCaseIndexIdentifier } from "@/lib/domain/caseOperationIdentifiers";
+import { STANDARD_CASE_SELECTION_MAXIMUM } from "@/lib/domain/caseSelectionLimits";
 import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
-import { searchOwnerOverride } from "@/lib/domain/modules";
+import {
+	moduleFormsReadSearch,
+	projectSearchOf,
+	searchOwnerOverride,
+} from "@/lib/domain/modules";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
+import { searchResultDetailColumns } from "@/lib/domain/searchResultDetail";
 import { CANONICAL_UUID_PATTERN, uuidSchema } from "@/lib/domain/uuid";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
@@ -161,6 +172,14 @@ import {
 } from "./runtimeBindings";
 import { matchesSavedSearchRanges } from "./savedSearchRanges";
 import {
+	type ClaimPriorSelection,
+	claimPriorSelectionsSchema,
+	SearchChoiceUnavailable,
+	type SearchClaimSource,
+	searchClaimMemberships,
+	searchClaimSourceSchema,
+} from "./searchClaimSelection";
+import {
 	parseChosenCaseIds,
 	parseSearchCsqlRuntimeWire,
 	SEARCH_CSQL_UNEVALUATED_MESSAGE,
@@ -172,17 +191,39 @@ import {
 	evaluatePreviewSearchExpression,
 	type PreviewSearchEnvironment,
 	parseExcludedOwnerIds,
+	searchRequirementsReadRestoredCases,
 } from "./searchExpressionEvaluation";
 import {
 	searchFindsNothing,
 	searchInputRuntimeGlobalError,
 	searchInputSubmissionErrors,
 } from "./searchInputValidation";
-import { readSearchResultsSnapshot } from "./searchResultsSnapshot";
+import {
+	searchResultDetailProjection,
+	submittedSearchResultDetailAnswers,
+} from "./searchResultDetailProjection";
+import {
+	keepSearchResult,
+	keepSearchResultDetail,
+	readKeptSearchResult,
+	readKeptSearchResultDetails,
+	SearchDetailFrameTooLarge,
+} from "./searchResultReceipt";
+import {
+	readSearchResultsSnapshot,
+	searchResultsSnapshotFromInstance,
+} from "./searchResultsSnapshot";
 import { serverPreviewDataRefusalOf } from "./serverDataRefusal";
-import { openingCarryScope, verifyFormOpening } from "./signedFormOpening";
+import type { ServerSearchWorld } from "./serverSearchRead";
+import {
+	openingCarryScope,
+	requestedReceiptRun,
+	verifyFormOpening,
+	verifyReceiptRunTransition,
+} from "./signedFormOpening";
 import type { ViewerLocation } from "./viewerLocation";
 import { workerLocationFixture } from "./workerLocationFixture";
+import { readPreviewLookup } from "./workerLookupScope";
 import type {
 	LoadCaseDatabaseSnapshotResult,
 	LoadSearchResultsSnapshotResult,
@@ -417,6 +458,8 @@ type RunningCaseReadArgs = {
 	caseTypes?: readonly CaseType[];
 	/** Bounded Results window. Omitted by the current unpaged form-selection caller. */
 	page?: { offset: number; limit: number };
+	/** Native automatic selection reads the whole datum, never a page. */
+	automaticSelection?: true;
 	/**
 	 * The viewer's IANA timezone — drives `format-date` rendering in
 	 * calculated columns (device-local parity). Omitted falls back to UTC.
@@ -443,6 +486,10 @@ type RunningCaseReadArgs = {
 	/** The search is the menu's default search, run as the list opened:
 	 *  its prompts' answers are not sent (`CaseSearchRequest.unsentPrompts`). */
 	defaultSearch?: boolean;
+	/** Identity of the submitted Search whose response this load serves. */
+	searchSubmission?: string;
+	/** The physical Preview run that ran this standalone Search. */
+	previewRun?: string;
 	/** The viewer's latest position, which a calculated column's `here()`
 	 *  reads; `null` or omitted while the browser has shared none. It travels
 	 *  in this request and the query's bound parameters only, and is never
@@ -466,6 +513,11 @@ type PreparedRunningCaseRead =
 			readonly kind: "read";
 			readonly store: CaseStore;
 			readonly read: Parameters<typeof readCases>[1];
+			readonly environment: PreviewSearchEnvironment | undefined;
+			readonly context: Extract<
+				Awaited<ReturnType<typeof resolveAuthorizedPreviewContext>>,
+				{ kind: "ready" }
+			>;
 	  }
 	| Exclude<LoadCasesResult, { kind: "rows" }>;
 
@@ -480,6 +532,17 @@ async function prepareRunningCaseRead(
 	const inputValues = args.inputValues
 		? searchInputValuesFromWire(args.inputValues)
 		: undefined;
+	if (
+		args.previewRun !== undefined &&
+		inputValues !== undefined &&
+		[...inputValues.values()].some((answer) => typeof answer !== "string")
+	)
+		return {
+			kind: "invalid-search",
+			message:
+				"A Search answer could not be read as text. You can enter it again.",
+			repair: "inputs",
+		};
 	const context = await resolveAuthorizedPreviewContext({
 		appId: args.appId,
 		personaUuid: args.personaUuid,
@@ -600,13 +663,25 @@ async function prepareRunningCaseRead(
 		 * condition or check stays unjudged here: the server holds no Java
 		 * Pattern engine, so Preview's Search screen enforces those in its
 		 * XPath worker, the way it alone enforces lookup-bearing ones. */
+		const checksReadCases =
+			rules.searchFieldChecks &&
+			searchRequirementsReadRestoredCases(args.caseListConfig.searchInputs);
+		const validationEnvironment = requireEnvironment();
+		const searchCases = checksReadCases
+			? await store.readDeviceCaseDatabase({
+					appId: args.appId,
+					restoreScope: context.restoreScope,
+				})
+			: undefined;
 		const runtimeErrors = searchInputSubmissionErrors(
 			rules,
 			args.caseListConfig,
 			args.caseType,
 			inputValues,
 			searchSession,
-			requireEnvironment(),
+			searchCases === undefined
+				? validationEnvironment
+				: { ...validationEnvironment, caseDatabase: searchCases },
 		);
 		const firstError = runtimeErrors.values().next().value;
 		if (firstError !== undefined) {
@@ -617,6 +692,16 @@ async function prepareRunningCaseRead(
 			};
 		}
 	}
+	// A worker can complete this request only in the connected project space.
+	// Check the saved module as well as live Builder edits before querying local cases.
+	if (
+		searched &&
+		!keyedSearch &&
+		args.moduleUuid &&
+		(projectSearchOf(context.blueprint?.modules[args.moduleUuid]) ||
+			projectSearchOf(environment?.doc.modules[args.moduleUuid]))
+	)
+		return { kind: "data-refused", reason: { kind: "project-search" } };
 	const chosenCaseIds = parseChosenCaseIds(args.chosenCaseIds);
 	/* A blank value compared where CommCare's search cannot compare one, or
 	 * a row whose obligations the device found holding: the exported search
@@ -743,6 +828,8 @@ async function prepareRunningCaseRead(
 	return {
 		kind: "read",
 		store,
+		context,
+		environment,
 		read: {
 			appId: args.appId,
 			caseType: args.caseType,
@@ -770,7 +857,11 @@ async function prepareRunningCaseRead(
 							inputValues,
 							csqlRuntime?.filterValues,
 							device.searchConfiguration,
-							{ doc: environment.doc, caseType: args.caseType },
+							{
+								doc: environment.doc,
+								caseType: args.caseType,
+								moduleUuid: environment.moduleUuid,
+							},
 							args.defaultSearch === true,
 						)
 					: undefined,
@@ -785,8 +876,142 @@ export async function loadCasesAction(
 	try {
 		const prepared = await prepareRunningCaseRead(args);
 		if (prepared.kind !== "read") return prepared;
-		return await readCases(prepared.store, prepared.read);
+		const { searchSubmission: submission, appId, moduleUuid, caseType } = args;
+		const doc = prepared.environment?.doc;
+		const module =
+			moduleUuid === undefined ? undefined : doc?.modules[moduleUuid];
+		const resultColumns =
+			doc &&
+			module &&
+			previewPlatformRules(prepared.context.device.platform)
+				.searchResultDetailText
+				? searchResultDetailColumns(doc, module)
+				: [];
+		const detailColumns = resultColumns.filter(
+			(column) => !("onList" in column && column.onList),
+		);
+		const listColumns = resultColumns.filter(
+			(column) => "onList" in column && column.onList,
+		);
+		const scope =
+			submission !== undefined && moduleUuid !== undefined
+				? { appId, moduleUuid, caseType, submission }
+				: undefined;
+		const answers = prepared.read.inputValues;
+		let retain: Parameters<typeof readCases>[2];
+		if (scope && module && moduleFormsReadSearch(module))
+			retain = {
+				kind: "instance",
+				keep: (instance) =>
+					keepSearchResult(
+						scope,
+						prepared.context,
+						searchResultsSnapshotFromInstance(instance),
+					),
+			};
+		else if (scope && answers && detailColumns.length > 0) {
+			const previewRun = args.previewRun;
+			if (previewRun === undefined)
+				return {
+					kind: "error",
+					message: "Preview restarted. You can run Search again.",
+				};
+			retain = {
+				kind: "detail",
+				keep: (visibleCaseIds) =>
+					keepSearchResultDetail({ ...scope, previewRun }, prepared.context, {
+						visibleCaseIds,
+						answers: [
+							...submittedSearchResultDetailAnswers(
+								detailColumns,
+								answers,
+								args.defaultSearch === true,
+								module?.caseListConfig?.searchInputs,
+							),
+						].map(([inputUuid, answer]) => ({ inputUuid, answer })),
+					}),
+			};
+		}
+		if (!args.automaticSelection) {
+			const result = await readCases(prepared.store, prepared.read, retain);
+			if (
+				result.kind !== "rows" ||
+				prepared.read.reading !== SEARCH_READING ||
+				args.caseIds !== undefined ||
+				answers === undefined ||
+				listColumns.length === 0
+			)
+				return result;
+			const calculated = searchResultDetailProjection(
+				listColumns,
+				submittedSearchResultDetailAnswers(
+					listColumns,
+					answers,
+					args.defaultSearch === true,
+					module?.caseListConfig?.searchInputs,
+				),
+			);
+			return {
+				...result,
+				rows: result.rows.map((row) => ({
+					...row,
+					calculated: { ...row.calculated, ...calculated },
+				})),
+			};
+		}
+		const selection = prepared.read.caseListConfig?.selection;
+		if (selection?.autoSelect !== true)
+			return {
+				kind: "error",
+				message: "This list no longer chooses cases automatically.",
+			};
+		const boundedFlatClose =
+			selection.maximum > STANDARD_CASE_SELECTION_MAXIMUM;
+		if (boundedFlatClose) {
+			const blueprint = prepared.context.blueprint;
+			const doc = blueprint && hydratePersistedBlueprint(blueprint);
+			const savedModule =
+				doc && moduleUuid ? doc.modules[moduleUuid] : undefined;
+			const profile =
+				doc && savedModule
+					? authoredBoundedFlatSelection(
+							doc,
+							savedModule.uuid,
+							doc.formOrder[savedModule.uuid]?.[0],
+						)
+					: undefined;
+			if (
+				!savedModule ||
+				!profile?.selection.autoSelect ||
+				profile.caseType !== caseType ||
+				!previewPlatformRules(prepared.context.device.platform)
+					.severalCaseSelection ||
+				canonicalJsonDigest(savedModule.caseListConfig) !==
+					canonicalJsonDigest(prepared.read.caseListConfig)
+			)
+				return {
+					kind: "error",
+					message:
+						"The current list settings have not saved. Try again once they save.",
+				};
+		}
+		return await readCases(
+			prepared.store,
+			{
+				...prepared.read,
+				page: undefined,
+				datumOrder: true,
+				automaticMaximum: selection.maximum,
+				...(boundedFlatClose && { boundedFlatClose: true }),
+			},
+			retain,
+		);
 	} catch (err) {
+		if (
+			err instanceof SearchDetailFrameTooLarge ||
+			err instanceof CaptureSubmissionRejectedError
+		)
+			return { kind: "error", message: err.message };
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
 		// `error` arm WITHOUT alerting (`reportUnexpectedActionError`).
@@ -837,9 +1062,44 @@ export async function loadCasesAction(
 export async function loadSearchResultsSnapshotAction(
 	args: Omit<RunningCaseReadArgs, "page" | "search" | "viewerLocation"> & {
 		readonly formUuid?: Uuid;
+		readonly resultReceipt?: string;
 	},
 ): Promise<LoadSearchResultsSnapshotResult> {
 	try {
+		const { searchSubmission: submission, moduleUuid, appId, caseType } = args;
+		if (
+			submission !== undefined &&
+			moduleUuid !== undefined &&
+			args.caseIds === undefined
+		) {
+			const context = await resolveAuthorizedPreviewContext({
+				appId,
+				personaUuid: args.personaUuid,
+				required: "view",
+				loadBlueprint: true,
+				device: args.device,
+			});
+			if (context.kind !== "ready") return context;
+			const snapshot = await readKeptSearchResult(
+				{ appId, caseType, moduleUuid, submission },
+				context,
+				args.resultReceipt,
+			);
+			if (snapshot === undefined)
+				return {
+					kind: "invalid-search",
+					message:
+						"These search results are no longer available. You can run Search again to open the form.",
+				};
+			if (
+				snapshot.totalMatches > 0 &&
+				args.formUuid &&
+				args.blueprint &&
+				formReadsSearchScore(args.blueprint, args.formUuid)
+			)
+				throw new CaseSearchUnavailableError({ kind: "hit-score-unavailable" });
+			return { kind: "data", snapshot };
+		}
 		const prepared = await prepareRunningCaseRead({ ...args, search: true });
 		switch (prepared.kind) {
 			case "read":
@@ -974,7 +1234,7 @@ export async function loadMissingConnectionCountAction(args: {
 	caseType: string;
 	identifier: string;
 }): Promise<LoadCaseCountResult> {
-	if (!CASE_INDEX_NAME_PATTERN.test(args.identifier)) {
+	if (!isAdvancedCaseIndexIdentifier(args.identifier)) {
 		return {
 			kind: "error",
 			message:
@@ -1051,7 +1311,7 @@ export async function countCasesOwnedByAction(args: {
 }
 
 const CLAIM_CASE_GONE_MESSAGE =
-	"This case was removed from the app's case data, so it can't be opened. You can search again to see what's there now.";
+	"This case is no longer available from this search. Search again to see the records you can open.";
 const CLAIM_REFUSED_MESSAGE = "Couldn't open this case. Try again in a moment.";
 const CLAIM_RELEASE_REFUSED_MESSAGE =
 	"Couldn't release the claimed cases. Try again in a moment.";
@@ -1078,9 +1338,11 @@ function claimAccessRefusal(
 /* The claim actions' plain JSON arguments (a Map, Set or File would make
  * React encode multipart). The store checks the ids' bounds
  * (`ClaimCasesInputError`) and the device its shape (`previewDeviceInput`). */
-const claimSearchedCasesArgs = z.object({
+const claimSearchedCasesArgs = z.strictObject({
 	appId: z.string().min(1),
-	caseIds: z.array(z.string()),
+	caseIds: z.array(z.string().min(1).max(255)).min(1).max(1000),
+	sources: z.array(searchClaimSourceSchema).min(1).max(100),
+	prior: claimPriorSelectionsSchema.max(100),
 	personaUuid: z.string().optional(),
 	device: z.unknown().optional(),
 });
@@ -1101,24 +1363,93 @@ const workerClaimsArgs = z.object({
 export async function claimSearchedCasesAction(args: {
 	appId: string;
 	caseIds: readonly string[];
+	sources?: readonly SearchClaimSource[];
+	prior?: readonly ClaimPriorSelection[];
 	personaUuid?: string;
 	device?: PreviewDevice;
 }): Promise<ClaimSearchedCasesResult> {
 	try {
-		const parsed = claimSearchedCasesArgs.parse(args);
+		const input = claimSearchedCasesArgs.safeParse(args);
+		if (!input.success) throw new SearchChoiceUnavailable();
+		const parsed = input.data;
 		const context = await resolveAuthorizedPreviewContext({
 			appId: parsed.appId,
 			personaUuid: parsed.personaUuid,
 			required: "view",
 			device: parsed.device,
+			loadBlueprint: true,
 		});
 		if (context.kind !== "ready") return context;
+		if (!context.blueprint || context.baseSeq === undefined)
+			throw new SearchChoiceUnavailable();
+		const doc = hydratePersistedBlueprint(context.blueprint);
+		const localization = effectiveAppLocalization(doc.localization);
+		const language = localization.languageOrder.find(
+			(tag) => localization.wireCodes[tag] === context.device.appLanguage,
+		);
+		if (!language) throw new SearchChoiceUnavailable();
+		const menus = new Set(
+			[...parsed.sources, ...parsed.prior].map((source) => source.moduleUuid),
+		);
+		const tableIds = new Set(
+			extractLookupReferenceOccurrences(
+				doc,
+				PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+			)
+				.filter(
+					(occurrence) =>
+						occurrence.location.scope === "module" &&
+						menus.has(occurrence.carrierUuid),
+				)
+				.map((occurrence) => occurrence.tableId),
+		);
+		const snapshot = await context.store.readDeviceCaseDatabase({
+			appId: parsed.appId,
+			restoreScope: context.restoreScope,
+		});
+		const world: ServerSearchWorld = {
+			doc: { ...doc, caseTypes: doc.caseTypes ?? [] },
+			language,
+			appId: parsed.appId,
+			projectId: context.scope.projectId,
+			identity: context.identity,
+			device: context.device,
+			deviceCases: {
+				...snapshot,
+				locations: await workerLocationFixture(
+					parsed.appId,
+					doc,
+					context.identity.personaUuid,
+				),
+			},
+			lookup: tableIds.size
+				? await readPreviewLookup(context.scope, [...tableIds])
+				: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
+			caseTypeSchemas: buildCaseTypeMap(doc),
+			timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+			restoreScope: context.restoreScope,
+			selections: {},
+		};
+		const fromSearches = await searchClaimMemberships(
+			world,
+			parsed.sources,
+			parsed.prior,
+		);
 		const { created, alreadyClaimed } = await context.store.claimCases({
 			appId: parsed.appId,
 			caseIds: parsed.caseIds,
+			fromSearches,
+			expectedAppMutationSeq: context.baseSeq,
 		});
 		return { kind: "claimed", created, alreadyClaimed };
 	} catch (err) {
+		const refusal = serverPreviewDataRefusalOf(err);
+		if (refusal) return { kind: "refused", message: refusal.message };
+		if (
+			err instanceof SearchChoiceUnavailable ||
+			err instanceof CaseSearchUnavailableError
+		)
+			return { kind: "refused", message: err.message };
 		if (err instanceof CaseNotFoundError)
 			return { kind: "case-gone", message: CLAIM_CASE_GONE_MESSAGE };
 		if (err instanceof AppAccessError)
@@ -1280,6 +1611,7 @@ export async function loadCaseDataAction(
 	searchAnswers?: Readonly<Record<string, string>>,
 	language?: string,
 	selectionMenuUuid?: string,
+	resultDetail?: import("./caseDataBindingTypes").SearchResultDetailOpening,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
@@ -1326,6 +1658,50 @@ export async function loadCaseDataAction(
 				};
 			selectionOwner = choosing?.uuid;
 		}
+		const resultProjection =
+			resultDetail === undefined
+				? undefined
+				: await (async () => {
+						const menu = environment?.doc.modules[environment.moduleUuid];
+						if (
+							!menu ||
+							!environment ||
+							deviceScoped !== true ||
+							!rules.searchResultDetailText
+						)
+							return;
+						const columns = searchResultDetailColumns(
+							environment.doc,
+							menu,
+						).filter((column) => !("onList" in column && column.onList));
+						if (columns.length === 0) return;
+						const answers = await readKeptSearchResultDetails(
+							{
+								appId,
+								moduleUuid: menu.uuid,
+								caseType,
+								submission: resultDetail.submission,
+								previewRun: resultDetail.previewRun,
+							},
+							context,
+							resultDetail.receipt,
+							caseId,
+						);
+						if (!answers) return;
+						return searchResultDetailProjection(
+							columns,
+							new Map(
+								answers.map(({ inputUuid, answer }) => [inputUuid, answer]),
+							),
+						);
+					})();
+		if (resultDetail !== undefined && resultProjection === undefined)
+			return {
+				kind: "error",
+				message:
+					"This Search result is no longer available. You can run Search again.",
+			};
+
 		const lookupTableSchemas = await loadLookupTableSchemas(
 			scope,
 			collectConfigLookupTableIds(caseListConfig),
@@ -1346,7 +1722,7 @@ export async function loadCaseDataAction(
 						caseListConfig.searchInputs,
 						new Map(Object.entries(searchAnswers ?? {})),
 					);
-		return await readCaseData(store, {
+		const result = await readCaseData(store, {
 			...(environment !== undefined && {
 				locale: previewCaseListOrderLocale(
 					environment.doc,
@@ -1363,7 +1739,7 @@ export async function loadCaseDataAction(
 			ancestorDepth,
 			parentCase,
 			caseListConfig,
-			includeHeld,
+			includeHeld: resultDetail === undefined && includeHeld,
 			lookupTableSchemas,
 			bindings: previewCaseStoreBindings(
 				searchSession,
@@ -1385,11 +1761,20 @@ export async function loadCaseDataAction(
 						readsSearchPopulation(
 							environment?.doc ?? context.blueprint,
 							selectionOwner ?? moduleUuid,
-							search === true,
+							search === true || resultProjection !== undefined,
 						),
 						context.restoreScope,
 					)),
 		});
+		return result.kind === "row" && resultProjection !== undefined
+			? {
+					...result,
+					row: {
+						...result.row,
+						calculated: { ...result.row.calculated, ...resultProjection },
+					},
+				}
+			: result;
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
@@ -2046,6 +2431,7 @@ export async function submitFormAction(
 	device?: PreviewDevice,
 	entryGroupOwner?: string,
 	previewRun?: string,
+	receiptRunTransition?: unknown,
 ): Promise<SubmissionResult> {
 	try {
 		const entryPlaceIds = submittedPlaceIds(workerPlaceIds);
@@ -2067,6 +2453,7 @@ export async function submitFormAction(
 		}
 		const session = await getSession();
 		if (!session) return { kind: "unauthenticated" };
+		const journalRun = requestedReceiptRun(receiptRunTransition, previewRun);
 		const journalScope = (
 			project: string,
 			identity: ResolvedPreviewIdentity,
@@ -2074,16 +2461,18 @@ export async function submitFormAction(
 		) =>
 			previewRun === undefined || !device
 				? undefined
-				: openingCarryScope({
-						app: appId,
-						project,
-						actor: identity.actorUserId,
-						session: session.session.id,
-						worker: identity.ownerId,
-						persona: identity.personaUuid ?? null,
-						device,
-						run: previewRun,
-					});
+				: journalRun
+					? openingCarryScope({
+							app: appId,
+							project,
+							actor: identity.actorUserId,
+							session: session.session.id,
+							worker: identity.ownerId,
+							persona: identity.personaUuid ?? null,
+							device,
+							run: journalRun,
+						})
+					: "";
 		const authorized = await loadAuthorizedFormSubmissionSnapshot({
 			appId,
 			actorUserId: session.user.id,
@@ -2207,7 +2596,15 @@ export async function submitFormAction(
 		);
 		const binding = projection.formOpening;
 		const committed = hydratePersistedBlueprint(authorized.app.blueprint);
-		if (!binding && formNeedsOpeningEvidence(committed, projection.formUuid)) {
+		const module = moduleUuidOfForm(committed, projection.formUuid);
+		const boundedFlatClose =
+			module !== undefined &&
+			!!authoredBoundedFlatSelection(committed, module, projection.formUuid);
+		if (
+			!binding &&
+			(boundedFlatClose ||
+				formNeedsOpeningEvidence(committed, projection.formUuid))
+		) {
 			throw new CaptureSubmissionRejectedError(
 				"Reopen this form to load its opening records before submitting.",
 			);
@@ -2236,7 +2633,7 @@ export async function submitFormAction(
 		if (
 			opening &&
 			(!opening.complete ||
-				binding?.module !== moduleUuidOfForm(committed, projection.formUuid) ||
+				binding?.module !== module ||
 				("caseIds" in normalizedMutation &&
 					(normalizedMutation.caseIds.length !==
 						opening.primaryCaseIds.length ||
@@ -2248,6 +2645,16 @@ export async function submitFormAction(
 				"The selected records changed. Reopen the form to choose them again.",
 			);
 		}
+		const boundedOpening = opening?.boundedFlatClose;
+		if (
+			boundedFlatClose !== (boundedOpening !== undefined) ||
+			(boundedOpening &&
+				(!previewPlatformRules(admitted.device.platform).severalCaseSelection ||
+					boundedOpening.expiresAt <= Date.now()))
+		)
+			throw new CaptureSubmissionRejectedError(
+				"Reopen this form to choose the records again.",
+			);
 		const built = await buildSubmissionOperationProgram({
 			opening,
 			appId,
@@ -2293,24 +2700,44 @@ export async function submitFormAction(
 		// boundary: the whole submission is one transaction, so a heal
 		// retry re-runs the whole envelope with nothing partial persisted.
 		const envelope = submissionEnvelopeArgs(normalizedMutation, appId, built);
-		const run = binding?.run ?? z.uuid().optional().parse(previewRun);
+		// The accepted write belongs to the device run that will keep it. An
+		// action opened from a case list returns to that list's run, and a resumed
+		// draft keeps its original signed opening even after a new run starts.
+		const sourceRun = binding?.run ?? z.uuid().optional().parse(previewRun);
+		const receiptAudience = {
+			app: appId,
+			project: authorized.projectId,
+			actor: identity.actorUserId,
+			session: session.session.id,
+			worker: identity.ownerId,
+			persona: identity.personaUuid ?? null,
+			device: admitted.device,
+			form: projection.formUuid,
+			revision: authorized.app.mutation_seq,
+		};
+		const run =
+			receiptRunTransition === undefined
+				? sourceRun
+				: verifyReceiptRunTransition(
+						process.env.BETTER_AUTH_SECRET ?? "",
+						receiptAudience,
+						receiptRunTransition,
+						sourceRun,
+						projection.entryKey,
+					);
 		const result = await store.applySubmission({
 			...envelope,
+			...(opening?.boundedFlatClose && ({ boundedFlatClose: true } as const)),
 			submissionReceipt: {
 				...envelope.submissionReceipt,
 				openingCarryScope: run
-					? openingCarryScope({
-							app: appId,
-							project: authorized.projectId,
-							actor: identity.actorUserId,
-							session: session.session.id,
-							worker: identity.ownerId,
-							persona: identity.personaUuid ?? null,
-							device: admitted.device,
-							run,
-						})
+					? openingCarryScope({ ...receiptAudience, run })
 					: undefined,
 			},
+			...(previewPlatformRules(admitted.device.platform).recentFormActivity &&
+				opening?.webActivity && {
+					webActivity: opening.webActivity,
+				}),
 		});
 
 		return submissionResultFromEnvelope(

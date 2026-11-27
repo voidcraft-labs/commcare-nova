@@ -1,7 +1,10 @@
 import { workerLookupSchemas } from "@/lib/case-store/sql/compileLookup";
 import type { AppTestScope } from "@/lib/db/appTests";
 import { formContentUuid, type Uuid } from "@/lib/domain";
+import { authoredBoundedFlatSelection } from "@/lib/domain/boundedFlatClose";
+import { isParentUserWritePath } from "@/lib/domain/caseWriteViews";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
+import { workerUpdateUsesOpeningCase } from "@/lib/domain/forms";
 import { capturesDeviceLocation } from "@/lib/domain/locationCapture";
 import {
 	afterSubmitFrameLanding,
@@ -99,6 +102,26 @@ export async function submitAppTest(
 		throw new AppTestActionError(
 			"Media capture needs a check in the running app. This test cannot submit attachment bytes.",
 		);
+	const form = context.doc.forms[formContentUuid(context.doc, screen.formUuid)];
+	// These effects choose their physical target at entry, so the
+	// submission reads the journey server's held opening, not its live data.
+	const boundedFlatClose = !!authoredBoundedFlatSelection(
+		context.doc,
+		screen.moduleUuid,
+		screen.formUuid,
+	);
+	const retainsOpening =
+		boundedFlatClose ||
+		form?.caseOperations?.some(
+			(operation) =>
+				operation.ownerAfterCreate !== undefined ||
+				(operation.action === "create" &&
+					operation.target.kind === "new" &&
+					operation.target.expr !== undefined) ||
+				workerUpdateUsesOpeningCase(operation) ||
+				operation.writes?.some((write) => isParentUserWritePath(write.via)),
+		);
+
 	const built = await buildSubmissionOperationProgram({
 		appId: scope.appId,
 		committedApp: { blueprint: context.doc, mutation_seq: scope.blueprintSeq },
@@ -112,7 +135,20 @@ export async function submitAppTest(
 			role: scope.role,
 		},
 		testWorkerGroups: context.workerGroups,
-		lookupTableSchemas: workerLookupSchemas(scope.projectId, context.lookup),
+		...(retainsOpening && {
+			testOpening: {
+				createIds: screen.entry.checkpoint.caseCreateIds,
+				reads: {
+					cases: formContext.cases,
+					locations: formContext.cases.locations,
+					currentOwnerIds: context.restoreScope.ownerIds,
+				},
+			},
+		}),
+		lookupTableSchemas: workerLookupSchemas(
+			scope.projectId,
+			formContext.lookup,
+		),
 		mutation,
 		projection,
 		/* The places of the test's own snapshot, which the form read. An
@@ -122,9 +158,10 @@ export async function submitAppTest(
 			(place) => place.id,
 		),
 	});
-	const result = await context.store.applySubmission(
-		submissionEnvelopeArgs(mutation, scope.appId, built),
-	);
+	const result = await context.store.applySubmission({
+		...submissionEnvelopeArgs(mutation, scope.appId, built),
+		...(boundedFlatClose && { boundedFlatClose: true }),
+	});
 	if (!result.caseDatabasePatch)
 		throw new Error("The submission did not return its saved record state.");
 	const cases = overlayCaseDatabasePatch(
@@ -133,10 +170,9 @@ export async function submitAppTest(
 	);
 	// A linked task sees the submitting entry plus its own committed effects.
 	// The session catalog also retains unrelated records learned by later Sync.
-	const deviceCases = overlayCaseDatabasePatch(
-		state.deviceCases,
-		result.caseDatabasePatch,
-	);
+	const deviceCases = boundedFlatClose
+		? state.deviceCases
+		: overlayCaseDatabasePatch(state.deviceCases, result.caseDatabasePatch);
 	const identity = {
 		...context.identity,
 		usercase: submissionWorkerValues(
@@ -339,6 +375,7 @@ export async function submitAppTest(
 					appId: scope.appId,
 					menuSelections: launch?.selections ?? state.selections,
 				},
+				searches: formContext.searches,
 				...(formContext.searchResults === undefined
 					? {}
 					: { searchResults: formContext.searchResults }),
@@ -371,7 +408,11 @@ export async function submitAppTest(
 		};
 		/* The back stack records destinations; Back opens a fresh entry,
 		 * which takes its own search results. */
-		const { searchResults: _taken, ...retiredScreen } = screen;
+		const {
+			searchResults: _taken,
+			searches: _searches,
+			...retiredScreen
+		} = screen;
 		const home =
 			next.route.kind === "module" || next.route.kind === "form"
 				? firstMenuSelections(
@@ -537,6 +578,7 @@ export async function submitAppTest(
 					entry: undefined,
 					entryCases: cases,
 					searchResults: undefined,
+					searches: undefined,
 				},
 			};
 		return {

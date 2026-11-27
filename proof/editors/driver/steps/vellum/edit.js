@@ -15,6 +15,8 @@
 // The builder's own Save, pressed after this step (save.js), writes the form
 // either way. Returns what the edit left: {edited, way, value}, or
 // {edited: false, reason}.
+// An "itemset-query" edit uses the named select's advanced data source
+// dialog to change its query while keeping the instance and item refs.
 ({ path, label, way, property, value, questions }) => {
 	const $ = window.proofVellumHost.jQuery;
 	const vellum = $("#formdesigner").vellum("get");
@@ -49,6 +51,42 @@
 			added.push(held);
 		}
 		return { edited: true, way, value: added };
+	}
+	if (way === "itemset-query") {
+		const select = core.form.getMugByPath(path);
+		if (!select) return { edited: false, reason: `no select at ${path}` };
+		const itemsets = core.form
+			.getChildren(select)
+			.filter((child) => child.options.tagName === "itemset");
+		if (itemsets.length !== 1)
+			return { edited: false, reason: `no single itemset at ${path}` };
+		const [itemset] = itemsets;
+		vellum.setCurrentMug(itemset);
+		const $designer = $("#formdesigner");
+		$designer.find(".collapse-toggle.collapsed").trigger("click");
+		const $button = $designer
+			.find("[name=property-itemsetData]")
+			.closest(".form-group")
+			.find(".fd-edit-button");
+		if ($button.length !== 1 || $button.prop("disabled"))
+			return {
+				edited: false,
+				reason: "the advanced data source is unavailable",
+			};
+		$button.trigger("click");
+		const $editor = $designer.find(".fd-data-source-editor-container");
+		const $query = $editor.find("[name=query]");
+		if ($query.length !== 1)
+			return { edited: false, reason: "the advanced query field did not open" };
+		$query.val(value).trigger("change");
+		$editor.find(".fd-data-source-save-button").trigger("click");
+		const { nodeset } = itemset.p.itemsetData;
+		const filter = itemset.p.filter;
+		return {
+			edited: true,
+			way,
+			value: filter ? `${nodeset}[${filter}]` : nodeset,
+		};
 	}
 	if (way !== "builder-model")
 		return { edited: false, reason: `no way to edit named ${way}` };

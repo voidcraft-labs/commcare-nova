@@ -5,14 +5,19 @@
  * form's case changes hold afterwards. The writer is controlled; persistence
  * and the MCP transport are separate boundaries.
  */
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { applyMutations } from "@/lib/doc/mutations";
 import {
 	type BlueprintDoc,
 	fieldCaseWriteViews,
 	type OwnCaseOperation,
 	type Uuid,
 } from "@/lib/domain";
+import { dateCoerce, formField, term } from "@/lib/domain/expression";
+import { proseText } from "@/lib/domain/prose";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeAuthoringHarness } from "../../__tests__/authoringHarness";
 import { namedFormFixture } from "../../__tests__/namedFormFixture";
@@ -195,6 +200,105 @@ describe("this form's own case on the case change tools", () => {
 			writes: [{ property: "visits" }],
 		});
 		expectAdmittedDoc(h.currentDoc());
+	});
+
+	it("keeps a retained datetime external ID through the shared editor", async () => {
+		const seed = namedFormFixture(
+			[
+				{
+					name: "Households",
+					caseType: "household",
+					forms: [{ name: "Visit", type: "followup" }],
+				},
+			],
+			{ runsOnlyOn: "android" },
+		);
+		const form = visitForm(seed);
+		const own = ownCase(seed);
+		const seen = testUuid("case-write-tools-external-id-date-time");
+		const before = produce(seed, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "addField",
+					parentUuid: form.uuid,
+					field: {
+						uuid: seen,
+						kind: "datetime",
+						id: "seen",
+						label: proseText("Seen"),
+					},
+				},
+			]);
+			const type = draft.caseTypes?.find(({ name }) => name === "household");
+			type?.properties.push({
+				name: "note",
+				label: proseText("Note"),
+				data_type: "text",
+			});
+			draft.forms[form.uuid].caseOperations = [
+				{
+					...own,
+					placement: {
+						kind: "basic",
+						slot: "own",
+						externalIdCalendarDayField: seen,
+					},
+					writes: [
+						{
+							property: "external_id",
+							value: dateCoerce(term(formField(seen))),
+						},
+					],
+				},
+			];
+		});
+		const h = makeAuthoringHarness({}, before);
+		const edit = (externalId: string, note: string, onlyIfChanged?: true) =>
+			h.call("updateCaseOperation", {
+				formUuid: form.uuid,
+				operationUuid: own.uuid,
+				operation: {
+					action: "own",
+					writes: [
+						{
+							property: "external_id",
+							value: externalId,
+							...(onlyIfChanged && { onlyIfChanged }),
+						},
+						{ property: "note", value: note },
+					],
+				},
+			});
+		expect(
+			await edit("date(#form/seen)", "#form/fixture_placeholder"),
+		).toMatchObject({ ok: true });
+		const edited = h.currentDoc();
+		expect(ownCase(edited).placement).toEqual(ownCase(before).placement);
+		expect(ownCase(edited).writes?.[0]).toEqual(ownCase(before).writes?.[0]);
+		expect(
+			await edit("date(#form/seen)", "#form/fixture_placeholder", true),
+		).toMatchObject({ ok: true });
+		const onlyChanged = h.currentDoc();
+		expect(ownCase(onlyChanged).placement).toEqual(ownCase(before).placement);
+		expect(ownCase(onlyChanged).writes?.[0]).toEqual({
+			...ownCase(before).writes?.[0],
+			onlyIfChanged: true,
+		});
+		expect(
+			await edit(
+				"date(#form/seen)",
+				"concat(#form/fixture_placeholder, ' note')",
+				true,
+			),
+		).toMatchObject({ error: expect.stringContaining("external ID") });
+		expect(h.currentDoc()).toEqual(onlyChanged);
+		expect(
+			await edit(
+				"#form/fixture_placeholder",
+				"concat(#form/fixture_placeholder, ' note')",
+			),
+		).toMatchObject({ ok: true });
+		expect(ownCase(h.currentDoc()).placement?.kind).toBe("save-to-case");
 	});
 
 	it("refuses removing the own case", async () => {

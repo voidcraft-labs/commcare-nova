@@ -131,10 +131,11 @@ describe("which answers can key an authored create", () => {
 		]);
 	});
 
-	it("correlates with the create's own repeat, root answers excluded", () => {
-		// The rule is stricter than a plain read: a repeated create's key must
-		// come from the exact repeat, or two iterations would share an identity.
-		expect(uuids(identityKeyFieldDecls(ENTRIES, WARDS))).toEqual([WARD_NAME]);
+	it("distinguishes a shared root Text key from a key in the create's own row", () => {
+		expect(identityKeyFieldDecls(ENTRIES, WARDS)).toMatchObject([
+			{ uuid: ROOT_TEXT, shareKeyAcrossRows: true },
+			{ uuid: WARD_NAME },
+		]);
 	});
 });
 
@@ -239,6 +240,8 @@ describe("canonical picker order", () => {
 			CHILD_A,
 		]);
 		expect(uuids(identityKeyFieldDecls(entries, REPEAT))).toEqual([
+			ROOT_A,
+			ROOT_B,
 			CHILD_B,
 			CHILD_A,
 		]);

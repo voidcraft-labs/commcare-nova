@@ -33,6 +33,7 @@ import type {
 	DeploymentAttemptRefusal,
 	DeploymentConfirmationKey,
 	DeploymentConfirmationNeeded,
+	DeploymentFailure,
 	DeploymentFailureCode,
 	DeploymentRecord,
 	DeploymentRemoteChange,
@@ -362,6 +363,9 @@ export type PublishOutcome =
 			 * again; null where the refusal offers none.
 			 */
 			readonly placementMoves: PlacementMoveOfferView | null;
+			readonly installationProfileConfirmation?: string;
+			installationProfileChoices?: DeploymentFailure["installationProfileChoices"];
+			readonly installationProfileReviewUrl?: string;
 			/**
 			 * What the attempt recorded before it stopped. A refusal after an
 			 * accepted offer can already have moved the changes (`moved > 0`),
@@ -461,6 +465,11 @@ export function publishOutcome(
 		};
 	}
 	if (responseOk && body.refusal !== undefined && body.refusal !== null) {
+		const {
+			installationProfileChoices,
+			installationProfileConfirmation,
+			installationProfileReviewUrl,
+		} = body.refusal.failure;
 		return {
 			kind: "refused",
 			deployment,
@@ -482,6 +491,15 @@ export function publishOutcome(
 			confirmationsNeeded: body.refusal.confirmationsNeeded ?? [],
 			webAppsChange: webAppsChangeOf(body.refusal.webAppsChange ?? null),
 			placementMoves: body.refusal.placementMoves ?? null,
+			...(installationProfileChoices !== undefined && {
+				installationProfileChoices,
+			}),
+			...(installationProfileConfirmation !== undefined && {
+				installationProfileConfirmation,
+			}),
+			...(installationProfileReviewUrl !== undefined && {
+				installationProfileReviewUrl,
+			}),
 			placements: body.placements ?? NO_PLACEMENTS,
 			warnings: body.warnings ?? [],
 			preview: previewAnswerOf(body),

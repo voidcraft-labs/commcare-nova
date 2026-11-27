@@ -24,6 +24,7 @@ import {
 } from "@/lib/commcare/__tests__/advancedPlacementFixture";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc, CaseOperation, FormType, Uuid } from "@/lib/domain";
+import { effectiveAppLocalization } from "@/lib/domain/localization";
 import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import type { CaseRowWithCalculated } from "../../engine/caseDataBindingTypes";
 import { previewAsMe } from "../../engine/identity";
@@ -90,6 +91,7 @@ function membersDoc(forms: readonly FormType[]): BlueprintDoc {
 function contextOf(doc: BlueprintDoc): AppTestContext {
 	return {
 		doc,
+		language: effectiveAppLocalization(doc.localization).defaultLanguage,
 		identity: previewAsMe({ id: "worker", name: "Worker" }, doc),
 		device: webAppsDevice(),
 		lookup: previewLookupData({

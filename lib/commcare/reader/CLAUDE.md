@@ -235,6 +235,9 @@ Four rules hold everywhere here:
   validations in one remote request can supply one another’s instances. Its `itemset.instance_id` is checked
   by HQ’s validator. The scanner reads the request’s actual XPath texts. A different command’s expressions
   cannot establish that a Search field can load its table.
+  A single Search choice can read names from the worker’s open records of the menu’s type.
+  Keep the separate lookup table identity when the Case List editor names it. The suite’s case
+  database supplies the choices and their name ordering, while the editor keeps its selected table.
   A calculated case column can read a table supplied by another field on the same physical
   Results or Details screen. A generated search-results copy of either screen also participates. For a source that depends on a different screen or another part of the
   command, the reader checks the authenticated working suite and each retained build profile.
@@ -469,6 +472,22 @@ while the slots' other
 untyped properties stay text (a `date-add` of two of them), the try is made again with each of
 those at the first type its own position admits, typing only the property tried.
 
+**A Hidden Value that orders a direct text answer against a text literal.** A root calculation
+of the form `if(answer < 'text', 'early', 'late')` becomes the same comparison with `number()`
+around each operand. Core's ordered comparison and `number()` call the same conversion, and
+Preview shares its conversion between both paths. The parsed reader binds the answer to the
+same field UUID and keeps the literal and both branches. The independent XML comparison
+requires the matching root text input and Hidden Value. Empty literals, clock-time and
+instant-shaped literals, form conditions, other operand shapes, and record and Search
+expressions are outside that form calculation rule.
+
+A visible simple text Search prompt has the authenticated worker session
+when it computes a starting value. A direct greater-than comparison of the
+worker name and a nonblank, untyped text literal keeps its raw comparison
+and worker reference. Both native workers apply Core's numeric coercion
+before the first manual Search sends the value. The rule belongs to the
+prompt default, whose runtime supplies the session.
+
 **Where a literal spelled as a date or a date and time is typed.** A typed date or date-and-time
 literal prints the text the untyped literal of that text prints, so which one a record slot holds
 is decided by the position it stands in, never by the print, one rule for the reader and the
@@ -562,6 +581,30 @@ search runs as the same filters (`case_search/utils.py::_apply_filter` applies e
 filter). A row the search condition's slot does not admit but an excluded field's does is still
 that field's.
 
+A direct Android survey without any producer for a lookup count can keep a root Hidden Value’s guarded literal fallback. The guard must test for zero count and read the first value only in its nonempty branch. With the exact absent source established, the next publish writes the fallback by itself.
+
+A literal Search order keeps each property, comparison and direction in request order.
+HQ strips all leading signs from a term and takes direction from the first sign.
+Nova publishes only that first sign and records the exact source value under
+`search-order-direction-signs-respelled`. The proof judge only allows a change
+that leaves the rest of the order intact. The receiver also ignores a suffix
+after an explicit comparison. A literal with a single nonempty suffix on a
+supported term is written without that suffix and records
+`search-order-unused-suffix-removed` at its saved value. A blank comparison
+resets the preceding sort. One ascending index fallback on a custom property
+is supported in a basic built-in Search that opens on results for one record
+type without prompts, related records or a dedicated order. The reader keeps
+the measured `+property::ignored` spelling. A preceding literal order with an
+unmapped comparison keeps its spelling as a discarded order. The reset must
+stay later in the same Search while the discarded order is present. A single literal default order
+over a custom property with no competing order or request control on the
+built-in Search path gets an exact refusal for an unmapped comparison
+(`case_search/models.py::_parse_commcare_sort_properties`,
+`es/mappings/case_search_mapping.py::CASE_SEARCH_MAPPING`). Core appends an
+answered `commcare_sort` prompt after the default. Prompts under
+`x_commcare_endpoint_id` or `x_commcare_data_registry` can change the receiving
+endpoint or index. These sources keep the existing unsupported-order finding.
+
 `matchingResolver` answers a key the map holds with its UUID and gives any other key a UUID the
 map holds under no key (`identity.ts::freeEntityUuid`): a map holds a renamed entity's UUID, minted
 from its old key, under its new one, so an entity CommCare HQ later adds under the old key must not
@@ -595,7 +638,7 @@ recorded in `unheldMedia` when its path resolves, with its question, role, langu
 path. Project data checks whether HQ serves the file. If a question’s label also uses it, the
 draft keeps the asset on that label and the first publish discloses its removal from the other slot.
 
-A menu, form, case list item or Register button keeps the image and spoken label shown in each app language. A missing menu file uses the installed default strings table. The full app and named installations can choose different fallbacks: preserve strict missing and empty entries and any former language whose file changes the complete app. `use_default_*_for_all` always reads the app's first language. A question, help or choice uses its form's default locale. A target language with no media entry inherits. A key present only outside the default raises Core's `NoLocalizedTextException` and needs repair in HQ.
+A menu, form, case list item or Register button keeps the image and spoken label shown in each app language. A generated basic-menu icon may use the exact image path of an ordinary form in another language when every profile that shows the icon includes one of its carrier languages. A missing menu file uses the installed default strings table. The full app and named installations can choose different fallbacks: preserve strict missing and empty entries and any former language whose file changes the complete app. `use_default_*_for_all` always reads the app's first language. A question, help or choice uses its form's default locale. A target language with no media entry inherits. A key present only outside the default raises Core's `NoLocalizedTextException` and needs repair in HQ.
 
 App string text follows `hqText.ts::shownText`. A search title follows `search/settings.ts::shownTitles`. A form's itext follows `ItextReading.defaultLanguage`, the first app language where present, otherwise the first translation in the form. A source label without a plain value or a missing default text can also prevent HQ from building the form (`ItextReading.buildRefusesLabel`). A protected validation message's `__nova_` forms
 are read the same way, form by form, as Core merges the default locale's keys under each
@@ -684,6 +727,36 @@ the canonical row `app-name-strings-as-read`). A key no unit writes is inert whe
 names no string of the app or equals the table's string, and is refused otherwise.
 The generated-key reader takes its exact control identity and output role from the string registry.
 Each case and search column registers its own positions while producing its short and long detail.
+A menu or form text badge keeps the editor’s ordinary text in `custom_icons` and registers its own generated badge wording. Commands in menus that list another menu’s forms reference the source form’s `forms.m#f#.badge` locale. Independently stored shared form entries have their own form badge wording. Synthetic empty-Search registration commands cannot carry badges.
+A shared owner exclusion can choose its IDs with a numeric comparison of
+the worker’s username against a text literal. The reader requires the
+same rule in the short list and Search. Web Apps, Android and Preview
+coerce the operands before selecting the branch. A nonnumeric operand
+makes greater-than false.
+
+A supported Android lookup results heading registers one module-owned `case_lists.m#.callout.header` for the case and standalone Search short details. The typed `lookup_field_header` keeps the ordinary Case List editor label.
+
+A lookup argument can be a saved sum of two fixed whole numbers. Pinned Android normally evaluates it and sends a string, but its legacy reporting-domain mode sends the saved value verbatim unless `force_xpath_parsing` is `yes`. The reader preserves a canonical addition of two nonnegative whole numbers up to the signed 32-bit sum limit. Both publishers send the original two-operand spelling. Other calculation and configuration shapes follow their existing gates.
+A plain Results-only column can read an offered text prompt from Search in
+Web Apps. The menu opens Search first and has no local list entry. The column
+keeps the prompt identifier and emits the exact result-input path for the
+Search list. A skipped prompt contributes empty text.
+
+A regular Search prompt's required condition can count the worker's restored
+cases of one declared type, optionally comparing a text property with fixed
+text or a second text property on the same case. It uses the normal case query and
+count AST and preserves its required message. Web Apps checks it before sending
+a Search. Android places no required rule on the worker's input. Preview loads
+the worker's authorized restore before opening the Web Apps prompt, and verifies
+the same scope server-side before using its response.
+
+
+A root Advanced menu whose two manual loads agree on the same stored child
+link keeps that link even when another case writer uses a different name
+between the same types. The stored name is tied to the parent menu that
+supplies the first choice. Preview and suite emission use that same link.
+
+A Search group heading uses the route’s group UUID and the exact `search_property.m#.group_header_#` emitted for its current row. Its ordinary label stays in the Case List editor. Web Apps draws the heading; Android draws the ordered fields. A unique legacy heading with complete, stable ordinary labels may move its exact wording to the canonical key of the same group. The first-publish notice records both source paths. In a single-language app, the same nonblank wording saved at both keys may also be combined when both belong to the same group. For an English and Spanish app whose ordinary build includes both languages, a live English heading can replace dormant canonical English and Spanish values when the ordinary Spanish label is absent. The first publish lists the removed Spanish value at its original path. A different build or a key with another possible role stays held. A key absent from the saved group rows never acquires wording ownership through respelling. A displayed heading that shares its locale with an ordinary field is refused before either role can supply wording for the other.
 A source or target override is held as the word the device reads for that language, including
 escaped line breaks and number signs. The app's `name` is also the profile's `name`, which Android's list of the apps on a
 phone shows (a carriage return or a line break there as a space), and the name Web Apps' list of
@@ -881,6 +954,10 @@ A change that holds one removes its line.
   to a worker record loaded earlier. An entry expression binds against the
   completed prefix. A missing earlier datum, missing table or column, and an
   invalid earlier-load reference have their own recovery findings.
+  The selected case’s Advanced load can save a root passive label to a custom text property, including
+  on the same load that closes the case. On a follow-up that leaves the case open, confirmations and
+  visible banners can also save their answer. A present empty answer keeps the property present and
+  empty. An irrelevant label leaves the previous value.
 - **An after-submit link's condition or carried value that prints as the source only with a
   rewrite withheld**: `unrecognized` at the form, `schema:FormLink.xpath` or
   `schema:FormDatum.xpath` (`menus/afterSubmit.ts::compareLinks`). The links are compared with
@@ -951,6 +1028,10 @@ A change that holds one removes its line.
   reason `declared-type`, a violation that is not `retyped`). Neither runtime reads a block's
   `vellum:case_type`, and both keep a link's `case_type` as written; Nova types a change by the
   case it reaches.
+  A direct property-only root update in a basic follow-up can keep its generated Save to
+  Case block when its editor label differs from the selected case type. The submitted
+  case ID still names the selected case. The operation uses that case's type and stores
+  the original editor label as part of its held placement, so re-emission preserves it.
 - **A Save to Case `case_type` row that gives a case a type holding one of the earlier type's
   properties as another type**: one finding at the block under
   `questions/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type`
@@ -967,29 +1048,43 @@ A change that holds one removes its line.
   (`caseManagement/saveToCase.ts::readBlock`). CommCare keeps a name and an external id as the case's
   own value, and the gate holds a link only in a property of its own
   (`CAPTURE_CASE_WRITE_STANDARD_PROPERTY`).
-- **A Save to Case update of the worker's record in a condition group or in a repeat**: one finding
-  at the block under
+- **An Advanced follow-up with two manual case choices** can use a direct property of the
+  earlier case to fill one passive root label. A write from that label stays with the later
+  selected case. Competing starting values on the same label keep the specific finding.
+- **A Save to Case create that can reuse a case ID** keeps an explicit always-true owner
+  condition. A condition that can omit the owner receives the dedicated runtime refusal.
+  HQ preserves an existing owner and Core assigns the submitting worker when the same
+  submission omits the owner field.
+- **A fresh root Save to Case create with a later guarded owner** holds both owner leaves
+  in its one case block. The reader keeps the initial owner on creation and reads the
+  later owner and its condition separately. The generated scalar guard checks the later
+  value only when the condition holds. Aliased creates, worker transfers, and shapes
+  whose guard or scope does not print back keep their dedicated refusal.
+- **A Save to Case update of the worker's record** can run under a root condition or once for
+  each entry of a top-level repeat, including a query-driven repeat, with an optional condition
+  evaluated for each entry. Each live entry updates the same worker in row order. A nested repeat has one
+  finding at the block under
   `questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat`
-  (`caseManagement/saveToCase.ts::readBlock`). HQ's form builder takes both, and Nova keeps a form's
-  writes of the worker's record in one update that runs once on every submission (the gate's
-  `worker-record-facet`).
-- **A Save to Case update of the worker's record beside another update of it in the same form**
-  (CommCare HQ's `usercase_update`, an advanced form's load of the worker's record, or a second
-  such block): one finding at the form under
+  (`caseManagement/saveToCase.ts::readBlock`).
+- **Independent updates of the worker's record** stay in their own Save to Case or managed
+  blocks when each update directly targets the worker, runs at most once and writes different properties.
+  HQ may append its managed block after the authored blocks without changing those writes.
+  Overlapping, repeated and aliased combinations still use the form-level
   `questions/a-savetocase-update-of-commcare-user-beside-another-update-of-the-worker-s-record`
-  (`caseManagement/index.ts::settleCaseChanges`, asking the gate's own
-  `validator/rules/caseOperations.ts::validateCaseOperations` for reason `worker-record-twice`). A
-  device and HQ's server apply both in the form's order, and Nova keeps a form's writes of the worker's
-  record in one update, which prints one block.
+  finding where the validator refuses them (reason `worker-record-twice`).
 - **A Save to Case block that changes the form's own case beside the form's own change of it**: a
   row of a property the own change also writes (its name and owner among them), or a close of that
   case: one finding at the form under
   `questions/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it`
   (`caseManagement/index.ts::settleCaseChanges`, asking the gate's own `validateCaseOperations`
   for its own-case rule). HQ's build appends Case Management's block after every authored node, and a
-  device and HQ's server apply both blocks, so the later row stands where it is present; Nova keeps one
+  device and HQ's server apply both blocks. A basic single-case follow-up keeps one direct authored or
+  positioned Text write and a later Case Management write of the same ordinary property from an optional
+  root Text answer. Preview applies them in that physical order, including an empty later answer.
+  Outside that shape, Nova keeps one
   write of each property of the own case and lets no other change close it, and no one change prints
-  both blocks. A close-only block whose `update` holds a row is read as a close operation, never as the
+  both blocks. A basic follow-up whose managed block only records the timestamp can keep a
+  separate close-only block under a close condition. A block whose `update` holds a row is read as a close operation, never as the
   own close, which the emitter writes with no `update` (`saveToCase.ts::readSaveToCaseBlocks`); an
   empty `update` beside the close, which no runtime acts on and HQ's form builder drops, is outside
   Nova's block shape alone.
@@ -1003,6 +1098,14 @@ A change that holds one removes its line.
   a link name over 255 characters, under `questions/a-savetocase-link-name-longer-than-commcare-hq-stores`;
   and a case type outside the grammar or over 255 characters, under
   `questions/a-savetocase-case-type-outside-the-case-type-grammar-or-longer-than-255-characters`.
+
+A plain Short calculation can read one declared text property from the primary result with
+the same case ID as the selected row. The reader recognizes the whole XPath, keeps the typed
+property identity and preserves that calculation on both exports. It admits the qualifier only
+for visible, unsorted Short columns on the default inline Results instance, where every actual
+session datum that uses that detail is supplied by the preceding query from the same menu.
+Long, keyed registration returns, other instances and wider result queries stay held. Running
+Preview projects the marked property only from a completed Search result set.
 
 The first-publish comparison carries the actual source that a registered change rewrites. A saved-form title uses the same trimmed text Core reads. A dropped default or changed XForm expression uses the reader’s parsed spelling rules. An untranslated slot identifies its field, choice and language. These facts live in the reading and let a second request distinguish another worker-facing change at the same place.
 
@@ -1042,3 +1145,21 @@ A form whose root questions are all qualifying Question Lists reads them as sect
 ### Reading a shared form
 
 Ordinary forms are identified by their namespace. A shadow's external identity uses its real aligned form id because every command sharing the parent's questions has the same effective namespace. Match `shadow_parent_form_id` within this source's scrubbed ids before resolving its ordinary parent. Only the parent supplies an XForm, question identities, case blocks and writes. Read a shadow's `extra_actions.load_update_cases` in its stored sequence and resolve each repeated tag against the parent. On publish, derive or look up the target parent id independently from the entry's own id. On read-back, align both real ids even after names or menu positions change.
+
+
+An ordinary Search address picker keeps a canonical single-quoted text
+default, a join of two fixed nonblank text pieces, or a fixed prefix followed
+by the signed-in worker’s username. The picker
+uses the manual Search flow, without a group, exclusion, automatic clear,
+or an address subscription. The Reader takes the exact
+`CaseSearchProperty.default_value` leaf without registering a pending
+expression. HQ keeps the setting. Web Apps opens Mapbox blank and leaves
+the address out of the manual request, and Android leaves the picker and its
+default out before the query manager seeds answers.
+
+A Save to Case survey can retype its freshly created, unlinked case where
+the single property goes from a root text question to a visible, required
+root date question. The shared validator checks that shape and the reader
+claims it at the retype block. An optional or conditional write remains held. CommCare HQ
+stores an explicitly empty leaf, which Nova's typed date storage would
+otherwise remove.

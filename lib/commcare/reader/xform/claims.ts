@@ -266,6 +266,11 @@ export const X = {
 		Q("data-root-name-that-workers-cannot-address"),
 		"xform:model/instance/*",
 	),
+	unicodeRoot: one(
+		"take",
+		Q("answer-root-with-a-non-ascii-name"),
+		"xform:model/instance/*",
+	),
 	namedRoot: one(
 		"take",
 		Q("data-root-element-named-other-than-data"),
@@ -552,7 +557,44 @@ export const X = {
 	),
 
 	// ── Field kinds ────────────────────────────────────────────────
+	androidAppRefused: under(
+		"refuse",
+		Q("android-app-callout-that-cannot-be-recreated"),
+		{
+			head: "jr-extension:IntentExtensionParser",
+			appearance: "appearance:android/intent:",
+		},
+	),
+	androidAppHead: under(
+		"take",
+		Q("android-app-callout-input-appearance-intent-id-bind-type-intent"),
+		{
+			head: "jr-extension:IntentExtensionParser",
+			id: "xform:intent@id",
+			action: "xform:intent@class",
+			extra: "xform:intent/extra",
+			extraKey: "xform:intent/extra@key",
+			extraRef: "xform:intent/extra@ref",
+			response: "xform:intent/response",
+			responseKey: "xform:intent/response@key",
+			responseRef: "xform:intent/response@ref",
+		},
+	),
+	androidAppAnswer: one(
+		"take",
+		Q("intent-id-on-any-input-other-than-an-intent-typed-one-where-id"),
+		"appearance:android/intent:",
+	),
 	kind: {
+		androidApp: kind(
+			"android-app-callout-input-appearance-intent-id-bind-type-intent",
+			{
+				node: "mug:AndroidIntent",
+				...INPUT,
+				appearance: "appearance:android/intent:",
+			},
+			["Text"],
+		),
 		text: kind("text-input-xsd-string", { node: "mug:Text", ...INPUT }),
 		phone: kind("phone-number-xsd-string-appearance-numeric", {
 			node: "mug:PhoneNumber",
@@ -639,6 +681,13 @@ export const X = {
 			mediatype: "xform:upload@mediatype",
 			appearance: "xform:upload@appearance",
 		}),
+		face: kind("face-capture-image-face", {
+			node: "mug:Image",
+			control: "xform:upload",
+			ref: "xform:upload@ref",
+			mediatype: "xform:upload@mediatype",
+			appearance: "xform:upload@appearance",
+		}),
 		audio: kind("audio-capture-audio", {
 			node: "mug:Audio",
 			control: "xform:upload",
@@ -716,7 +765,7 @@ export const X = {
 		long: one("refuse", Q("long-xsd-long"), "mug:Long"),
 		intent: one(
 			"refuse",
-			Q("android-app-callout-input-appearance-intent-id-bind-type-intent"),
+			Q("android-app-callout-that-cannot-be-recreated"),
 			"mug:AndroidIntent",
 		),
 		/** A callout whose intent names the print action, which the form builder reads as its
@@ -757,7 +806,6 @@ export const X = {
 			Q("a-select-whose-bind-type-is-neither-a-choice-type-nor-a-string"),
 			"jr-type:int",
 		),
-		face: one("refuse", Q("face-capture-image-face"), "mug:FaceCapture"),
 		uploadOther: one(
 			"refuse",
 			Q("upload-with-any-other-mediatype-or-none"),
@@ -797,13 +845,13 @@ export const X = {
 		},
 	),
 	itemsetCopy: one("refuse", Q("itemset-copy"), "xform:select1/itemset/copy"),
-	/** The `<sort>` of a lookup itemset and its `ref`, a column of the table
-	 *  (`options.ts::readItemset`). */
-	itemsetSort: one(
-		"take",
-		Q("itemset-sort-ref"),
-		"vellum-feature:sorted_itemsets",
-	),
+	/** The `<sort>` of an itemset and its `ref`, a table column or case property. */
+	itemsetSort: under("take", Q("itemset-sort-ref"), {
+		select1: "xform:select1/itemset/sort",
+		select1Ref: "xform:select1/itemset/sort@ref",
+		select: "xform:select/itemset/sort",
+		selectRef: "xform:select/itemset/sort@ref",
+	}),
 	choiceValueRefused: one(
 		"refuse",
 		Q("choice-value-with-whitespace-empty-or-duplicated"),
@@ -864,6 +912,14 @@ export const X = {
 		"refuse",
 		"expressions-and-data/an-expression-core-cannot-evaluate-as-its-author-meant",
 		null,
+	),
+	itemsetScalarPosition: under(
+		"refuse",
+		Q("itemset-position-called-on-a-number"),
+		{
+			select1: "xform:select1/itemset@nodeset",
+			select: "xform:select/itemset@nodeset",
+		},
 	),
 	itemsetItextLabel: one(
 		"refuse",
@@ -1306,7 +1362,7 @@ export const X = {
 		"xform:model/itext/translation/text@id",
 	),
 	pragmaFormDescriptor: one(
-		"refuse",
+		"take",
 		Q("a-question-text-whose-itext-id-is-pragma-form-descriptor-where"),
 		"xform:model/itext/translation/text@id",
 	),
@@ -1315,8 +1371,8 @@ export const X = {
 		Q("a-question-text-whose-itext-id-is-a-web-apps-presence-pragma"),
 		"xform:model/itext/translation/text@id",
 	),
-	pragmaKey: one(
-		"refuse",
+	pragmaActivity: one(
+		"take",
 		Q("a-question-text-label-hint-help-validation-message-repeat-add"),
 		"xform:model/itext/translation/text@id",
 	),
@@ -1453,8 +1509,13 @@ export const X = {
 	},
 	/** An inline video on a text other than a question's label, which no runtime shows. */
 	videoInlineElsewhere: one(
-		"refuse",
+		"account",
 		Q("video-inline-form-on-a-text-other-than-a-question-label"),
+		"itext-form:android/video-inline",
+	),
+	videoInlineOnlyHelp: one(
+		"refuse",
+		Q("video-inline-as-the-only-content-of-a-help-text"),
 		"itext-form:android/video-inline",
 	),
 	/** A question label's other texts (`lib/domain/labelForms.ts`), by the slot each is held in. */
@@ -1486,15 +1547,20 @@ export const X = {
 	),
 	/** A `long` form on a group's or repeat's label, which both runtimes show as its header. */
 	longFormOnContainer: one(
-		"refuse",
+		"take",
 		Q("long-form-on-a-group-or-repeat-label"),
 		"itext-form:core/long",
 	),
 	/** A `long` form on a hint, a help text, a validation message or a choice, which both runtimes
 	 *  show in place of the text. */
 	longFormOnOtherText: one(
-		"refuse",
+		"take",
 		Q("long-form-on-a-hint-help-text-validation-message-or-choice"),
+		"itext-form:core/long",
+	),
+	longFormOnRepeatAction: one(
+		"drop",
+		Q("long-form-on-a-repeat-action-caption"),
 		"itext-form:core/long",
 	),
 	shortForm: one("account", Q("short-form"), "itext-form:core/short"),

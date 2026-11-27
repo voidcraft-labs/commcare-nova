@@ -7,6 +7,7 @@
  * proposer never looks at a name to decide.
  */
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
+import { reachedPropertyType } from "@/lib/domain/columnRelation";
 import {
 	activeRowScope,
 	type ExpressionContext,
@@ -44,9 +45,16 @@ import {
 	type Term,
 } from "@/lib/domain/expression/types";
 import { organizationLevelsOf } from "@/lib/domain/organization";
-import { isCalendarCaseProperty } from "@/lib/domain/standardCaseProperties";
+import {
+	isCalendarCaseProperty,
+	isStandardCaseListProperty,
+} from "@/lib/domain/standardCaseProperties";
 import type { Uuid } from "@/lib/domain/uuid";
 import { caseTypeHopMap } from "../../caseTypeDepths";
+import {
+	CASE_LIST_LOOKUP_COUNT_DATA_NAME,
+	CASE_LIST_SEARCH_TEXT_DATA_NAME,
+} from "../../sessionContext";
 import { type SourceTable, tableOf } from "../../sourceKeys";
 import { rethrowWorkStop } from "../../workMeter";
 import type { FoldApi } from "../../xpath/formParseScope";
@@ -71,6 +79,7 @@ export type FoldId =
 	| "owner-at-level"
 	| "absent-node-guard"
 	| "search-text"
+	| "lookup-count"
 	| "empty-rows-guard"
 	| "handed-on-rows-guard"
 	| "cond"
@@ -112,11 +121,9 @@ export interface FoldEnv {
 	readonly place?: OperationPlaceReads;
 	/** The slot's whole source, where the binding knows it. */
 	readonly root?: FormSyntax;
-	/** The slot reads a walk of the row's indices as Core does, to whatever case each reaches
-	 *  (`reached-property`): a case list column's calculation, whose value Postgres and the device
-	 *  both compute over the reached row. Another record slot's untyped walk stands under its
-	 *  own row (a list filter's `#host`, `detail-filter-value-outside-predicate`). */
-	readonly readsReached?: true;
+	/** A list column can read an untyped index walk. An ordinary worker list can
+	 *  compare the case reached by its direct host index with one text value. */
+	readonly readsReached?: "column" | "host-filter";
 	/** Fold sites withdrawn so far, as `foldId:from:to` of this slot's source. */
 	readonly withdrawn: ReadonlySet<string>;
 	/** Claims a site of its own for this fold over `span` (a fold that folds
@@ -450,7 +457,10 @@ function isCaseOperationSlot(context: ExpressionContext): boolean {
 	return slotName(context).startsWith("case_operation_");
 }
 function isOwnerSlot(context: ExpressionContext): boolean {
-	return slotName(context) === "case_operation_owner";
+	return (
+		slotName(context) === "case_operation_owner" ||
+		slotName(context) === "case_operation_later_owner"
+	);
 }
 
 // ── The literal folds ────────────────────────────────────────────────
@@ -1364,6 +1374,47 @@ const absentNodeGuard: Fold = {
 	},
 };
 
+/** A guarded singleton numeric count carries exactly the form's proven lookup source. */
+const lookupCount: Fold = {
+	id: "lookup-count",
+	ruleSets: ["form"],
+	propose(node, context, api, env) {
+		const supplier = context.caseListLookupCountSource;
+		const guard = call(node, "if", 3);
+		const equal = binary(guard?.args[0], "=");
+		const read = call(equal?.left, "count", 1)?.args[0];
+		const item = call(guard?.args[1], "number", 1)?.args[0];
+		if (
+			supplier === undefined ||
+			read === undefined ||
+			item === undefined ||
+			numberValue(equal?.right) !== 1 ||
+			stringValue(guard?.args[2]) !== "" ||
+			!sessionDatumRead(read)
+		)
+			return undefined;
+		const first = core(item);
+		const wholeCount = same(item, read);
+		const steps = flat(read)?.steps;
+		if (
+			steps?.at(-1)?.name !== CASE_LIST_LOOKUP_COUNT_DATA_NAME ||
+			steps.some((step) => step.attribute) ||
+			(!wholeCount &&
+				(first.kind !== "filter" ||
+					!same(first.base, read) ||
+					numberValue(first.where) !== 1))
+		)
+			return undefined;
+		// A bare `fingerprintquery` has no typed binding. Keep this candidate
+		// for the slot's print with the equivalent index spelling withheld.
+		if (wholeCount) env.ownReading();
+		return api.remember(
+			{ kind: "case-list-lookup-count", module: supplier },
+			node,
+		);
+	},
+};
+
 const searchText: Fold = {
 	id: "search-text",
 	ruleSets: ["form"],
@@ -1379,7 +1430,11 @@ const searchText: Fold = {
 			stringValue(guard.args[2]) !== ""
 		)
 			return undefined;
-		if (!sessionDatumRead(read)) return undefined;
+		if (
+			!sessionDatumRead(read) ||
+			flat(read)?.steps.at(-1)?.name !== CASE_LIST_SEARCH_TEXT_DATA_NAME
+		)
+			return undefined;
 		return api.remember({ kind: "case-list-search-text" }, node);
 	},
 };
@@ -2729,7 +2784,7 @@ const reachedProperty: Fold = {
 	id: "reached-property",
 	ruleSets: ["record"],
 	propose(node, context, api, env) {
-		if (env.readsReached !== true) return undefined;
+		if (env.readsReached === undefined) return undefined;
 		const read = casedbRow(node);
 		if (read === undefined) return undefined;
 		const [step, ...more] = read.rest;
@@ -2744,6 +2799,26 @@ const reachedProperty: Fold = {
 			return undefined;
 		const row = activeRowScope(context);
 		if (row?.kind !== "case" || row.caseType === undefined) return undefined;
+		if (env.readsReached === "host-filter") {
+			const equality = binary(env.root, "=");
+			const literal = stringValue(equality?.right);
+			if (
+				first.identifier !== "host" ||
+				rest.length !== 0 ||
+				property === "name" ||
+				isStandardCaseListProperty(property) ||
+				equality === undefined ||
+				!same(equality.left, node) ||
+				literal === undefined ||
+				literal.trim() === "" ||
+				reachedPropertyType(
+					{ field: property, via: [first] },
+					row.caseType,
+					env.doc.caseTypes ?? [],
+				) !== "text"
+			)
+				return undefined;
+		}
 		return api.term(
 			{
 				kind: "prop",
@@ -3151,6 +3226,7 @@ export const EXPRESSION_FOLDS: readonly Fold[] = [
 	ownerAtLevel,
 	absentNodeGuard,
 	searchText,
+	lookupCount,
 	emptyRowsGuard,
 	handedOnRowsGuard,
 	condFold,

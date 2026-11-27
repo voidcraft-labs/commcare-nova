@@ -45,6 +45,7 @@ or every case closed where it does not); a block written for one row alone
 
 from __future__ import annotations
 
+import pytest
 from lxml import etree
 
 from proof.formplayer import apps
@@ -194,3 +195,200 @@ def test_a_several_case_close_closes_each_chosen_case_only_where_its_condition_h
     _untouched(NOT_HELD, not_held, not_held["chosen"])
     _closed_by_form(HELD, runs[HELD])
     _closed_by_form(EVERY_TIME, runs[EVERY_TIME])
+
+
+def test_basic_automatic_multi_selection_uses_the_whole_datum_and_refuses_overflow(
+    hq, core_runner, formplayer_runner, formplayer_documents, evidence
+):
+    from dataclasses import replace
+
+    from proof.formplayer.webapps import FormplayerRefused
+    from proof.observe.casedata import document_case_database
+
+    document = formplayer_documents[DOCUMENT]
+    database = document_case_database(document)
+    seed = next(case for case in database.cases if case.case_type == 'sample')
+    # One more than the browser's explicit page, and names that sort opposite
+    # the order used to restore these cases. The actual restore supplies the oracle.
+    cases = tuple(replace(seed, case_id=f'auto-{i:03}', name=f'{101 - i:03}') for i in range(101))
+
+    def change(maximum):
+        def configure(stored):
+            short = stored['modules'][0]['case_details']['short']
+            short['auto_select'] = True
+            short['max_select_value'] = maximum
+            short['sort_elements'] = [{'field': 'case_name', 'type': 'plain', 'direction': 'ascending',
+                                       'blanks': 'last', 'doc_type': 'SortElement'}]
+
+        return configure
+
+    def choose_command(response, title):
+        assert screen_kind(response) == 'commands', response
+        titles = [command['displayText'] for command in response['commands']]
+        return [*response.get('selections', []), str(titles.index(title))]
+
+    observations = {}
+    with apps.published(document, core_runner) as published:
+        for name, batch, maximum in [('all', cases, 101), ('overflow', cases, 100), ('empty', (), 100)]:
+            with apps.served(published, formplayer_runner, label=name, change=change(maximum),
+                             database=replace(database, cases=batch)) as served, served.run(name):
+                web = apps.web(formplayer_runner, served)
+                top = web.navigate()
+                menu = choose_command(top, MENU)
+                form_path = None
+                try:
+                    response = web.navigate(menu, cases_per_page=7)
+                    if screen_kind(response) == 'commands':
+                        # Case-first menus can already contain the automatic
+                        # selection before we choose the form's command.
+                        form_path = choose_command(response, EVERY_TIME)
+                        response = web.navigate(form_path, cases_per_page=7)
+                except FormplayerRefused as refusal:
+                    assert name == 'overflow', refusal
+                    exchange = refusal.exchange
+                    observations[name] = {'status': exchange.response.status,
+                                          'body': exchange.response.body.decode()}
+                    assert '101' in str(refusal) and '100' in str(refusal), refusal
+                    assert not served.hq.submissions
+                    continue
+                observations[name] = {'screen': screen_kind(response), 'selection': response.get('selections')}
+                if name == 'overflow':
+                    # A handled response in place of the HTTP error is also a
+                    # native refusal, provided it reports both limits and no form.
+                    assert screen_kind(response) == 'notification' and '101' in str(response) and '100' in str(response), response
+                elif name == 'empty':
+                    assert screen_kind(response) == 'entities' and not response.get('entities'), response
+                else:
+                    assert screen_kind(response) == 'form' and response['title'] == EVERY_TIME, response
+                    restored = [case.get('case_id') for data in served.hq.restores[:1]
+                                for case in etree.fromstring(data, PARSER).iter(CASE)
+                                if (case.get('case_id') or '').startswith('auto-')]
+                    assert len(restored) == len(cases)
+                    assert restored != [case.case_id for case in sorted(cases, key=lambda case: case.name)]
+                    assert form_path is not None, response
+                    # As the Web Apps breadcrumb does, trim the form command.
+                    # The retained batch leads straight back to its command menu.
+                    previous = web.navigate(form_path[:-1], cases_per_page=7)
+                    assert screen_kind(previous) == 'commands', previous
+                    first = web.navigate([], cases_per_page=7)
+                    assert screen_kind(first) == 'commands', first
+                    assert MENU in [command['displayText'] for command in first['commands']], first
+                    response = web.navigate(choose_command(previous, EVERY_TIME), cases_per_page=7)
+                    result = web.submit(response['session_id'], {})
+                    assert result['status'] == 'success', result
+                    (submission,) = served.hq.submissions
+                    submitted = _submitted(submission.instance)
+                    assert submitted['selected'] == restored
+                    assert sorted(submitted['blocks']) == sorted((record.case_id, True) for record in batch)
+                    assert all(row['closed'] for row in _held(served.domain, restored).values())
+                    observations[name]['orderedCaseIds'] = restored
+                if name != 'all':
+                    assert not served.hq.submissions
+    evidence('automatic-multiple-case-selection', observations)
+
+
+
+@pytest.mark.parametrize("kind", ["close", "followup", "answer", "answers", "required", "required-match"])
+def test_the_authored_bounded_case_list_selects_101_and_refuses_the_102nd(
+    hq, formplayer_runner, formplayer_documents, evidence, kind,
+):
+    import json
+    from dataclasses import replace
+    from pathlib import Path
+
+    from proof.formplayer.hq import serve
+    from proof.formplayer.webapps import FormplayerRefused
+    from proof.hq.check import hq_check
+    from proof.matrix import registry
+    from proof.matrix.authoring import Authoring
+    from proof.observe import casedata, publish
+
+    followup = kind != "close"
+    conditional = kind == "required-match"
+    witness = json.loads((Path(__file__).parent / "fixtures" / "bounded-flat-close-case-list.json").read_text())
+    doc = formplayer_documents["hq-bounded-flat-close"]
+    database = casedata.document_case_database(doc)
+    seed = next(case for case in database.cases if case.case_type == "sample")
+    cases = tuple(replace(seed, case_id=f"bounded-{index:03}", name=f"Sample {index:03}")
+                  for index in range(witness["overflowCount"]))
+    observations = {}
+    with hq_check(doc.exports["minimum"].configuration.hq()) as (unit, _):
+        with unit.operation("the stock bounded flat close", doc.id.encode()):
+            app_id, refusal, _ = publish.create_authored(unit, doc)
+            assert refusal is None, refusal
+            if followup:
+                author = Authoring(unit, {}, doc.id, operation=unit.operation)
+                change = {
+                    "followup": "limit_101_outside_flat_close",
+                    "answer": "limit_101_with_visible_question",
+                    "answers": "limit_101_with_two_visible_questions",
+                    "required": "limit_101_with_required_text",
+                    "required-match": "limit_101_with_conditionally_required_text",
+                }[kind]
+                registry.named_change(change)(author, app_id)
+        batches = [("at-maximum", witness["selectedCount"]), ("overflow", witness["overflowCount"])]
+        if conditional:
+            batches.insert(1, ("guard-false", witness["selectedCount"]))
+        for batch, count in batches:
+            overflow = batch == "overflow"
+            supplied = replace(database, cases=cases[:count])
+            with serve(unit, doc, app_id, runner=formplayer_runner, database=supplied, label=batch) as served:
+                with served.run(batch):
+                    web = apps.web(formplayer_runner, served)
+                    page = web.navigate()
+                    assert screen_kind(page) == "commands", page
+                    (menu,) = [str(index) for index, command in enumerate(page["commands"])
+                               if command["displayText"] == witness["menu"]]
+                    try:
+                        page = web.navigate([menu], cases_per_page=witness["pageSize"])
+                        if screen_kind(page) == "commands":
+                            (form,) = [str(index) for index, command in enumerate(page["commands"])
+                                       if command["displayText"] == witness["form"]]
+                            page = web.navigate([*page["selections"], form], cases_per_page=witness["pageSize"])
+                    except FormplayerRefused as error:
+                        assert overflow, error
+                        message = str(error)
+                    else:
+                        if not overflow:
+                            assert screen_kind(page) == "form" and page["title"] == witness["form"], page
+                            ids = {case.case_id for case in supplied.cases}
+                            before = _held(served.domain, sorted(ids)) if followup else None
+                            answers = {}
+                            outcome = "Reviewed"
+                            recommendation_answer = "Call again"
+                            if conditional:
+                                outcome = "complete" if batch == "guard-false" else "followup"
+                                if batch == "guard-false":
+                                    recommendation_answer = ""
+                            if kind in ("answer", "answers", "required") or conditional:
+                                questions = [node for node in page["tree"] if node.get("type") == "question"]
+                                expected = [outcome] if kind == "answer" else [outcome, recommendation_answer]
+                                answers = {question["ix"]: value for question, value in zip(questions, expected, strict=True)}
+                                if kind == "required" or (conditional and batch != "guard-false"):
+                                    recommendation = questions[1]["ix"]
+                                    refused = web.submit(page["session_id"], {**answers, recommendation: ""})
+                                    assert refused["status"] == "validation-error", refused
+                                    assert not served.hq.submissions
+                            result = web.submit(page["session_id"], answers)
+                            assert result["status"] == "success", result
+                            (submission,) = served.hq.submissions
+                            if followup:
+                                payload = etree.fromstring(submission.instance, PARSER)
+                                assert not list(payload.iter(CASE))
+                                assert payload.findtext("{*}outcome") == (outcome if answers else "done")
+                                if kind in ("answers", "required") or conditional:
+                                    assert (payload.findtext("{*}recommendation") or "") == recommendation_answer
+                                assert _held(served.domain, sorted(ids)) == before
+                                observations[batch] = {"caseTransactions": 0, "offered": count}
+                            else:
+                                submitted = _submitted(submission.instance)
+                                assert len(submitted["selected"]) == count and set(submitted["selected"]) == ids
+                                assert sorted(submitted["blocks"]) == sorted((case_id, True) for case_id in ids)
+                                observations[batch] = {"selected": submitted["selected"], "blocks": submitted["blocks"]}
+                            continue
+                        assert screen_kind(page) == "notification", page
+                        message = str(page)
+                    assert str(witness["selectedCount"]) in message and str(count) in message, message
+                    assert not served.hq.submissions
+                    observations[batch] = {"message": message}
+    evidence("bounded-case-list", observations)

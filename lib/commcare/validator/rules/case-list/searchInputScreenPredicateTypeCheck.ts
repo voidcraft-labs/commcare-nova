@@ -83,6 +83,27 @@ export function searchInputScreenPredicateTypeCheck(
 				);
 			continue;
 		}
+		if (
+			"options" in input &&
+			input.options.kind === "restored-case-names" &&
+			(input.type !== "select" ||
+				input.options.caseType !== mod.caseType ||
+				input.addressReceiver !== undefined ||
+				mod.heldKind === "advanced")
+		)
+			errors.push(
+				validationError(
+					"CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_SCOPE",
+					"module",
+					"Choose one open record name from this menu’s record type. The field can’t receive an address.",
+					{
+						moduleUuid,
+						moduleName: mod.name,
+						field: `caseListConfig.searchInputs[${index}].options`,
+					},
+					identity,
+				),
+			);
 		if (input.required?.when !== undefined) {
 			const ctx = context("search_input_required_when");
 			if (ctx !== undefined)

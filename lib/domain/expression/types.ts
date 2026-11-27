@@ -92,6 +92,8 @@ export type FormCasePropertyRef = z.infer<typeof formCasePropertyRefSchema>;
 export const searchInputRefSchema = z.strictObject({
 	kind: z.literal("input"),
 	searchInputUuid: uuidSchema,
+	/** Present when the answer belongs to another menu whose search ran for this form. */
+	supplier: uuidSchema.optional(),
 });
 export type SearchInputRef = z.infer<typeof searchInputRefSchema>;
 export const SESSION_CONTEXT_FIELDS = [
@@ -388,6 +390,13 @@ export const caseTypeTermSchema = z.strictObject({
 	caseType: caseTypeNameSchema,
 });
 export type CaseTypeTerm = z.infer<typeof caseTypeTermSchema>;
+/** A named child of a project-space result row. The service owns its name;
+ * it need not be a property on any case type the app manages. */
+export const searchResultFieldSchema = z.strictObject({
+	kind: z.literal("search-result-field"),
+	name: z.string().regex(XML_ELEMENT_NAME_PATTERN),
+});
+export type SearchResultField = z.infer<typeof searchResultFieldSchema>;
 export const caseRowTypeTermSchema = z.strictObject({
 	kind: z.literal("case-row-type"),
 });
@@ -455,6 +464,7 @@ export type Term =
 	| Literal
 	| Choice
 	| CaseTypeTerm
+	| SearchResultField
 	| CaseRowTypeTerm
 	| CaseIndexTerm
 	| SessionDatumTerm
@@ -478,6 +488,7 @@ export const termSchema: z.ZodType<Term> = z.union([
 	literalSchema,
 	choiceSchema,
 	caseTypeTermSchema,
+	searchResultFieldSchema,
 	caseRowTypeTermSchema,
 	caseIndexTermSchema,
 	sessionDatumTermSchema,
@@ -702,9 +713,16 @@ export type ValueArm =
 	/** What the worker typed into the case list's search box, on the entry's
 	 * one case list: `session/data/stringquery`, which only Android sets. */
 	| { kind: "case-list-search-text" }
+	| { kind: "case-list-lookup-count"; module: Uuid }
 	| { kind: "value-list"; items: [Expression, ...Expression[]] };
 export type InstanceArm =
-	| { kind: "cases"; source: "casedb" | "search-results"; where: Expression[] }
+	| {
+			kind: "cases";
+			source: "casedb" | "search-results";
+			supplier?: Uuid;
+			first?: true;
+			where: Expression[];
+	  }
 	| { kind: "table-rows"; tableId: LookupTableId; where: Expression[] }
 	| { kind: "locations"; where: Expression[] }
 	| { kind: "worker-groups"; where: Expression[] }
@@ -759,6 +777,7 @@ const VALUE_KINDS = new Set<string>([
 	"choice-name",
 	"here",
 	"case-list-search-text",
+	"case-list-lookup-count",
 	"value-list",
 ]);
 const INSTANCE_KINDS = new Set<string>([
@@ -785,6 +804,7 @@ const TERM_KINDS = new Set<string>([
 	"literal",
 	"choice",
 	"case-type",
+	"search-result-field",
 	"case-row-type",
 	"case-index",
 	"session-datum",
@@ -1061,14 +1081,32 @@ const valueSchemas = [
 	}),
 	z.strictObject({ kind: z.literal("here") }),
 	z.strictObject({ kind: z.literal("case-list-search-text") }),
+	z.strictObject({
+		kind: z.literal("case-list-lookup-count"),
+		module: uuidSchema,
+	}),
 	z.strictObject({ kind: z.literal("value-list"), items: manyE }),
 ] as const;
 const instanceSchemas = [
-	z.strictObject({
-		kind: z.literal("cases"),
-		source: z.enum(["casedb", "search-results"]),
-		where: z.array(E),
-	}),
+	z
+		.strictObject({
+			kind: z.literal("cases"),
+			source: z.enum(["casedb", "search-results"]),
+			supplier: uuidSchema.optional(),
+			first: z.literal(true).optional(),
+			where: z.array(E),
+		})
+		.refine(
+			(rows) => rows.supplier === undefined || rows.source === "search-results",
+			{
+				path: ["supplier"],
+				message: "Choose a search when reading its results.",
+			},
+		)
+		.refine((rows) => rows.first === undefined || rows.source === "casedb", {
+			path: ["first"],
+			message: "A first restored case comes from the worker’s case database.",
+		}),
 	z.strictObject({
 		kind: z.literal("table-rows"),
 		tableId: lookupTableIdSchema,
@@ -1084,6 +1122,7 @@ const instanceSchemas = [
 			(v) =>
 				[
 					"prop",
+					"search-result-field",
 					"case-row-type",
 					"case-index",
 					"table-column",
@@ -1129,23 +1168,30 @@ export const valueArmSchema: z.ZodType<ValueArm> = z.union(valueSchemas);
 export const instanceArmSchema: z.ZodType<InstanceArm> =
 	z.union(instanceSchemas);
 
-export type FieldExpressionSlotRef = {
-	readonly entity: "field";
-	readonly uuid: Uuid;
-	readonly slot:
-		| "relevant"
-		| "validate"
-		| "calculate"
-		| "default_value"
-		| "required"
-		| "repeat_count"
-		| "ids_query"
-		| "lookup_options_source"
-		| "assessment_user_score"
-		| "deliver_entity_id"
-		| "deliver_entity_name"
-		| "deliver_work_area_id";
-};
+export type FieldExpressionSlotRef =
+	| {
+			readonly entity: "field";
+			readonly uuid: Uuid;
+			readonly slot:
+				| "relevant"
+				| "validate"
+				| "calculate"
+				| "default_value"
+				| "required"
+				| "repeat_count"
+				| "ids_query"
+				| "lookup_options_source"
+				| "assessment_user_score"
+				| "deliver_entity_id"
+				| "deliver_entity_name"
+				| "deliver_work_area_id";
+	  }
+	| {
+			readonly entity: "field";
+			readonly uuid: Uuid;
+			readonly slot: "android_app_input";
+			readonly member: { readonly name: string; readonly occurrence: number };
+	  };
 export type FormExpressionSlotRef =
 	| {
 			readonly entity: "form";
@@ -1183,8 +1229,13 @@ export type FormExpressionSlotRef =
 			readonly slot:
 				| "case_operation_target_expression"
 				| "case_operation_condition"
+				| "case_operation_close_condition"
 				| "case_operation_name"
 				| "case_operation_owner"
+				| "case_operation_type_condition"
+				| "case_operation_owner_condition"
+				| "case_operation_later_owner"
+				| "case_operation_later_owner_condition"
 				| "case_operation_rename";
 			readonly member: { readonly operationUuid: Uuid };
 	  }
@@ -1212,6 +1263,12 @@ export type FormExpressionSlotRef =
 			};
 	  };
 export type ModuleExpressionSlotRef =
+	| {
+			readonly entity: "module";
+			readonly uuid: Uuid;
+			readonly slot: "project_search_parameter";
+			readonly member: { readonly parameterUuid: Uuid };
+	  }
 	| {
 			readonly entity: "module";
 			readonly uuid: Uuid;
@@ -1286,13 +1343,16 @@ export type ProseSlotRef =
 				| "help"
 				| "validate_msg"
 				| "extended_text"
+				| "extended_hint"
+				| "extended_help"
+				| "extended_validate_msg"
 				| "qr_code"
 				| "spoken_text";
 	  }
 	| {
 			readonly entity: "field";
 			readonly uuid: Uuid;
-			readonly slot: "option_label";
+			readonly slot: "option_label" | "option_extended_text";
 			readonly member: { readonly optionUuid: Uuid };
 	  };
 export type SlotContextRef = ExpressionSlotRef | ProseSlotRef;
@@ -1303,11 +1363,15 @@ const PROSE_SLOT_NAMES: ReadonlySet<string> = new Set<ProseSlotRef["slot"]>([
 	"help",
 	"validate_msg",
 	"extended_text",
+	"extended_hint",
+	"extended_help",
+	"extended_validate_msg",
 	"qr_code",
 	"spoken_text",
 	"addFirstLabel",
 	"addLabel",
 	"option_label",
+	"option_extended_text",
 ]);
 
 /** Whether a slot address names a prose slot (a text, and the calculated

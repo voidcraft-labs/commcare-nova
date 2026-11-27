@@ -114,6 +114,12 @@ function targetPhrase(
 	const type = caseTypePhrase(operation.caseType);
 	switch (operation.target.kind) {
 		case "new": {
+			if (
+				operation.action === "create" &&
+				operation.typeChoice !== undefined &&
+				!operation.typeChoice.reapplyPrimaryAtEnd
+			)
+				return `a new ${type} or ${caseTypePhrase(operation.typeChoice.otherwise)} case`;
 			const keyField =
 				operation.target.idFrom === undefined
 					? undefined

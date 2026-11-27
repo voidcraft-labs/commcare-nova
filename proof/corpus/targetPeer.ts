@@ -577,6 +577,14 @@ function importedMediaPaths(source: Json): Set<string> {
 			module.case_details?.long,
 		]) {
 			if (!detail) continue;
+			// ModuleMediaMixin.all_media keeps only enabled lookup images on
+			// displayed short details. These case details are always displayed.
+			if (
+				detail.display === "short" &&
+				detail.lookup_enabled &&
+				detail.lookup_image
+			)
+				paths.add(detail.lookup_image);
 			for (const column of detail.columns) {
 				if (column.format !== "enum-image") continue;
 				// Nova writes the same asset in each app language.
@@ -870,7 +878,7 @@ function moved<T>(items: readonly T[], from: number, to: number): T[] {
  *   (`edit_module_attr`, `name`, under the `lang` cookie HQ's pages set);
  * - `moduleLayout`: the menu's `display_style` as posted
  *   (`edit_module_attr`, `display_style`);
- * - `moduleDetail`: the column appended to the menu's short details
+ * - `moduleDetail`: the columns appended to short details or tabs on long details
  *   (`_update_short_details`, `DetailColumn.from_json` of a column that
  *   names every key HQ stores of one);
  * - `formsAddedAndRemoved`: the form removed from its menu, its source kept
@@ -960,15 +968,25 @@ export function sourceAfterContentSaves(
 	if (saves.moduleDetail !== undefined) {
 		const module = moduleAt(next, saves.moduleDetail.module);
 		const details = (module.case_details ?? {}) as Json;
-		const short = (details.short ?? {}) as Json;
-		const columns = Array.isArray(short.columns) ? short.columns : [];
-		module.case_details = {
-			...details,
-			short: {
-				...short,
-				columns: [...columns, structuredClone(saves.moduleDetail.column)],
-			},
-		};
+		if ("tabs" in saves.moduleDetail) {
+			module.case_details = {
+				...details,
+				long: {
+					...((details.long ?? {}) as Json),
+					tabs: structuredClone(saves.moduleDetail.tabs),
+				},
+			};
+		} else {
+			const short = (details.short ?? {}) as Json;
+			const columns = Array.isArray(short.columns) ? short.columns : [];
+			module.case_details = {
+				...details,
+				short: {
+					...short,
+					columns: [...columns, ...structuredClone(saves.moduleDetail.columns)],
+				},
+			};
+		}
 	}
 	if (saves.formsAddedAndRemoved !== undefined) {
 		const { module: at, removed, added } = saves.formsAddedAndRemoved;
@@ -1373,7 +1391,7 @@ export class TargetPeer {
 						{
 							langs: [...profile.langs],
 							name: profile.name,
-							practice_mobile_worker_id: "",
+							practice_mobile_worker_id: profile.practice_worker_id ?? "",
 							doc_type: "BuildProfile",
 						},
 					]),

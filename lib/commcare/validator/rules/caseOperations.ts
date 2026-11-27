@@ -10,6 +10,7 @@ import {
 	ownCaseOperationFindings,
 } from "@/lib/commcare/ownCaseOperationFindings";
 import {
+	basicOwnTextOverlap,
 	placementIneligibility,
 	planPlacements,
 } from "@/lib/commcare/placement";
@@ -17,11 +18,15 @@ import {
 	findOnDeviceDateAddIssue,
 	type OnDeviceDateAddIssue,
 } from "@/lib/commcare/validator/onDeviceCompatibility";
+import { saveToCaseActions } from "@/lib/commcare/xform/saveToCaseActions";
 import { formNodeProjection } from "@/lib/commcare/xpath/formNodeProjection";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
+	caseOperationConditionalGuardUuids,
+	caseOperationDependencyUuids,
+	caseOperationsInSubmissionOrder,
 	caseOperationTargetTypeOrderViolations,
 	caseOperationWireOrderViolationDetails,
 	sameCaseOperationTargetIdentity,
@@ -31,41 +36,69 @@ import {
 	CASE_FACET_OF_ONLY_IF_CHANGED,
 	CASE_LOADING_FORM_TYPES,
 	CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE,
+	CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
+	type CaseChangeField,
 	type CaseFacetOnlyIfChanged,
 	type CaseOperation,
 	type CaseOperationWrite,
 	type CaseTarget,
 	type CaseWriteVia,
+	canSetOwnerAfterCreate,
 	caseDataTypeForFieldKind,
+	caseOperationRunsPerSelectedCase,
+	caseSelectionCardinality,
 	caseWriteKeyOf,
 	concreteCasePropertyWriterTypes,
+	dateRetypeOverwrite,
 	effectiveCaseTypes,
 	type Form,
+	fixedCaseTypeOf,
 	formFieldCanKeyCreate,
 	formFieldCorrelatesWithCreate,
+	hasUpdateOnlyCaseFacets,
+	isAdvancedCaseIndexIdentifier,
 	isCaseOperationIdentifier,
+	isCaseOperationLinkIdentifier,
 	isCaseOperationProperty,
 	isFacetWriteThroughIndex,
+	isParentUserWritePath,
 	isReservedCaseOperationWrite,
 	isWritableStandardCaseProperty,
 	MAX_CASE_SCALAR_TEXT_LENGTH,
 	type Module,
 	operationCanReadFormField,
 	operationCaseType,
+	operationSavesOnlyChanged,
 	operationTarget,
 	orderedCaseOperations,
+	ownCaseOperationHasEffects,
+	parentUserWriteCaseTypes,
 	placementIneligibilitySentence,
 	planCaseRetype,
 	prepareCaseScalarTextValue,
 	RESERVED_CASE_OPERATION_TYPES,
 	sameCaseWriteKey,
+	type TargetedCaseOperation,
 	USERCASE_BUILT_IN_KEYS,
 	USERCASE_CASE_TYPE,
 	type Uuid,
 	userPropertiesOf,
 } from "@/lib/domain";
-import { entryOperationCaseType } from "@/lib/domain/advancedEntryDatums";
+import {
+	chainLoadOfTarget,
+	entryOperationCaseType,
+	formCaseSelections,
+	menuEmittedAdvanced,
+} from "@/lib/domain/advancedEntryDatums";
+import {
+	basicOwnExternalIdDayValue,
+	caseSlotFacts,
+	externalIdCalendarDayField,
+	isKeyedRootCreate,
+	isWorkerRecordUpdate,
+	retainedExternalIdDayRead,
+} from "@/lib/domain/basicCaseSlots";
 import { caseWriteValueField } from "@/lib/domain/caseWriteViews";
 import {
 	activeRowScope,
@@ -87,13 +120,16 @@ import {
 	walkExpressionNodes,
 	walkExpressionTerms,
 } from "@/lib/domain/expression/walk";
+import { keepsHiddenClock } from "@/lib/domain/fieldValueType";
 import {
 	caseOperationIdNameProblem,
 	caseOperationLinkNameProblem,
 	caseOperationNameSentence,
 	freeCaseOperationName,
 } from "@/lib/domain/questionId";
+import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { WRITABLE_STANDARD_CASE_PROPERTY_WORDS } from "@/lib/domain/standardCaseProperties";
+import { submissionLayout } from "@/lib/domain/submissionLayout";
 import { addressesWorkerRecord } from "@/lib/domain/workerRecordRequirements";
 import {
 	entryDatumIdResolver,
@@ -174,6 +210,7 @@ export type LinkInvalidReason =
 	| "duplicate"
 	| "name"
 	| "target-kind"
+	| "relationship-question"
 	| "self-link";
 
 /** The reasons `CASE_OPERATION_SESSION_UNAVAILABLE` gives in
@@ -237,8 +274,18 @@ export function sharedEntryWriteFindings(
 		lookupTables,
 	);
 	const errors: ValidationError[] = [];
+	const repeatedWorker = orderedCaseOperations(parent).find(
+		isRepeatedWorkerUpdate,
+	);
 	for (const { op, actual } of changed) {
 		const worker = actual === USERCASE_CASE_TYPE;
+		if (
+			worker &&
+			repeatedWorker !== undefined &&
+			op !== repeatedWorker &&
+			hasWorkerRecordEffect(ctx, op)
+		)
+			errors.push(workerRecordTwiceFinding(ctx, op, repeatedWorker));
 		if (worker && op.action === "own") {
 			validateOwnWorkerFacets(ctx, op, errors);
 			if (entry.type === "close")
@@ -269,6 +316,99 @@ export function sharedEntryWriteFindings(
 	}));
 }
 
+function positionedChangeHasConditionalContainer(
+	doc: BlueprintDoc,
+	fieldUuid: Uuid,
+): boolean {
+	for (let parent = doc.fieldParent[fieldUuid]; parent !== undefined; ) {
+		const field = doc.fields[parent];
+		if (field === undefined) return false;
+		if ("relevant" in field && field.relevant !== undefined) return true;
+		parent = doc.fieldParent[parent];
+	}
+	return false;
+}
+
+/** HQ's build adds its managed case blocks after authored root data, but
+ * inserts some single repeat actions first. Until the two plans share the
+ * physical order of those mixed blocks, only independent effects are safe. */
+function mixedPositionOrderDependency(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	module: Module,
+	operations: readonly CaseOperation[],
+	positioned: ReadonlySet<Uuid>,
+	operation: TargetedCaseOperation,
+	overlap: ReturnType<typeof basicOwnTextOverlap>,
+): CaseOperation | undefined {
+	const { placements } = planPlacements(doc, formUuid);
+	const formType = doc.forms[formUuid]?.type;
+	const directTargetOf = (target: CaseTarget | null | undefined, uuid: Uuid) =>
+		(target?.kind === "op" && target.opUuid === uuid) ||
+		(target?.kind === "expression" &&
+			target.expr.kind === "id-of" &&
+			target.expr.opUuid === uuid);
+	const writesOf = (op: CaseOperation): Set<string> =>
+		new Set([
+			...(op.writes ?? []).map((write) => write.property),
+			...(op.rename !== undefined ||
+			(op.action === "own" && op.name !== undefined)
+				? ["case_name"]
+				: []),
+			...(op.owner === undefined ? [] : ["owner_id"]),
+		]);
+	const properties = writesOf(operation);
+	return operations.find((other) => {
+		if (
+			positioned.has(other.uuid) ||
+			(overlap?.authored === operation.uuid && overlap.own === other.uuid)
+		)
+			return false;
+		const placement = placements.get(other.uuid)?.placement.kind;
+		if (placement !== "basic" && placement !== "advanced") return false;
+		if (
+			other.action === "create" ||
+			(other.action === "own" && formType === "registration")
+		)
+			return (
+				directTargetOf(operation.target, other.uuid) ||
+				(operation.links ?? []).some((link) =>
+					directTargetOf(link.target, other.uuid),
+				)
+			);
+
+		if (
+			(other.writes ?? []).some(
+				(write) => write.via && properties.has(write.property),
+			)
+		)
+			return true;
+		const type = other.action === "own" ? module.caseType : other.caseType;
+		if (type !== operation.caseType) return false;
+		const otherProperties = writesOf(other);
+		const otherCloses =
+			other.action === "close" ||
+			other.closeAfter ||
+			(other.action === "own" && formType === "close");
+		const indices = new Set((other.links ?? []).map((link) => link.identifier));
+		const otherChangesRow =
+			otherProperties.size > 0 ||
+			indices.size > 0 ||
+			otherCloses ||
+			other.retype !== undefined;
+		if (!otherChangesRow) return false;
+		return (
+			operation.retype !== undefined ||
+			other.retype !== undefined ||
+			operation.action === "close" ||
+			operation.closeAfter === true ||
+			otherCloses === true ||
+			[...properties].some((property) => otherProperties.has(property)) ||
+			(operation.links ?? []).some((link) => indices.has(link.identifier))
+		);
+	});
+}
+
 export function validateCaseOperations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -285,6 +425,117 @@ export function validateCaseOperations(
 		moduleName: module.name,
 		caseType: module.caseType,
 	});
+	const overlap =
+		operations.length === 0 ? undefined : basicOwnTextOverlap(doc, formUuid);
+	const positions = new Set<Uuid>();
+	// Position checks need submitted order and the enclosing repeat, even
+	// when an ID in that tree cannot yet be used as an XForm element name.
+	const { children } = submissionLayout(formUuid, doc.fields, doc.fieldOrder);
+	const caseChangeLocations = new Map<
+		Uuid,
+		{ field: CaseChangeField; repeat: Uuid | undefined }
+	>();
+	const walkPositions = (parent: Uuid, repeat: Uuid | undefined) => {
+		for (const uuid of children.get(parent) ?? []) {
+			const field = doc.fields[uuid];
+			if (field === undefined) continue;
+			if (field.kind === "case_change")
+				caseChangeLocations.set(uuid, { field, repeat });
+			walkPositions(uuid, field.kind === "repeat" ? uuid : repeat);
+		}
+	};
+	walkPositions(formUuid, undefined);
+	const positioned = new Set(
+		[...caseChangeLocations.values()].map(({ field }) => field.operationUuid),
+	);
+	const byUuid = new Map(
+		operations.map((operation) => [operation.uuid, operation]),
+	);
+	for (const [uuid, { field, repeat }] of caseChangeLocations) {
+		const operation = byUuid.get(field.operationUuid);
+		const invalid =
+			operation === undefined
+				? {
+						reason: "missing-operation",
+						message: "Choose a case change from this form.",
+					}
+				: positions.has(field.operationUuid)
+					? {
+							reason: "duplicate-position",
+							message: "Keep just one position for this case change.",
+						}
+					: operation.forEach?.repeat !== repeat
+						? {
+								reason: "repeat-scope",
+								message:
+									"Place this case change in the section it repeats over.",
+							}
+						: operation.action === "own" ||
+								isKeyedRootCreate(operation) ||
+								operation.condition !== undefined ||
+								isWorkerRecordUpdate(operation) ||
+								operationSavesOnlyChanged(operation) ||
+								operation.writes?.some((write) => write.via !== undefined)
+							? {
+									reason: "direct-change",
+									message:
+										"Choose a direct create, update or close for this position.",
+								}
+							: caseOperationRunsPerSelectedCase(operation) &&
+									caseSelectionCardinality(module) === "multiple"
+								? {
+										reason: "selected-cases",
+										message:
+											"Keep the case change that runs for each selected case in the form's case settings.",
+									}
+								: operation.retype !== undefined &&
+										positionedChangeHasConditionalContainer(doc, uuid)
+									? {
+											reason: "conditional-type-change",
+											message:
+												"Place a change of case type outside sections that can be skipped.",
+										}
+									: undefined;
+		const orderDependency =
+			invalid === undefined &&
+			operation !== undefined &&
+			operation.action !== "own"
+				? mixedPositionOrderDependency(
+						doc,
+						formUuid,
+						module,
+						operations,
+						positioned,
+						operation,
+						overlap,
+					)
+				: undefined;
+		positions.add(field.operationUuid);
+		if (invalid !== undefined || orderDependency !== undefined)
+			ownFindings.push(
+				validationError(
+					"CASE_CHANGE_POSITION_INVALID",
+					"field",
+					invalid?.message ??
+						"Keep these case changes together in the form's case settings so they run in order.",
+					{
+						moduleUuid,
+						moduleName: module.name,
+						formUuid,
+						formName: form.name,
+						fieldUuid: uuid,
+						fieldId: field.id,
+					},
+					{
+						operationUuid: field.operationUuid,
+						reason: invalid?.reason ?? "managed-order",
+						...(orderDependency && {
+							otherOperationUuid: orderDependency.uuid,
+						}),
+					},
+				),
+			);
+	}
 	if (operations.length === 0) return ownFindings;
 
 	const ctx = operationRuleContext(
@@ -300,7 +551,7 @@ export function validateCaseOperations(
 	const seenUuids = new Set<Uuid>();
 	const seenIds = new Set<string>();
 	const priorCreates = new Map<Uuid, CaseOperation>();
-	errors.push(...ownCaseIndependenceFindings(ctx, operations));
+	errors.push(...ownCaseIndependenceFindings(ctx, operations, overlap));
 	errors.push(...workerRecordFindings(ctx, operations));
 	for (const violation of caseOperationTargetTypeOrderViolations(
 		doc,
@@ -340,7 +591,11 @@ export function validateCaseOperations(
 			(violation) => [violation.operationUuid, violation],
 		),
 	);
-	for (const operation of operations) {
+	for (const operation of caseOperationsInSubmissionOrder(
+		doc,
+		formUuid,
+		operations,
+	)) {
 		const wireOrderViolation = wireOrderViolations.get(operation.uuid);
 		if (wireOrderViolation !== undefined) {
 			let message: string;
@@ -349,7 +604,7 @@ export function validateCaseOperations(
 					message = `Case operation "${operation.id}" crosses back to an earlier multiplicity scope, so CommCare's document-order executor cannot preserve the declared operation order.`;
 					break;
 				case "authored-create-after-noncreate":
-					message = `Authored-key create operation "${operation.id}" follows a non-create effect. A retry can address an existing case, and HQ's per-case create sort would no longer match CommCare Core's document order.`;
+					message = `Authored-key create operation "${operation.id}" follows an effect that may change the same case. HQ applies the create first, while the device follows the submitted form order.`;
 					break;
 				case "repeated-authored-key-alias": {
 					const producer = operations.find(
@@ -429,6 +684,39 @@ function validateOperation(
 	priorCreates: ReadonlyMap<Uuid, CaseOperation>,
 	errors: ValidationError[],
 ): void {
+	const editorCaseType =
+		operation.placement?.kind === "save-to-case"
+			? operation.placement.editorCaseType
+			: undefined;
+	if (
+		editorCaseType !== undefined &&
+		(operation.action !== "update" ||
+			ctx.form.type !== "followup" ||
+			caseSelectionCardinality(ctx.module) !== "single" ||
+			menuEmittedAdvanced(ctx.doc, ctx.moduleUuid) ||
+			operation.target.kind !== "session" ||
+			operation.caseType !== ctx.module.caseType ||
+			operation.forEach !== undefined ||
+			operation.condition !== undefined ||
+			operation.retype !== undefined ||
+			operation.owner !== undefined ||
+			operation.rename !== undefined ||
+			operation.closeAfter === true ||
+			(operation.links?.length ?? 0) > 0 ||
+			!operation.writes?.length ||
+			operation.writes.some((write) => write.via !== undefined) ||
+			RESERVED_CASE_OPERATION_TYPES.has(editorCaseType) ||
+			RESERVED_CASE_OPERATION_TYPES.has(operation.caseType))
+	)
+		errors.push(
+			opError(
+				ctx,
+				operation,
+				"CASE_OPERATION_TARGET_TYPE_MISMATCH",
+				"This saved case type label belongs to a direct update of the case this form opens. Keep that target when editing the change.",
+				{ reason: "declared-type" satisfies TargetTypeMismatchReason },
+			),
+		);
 	if (operation.action === "own") {
 		validateOwnOperation(ctx, operation, errors);
 		return;
@@ -436,6 +724,62 @@ function validateOperation(
 	const workerRecord = addressesWorkerRecord(ctx.form, operation);
 	if (!workerRecord || operation.caseType !== USERCASE_CASE_TYPE)
 		validateCaseType(ctx, operation, operation.caseType, errors);
+	if (
+		operation.action === "create" &&
+		operation.typeCalculation !== undefined &&
+		fixedCaseTypeOf(operation.typeCalculation) !== operation.caseType
+	)
+		errors.push(
+			opError(
+				ctx,
+				operation,
+				"CASE_OPERATION_TYPE_CALCULATION_MISMATCH",
+				"The case type calculation must give the case type named by this create.",
+			),
+		);
+
+	if (operation.action === "create" && operation.typeChoice !== undefined)
+		validateCreateTypeChoice(ctx, operation, errors);
+	if (operation.action === "create" && operation.keepNameText) {
+		const calculation = operation.name;
+		const suffix =
+			calculation?.kind === "concat" ? calculation.parts[1] : undefined;
+		const answer =
+			calculation?.kind === "concat" &&
+			calculation.parts.length === 2 &&
+			suffix?.kind === "term" &&
+			suffix.term.kind === "literal" &&
+			typeof suffix.term.value === "string"
+				? calculation.parts[0]
+				: calculation;
+		const name = answer?.kind === "term" ? answer.term : undefined;
+		if (
+			ctx.form.type !== "survey" ||
+			ctx.module.caseType ||
+			menuEmittedAdvanced(ctx.doc, ctx.moduleUuid) ||
+			operation.target.kind !== "new" ||
+			operation.target.idFrom !== undefined ||
+			operation.target.expr !== undefined ||
+			operation.forEach !== undefined ||
+			operation.typeCalculation !== undefined ||
+			operation.typeChoice !== undefined ||
+			operation.links?.length ||
+			name?.kind !== "field" ||
+			name.filters !== undefined ||
+			name.role !== undefined ||
+			!ctx.doc.fieldOrder[ctx.formUuid]?.includes(name.uuid) ||
+			ctx.fields.get(name.uuid)?.kind !== "text"
+		)
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_TARGET_INVALID",
+					"An unchanged case name needs a root Text question in a standalone Survey. It can append literal text.",
+				),
+			);
+	}
+
 	// A retype of the worker's record is refused as a facet it can't carry
 	// (`workerRecordFindings`), so no retype plan is asked of it.
 	if (operation.retype !== undefined && !workerRecord) {
@@ -469,7 +813,11 @@ function validateOperation(
 					`Retyping ${operation.caseType} to ${operation.retype} cannot complete because its source or destination schema is missing.`,
 				),
 			);
-		} else if (!plan.wirePortable) {
+		} else if (
+			!plan.wirePortable &&
+			dateRetypeOverwrite(ctx.doc, ctx.formUuid, operation, producer, plan) ===
+				undefined
+		) {
 			const consequences = [
 				...(plan.parked.length > 0
 					? [
@@ -487,7 +835,7 @@ function validateOperation(
 					ctx,
 					operation,
 					"CASE_OPERATION_RETYPE_UNSAFE",
-					`Retyping ${operation.caseType} to ${operation.retype} is not portable: ${consequences.join(" and ")}. CommCare's case wire changes only case_type, so Nova admits authored retypes only when every existing JSON property is retained with the exact same type.`,
+					`Retyping ${operation.caseType} to ${operation.retype} is not portable: ${consequences.join(" and ")}. CommCare's case wire changes only case_type, so Nova admits authored retypes only when each existing JSON value can be kept unchanged.`,
 				),
 			);
 		}
@@ -528,13 +876,19 @@ function validateOperation(
 					{ reason: "create-key" satisfies TargetInvalidReason },
 				),
 			);
-		} else if (!formFieldCorrelatesWithCreate(field.repeat, repeat)) {
+		} else if (
+			operation.target.shareKeyAcrossRows
+				? repeat === undefined ||
+					field.repeat !== undefined ||
+					field.kind !== "text"
+				: !formFieldCorrelatesWithCreate(field.repeat, repeat)
+		) {
 			errors.push(
 				opError(
 					ctx,
 					operation,
 					"CASE_OPERATION_REPEAT_CORRELATION",
-					"An authored create id must be singular with a singular create, or come from the exact repeat the create runs over.",
+					"Choose a key from this case change’s repeat, or explicitly share its case across rows using a Text answer outside the repeat.",
 				),
 			);
 		}
@@ -547,6 +901,131 @@ function validateOperation(
 		operationSlot(ctx, operation, "case_operation_condition"),
 		errors,
 	);
+	if (
+		operation.action === "update" &&
+		operation.closeAfter === true &&
+		!hasUpdateOnlyCaseFacets(operation)
+	)
+		errors.push(
+			opError(
+				ctx,
+				operation,
+				"CASE_OPERATION_CLOSE_ACTION_REQUIRED",
+				"Choose the close action for a case that closes after saving its properties.",
+			),
+		);
+	if (operation.closeCondition !== undefined) {
+		if (operation.action !== "close" && operation.closeAfter !== true)
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_CLOSE_CONDITION_INVALID",
+					"Choose to close the case before setting when it closes.",
+				),
+			);
+		validatePredicateSlot(
+			ctx,
+			operation,
+			operation.closeCondition,
+			operationSlot(ctx, operation, "case_operation_close_condition"),
+			errors,
+		);
+	}
+	if (operation.ownerCondition !== undefined) {
+		const reason =
+			operation.action === "create" &&
+			operation.ownerCondition.kind !== "match-all" &&
+			(operation.target.kind !== "new" ||
+				operation.target.idFrom !== undefined ||
+				operation.target.expr !== undefined)
+				? "fresh-id"
+				: operation.action === "update" && operation.owner === undefined
+					? "missing-owner"
+					: operation.action === "update" &&
+							operation.target.kind === "worker-record"
+						? "worker-record"
+						: undefined;
+		if (reason !== undefined)
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_OWNER_CONDITION_INVALID",
+					"The owner condition requires an eligible owner write.",
+					{ reason },
+				),
+			);
+		validatePredicateSlot(
+			ctx,
+			operation,
+			operation.ownerCondition,
+			operationSlot(ctx, operation, "case_operation_owner_condition"),
+			errors,
+		);
+	}
+	if (operation.ownerAfterCreate !== undefined) {
+		const laterOwner = operation.ownerAfterCreate;
+		const name =
+			operation.name?.kind === "term" ? operation.name.term : undefined;
+		const answer =
+			laterOwner.value.kind === "term" ? laterOwner.value.term : undefined;
+		const sharedRootText =
+			operation.action === "create" &&
+			operation.keepNameText !== true &&
+			(operation.writes?.length ?? 0) > 0 &&
+			name?.kind === "field" &&
+			name.filters === undefined &&
+			name.role === undefined &&
+			answer?.kind === "field" &&
+			answer.filters === undefined &&
+			answer.role === undefined &&
+			name.uuid === answer.uuid &&
+			ctx.doc.fieldOrder[ctx.formUuid]?.includes(name.uuid) === true &&
+			ctx.fields.get(name.uuid)?.kind === "text";
+		if (laterOwner.keepOwnerTextAfterWrites && !sharedRootText)
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_OWNER_CONDITION_INVALID",
+					"An unchanged later owner needs the same root Text answer as the case name and a saved property before it.",
+					{ reason: "standalone-fresh-create" },
+				),
+			);
+		if (
+			!canSetOwnerAfterCreate(
+				operation,
+				ctx.form.type,
+				ctx.form.caseOperations?.length === 1,
+			)
+		) {
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_OWNER_CONDITION_INVALID",
+					"Changing the owner after creation requires one fresh case created outside a repeat.",
+					{ reason: "standalone-fresh-create" },
+				),
+			);
+		}
+		validateTextExpression(
+			ctx,
+			operation,
+			operation.ownerAfterCreate.value,
+			"owner",
+			operationSlot(ctx, operation, "case_operation_later_owner"),
+			errors,
+		);
+		validatePredicateSlot(
+			ctx,
+			operation,
+			operation.ownerAfterCreate.condition,
+			operationSlot(ctx, operation, "case_operation_later_owner_condition"),
+			errors,
+		);
+	}
 	validateNameExpression(ctx, operation, operation.name, "create name", errors);
 	validateTextExpression(
 		ctx,
@@ -576,18 +1055,122 @@ function validateOperation(
 	validateLinks(ctx, operation, priorCreates, errors);
 }
 
+/** The accepted constraint exhaustively limits a text answer to the
+ * relationship tokens. The root question is also the required case name. */
+function guardedRelationshipAnswer(
+	expression: Expression | undefined,
+	field: Uuid,
+): boolean {
+	const source = (term: Term) =>
+		term.kind === "field" &&
+		term.uuid === field &&
+		term.filters === undefined &&
+		term.role === undefined;
+	if (
+		expression?.kind === "in" &&
+		expression.left.kind === "term" &&
+		source(expression.left.term)
+	) {
+		const tokens = expression.values.flatMap((value) =>
+			value.kind === "literal" ? [value.value] : [],
+		);
+		return (
+			expression.values.length === 2 &&
+			tokens.includes("child") &&
+			tokens.includes("extension")
+		);
+	}
+	if (expression?.kind !== "or" || expression.clauses.length !== 2)
+		return false;
+	const values = new Set<string>();
+	for (const one of expression.clauses) {
+		if (
+			one.kind !== "eq" ||
+			one.left.kind !== "term" ||
+			one.right.kind !== "term"
+		)
+			return false;
+		const left = one.left.term;
+		const right = one.right.term;
+		const literal = source(left) ? right : source(right) ? left : undefined;
+		if (literal?.kind !== "literal" || typeof literal.value !== "string")
+			return false;
+		values.add(literal.value);
+	}
+	return values.has("child") && values.has("extension");
+}
+
 function validateLinks(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
 	priorCreates: ReadonlyMap<Uuid, CaseOperation>,
 	errors: ValidationError[],
 ): void {
+	const links = operation.links ?? [];
+	if (links.length === 0) return;
 	const linkIds = new Set<string>();
-	const allLinkIds = new Set(
-		(operation.links ?? []).map((link) => link.identifier),
-	);
-	for (const link of operation.links ?? []) {
-		const invalidLinkFormat = !isCaseOperationIdentifier(link.identifier);
+	const allLinkIds = new Set(links.map((link) => link.identifier));
+	let plan: ReturnType<typeof planPlacements> | undefined;
+	const placementsOfForm = () =>
+		(plan ??= planPlacements(ctx.doc, ctx.formUuid));
+	let advancedOpen: boolean | undefined;
+	for (const link of links) {
+		if (link.relationshipQuestion !== undefined) {
+			const field = ctx.doc.fields[link.relationshipQuestion];
+			const allowed =
+				links.length === 1 &&
+				link.identifier === "parent" &&
+				link.relationship === "child" &&
+				operation.action === "create" &&
+				operation.target.kind === "new" &&
+				operation.target.idFrom === undefined &&
+				operation.target.expr === undefined &&
+				operation.owner === undefined &&
+				operation.ownerCondition === undefined &&
+				operation.ownerAfterCreate === undefined &&
+				operation.condition === undefined &&
+				operation.forEach === undefined &&
+				operation.closeCondition === undefined &&
+				!operation.closeAfter &&
+				!ctx.doc.appSettings.caseSharing &&
+				placementsOfForm().advanced?.opens.some(
+					(open) => open.operationUuid === operation.uuid,
+				) &&
+				chainLoadOfTarget(ctx.doc, ctx.formUuid, link.target) === 0 &&
+				field?.kind === "text" &&
+				field.relevant === undefined &&
+				field.default_value === undefined &&
+				ctx.doc.fieldParent[field.uuid] === ctx.formUuid &&
+				field.submissionPlacement === undefined &&
+				caseWriteValueField(operation.name)?.field === field.uuid &&
+				guardedRelationshipAnswer(field.validate, field.uuid);
+			if (!allowed)
+				errors.push(
+					opError(
+						ctx,
+						operation,
+						"CASE_OPERATION_LINK_INVALID",
+						"This case change needs its Advanced form and the required Text question that allows only child or extension.",
+						{
+							reason: "relationship-question" satisfies LinkInvalidReason,
+							linkIdentifier: link.identifier,
+						},
+					),
+				);
+		}
+		const standardName = isCaseOperationLinkIdentifier(link.identifier);
+		const advancedName =
+			!standardName && isAdvancedCaseIndexIdentifier(link.identifier);
+		if (advancedName)
+			advancedOpen ??=
+				placementsOfForm().advanced?.opens.some(
+					(open) => open.operationUuid === operation.uuid,
+				) === true;
+		const validFormat = standardName || (advancedName && advancedOpen === true);
+		const formatMessage = advancedName
+			? "This connection name requires an Advanced open action. Keep the change in that action or choose a name using unaccented letters, digits, underscores, and hyphens."
+			: CASE_OPERATION_LINK_IDENTIFIER_FORMAT_MESSAGE;
+		const invalidLinkFormat = !validFormat;
 		const linkTooLong =
 			link.identifier.length > MAX_CASE_INDEX_IDENTIFIER_LENGTH;
 		const duplicateLink = linkIds.has(link.identifier);
@@ -598,11 +1181,12 @@ function validateLinks(
 					operation,
 					"CASE_OPERATION_LINK_INVALID",
 					invalidLinkFormat
-						? `Link identifier "${link.identifier}" is invalid. ${CASE_OPERATION_IDENTIFIER_FORMAT_MESSAGE}`
+						? `Link identifier "${link.identifier}" is invalid. ${formatMessage}`
 						: linkTooLong
 							? `Link identifier "${link.identifier}" is longer than ${MAX_CASE_INDEX_IDENTIFIER_LENGTH} characters.`
 							: `Link identifier "${link.identifier}" is used more than once by this operation.`,
 					{
+						linkIdentifier: link.identifier,
 						reason: (invalidLinkFormat
 							? "format"
 							: linkTooLong
@@ -614,7 +1198,16 @@ function validateLinks(
 		}
 		const linkNameProblem = invalidLinkFormat
 			? undefined
-			: caseOperationLinkNameProblem(link.identifier);
+			: caseOperationLinkNameProblem(link.identifier, (action) => {
+					const { placements } = placementsOfForm();
+					if (placements.get(operation.uuid)?.placement.kind !== "save-to-case")
+						return false;
+					return saveToCaseActions(
+						operation,
+						ctx.form.type,
+						placements.get("own-close")?.sharesWith === operation.uuid,
+					)[action];
+				});
 		if (linkNameProblem !== undefined) {
 			// The free name avoids every link identifier of the operation.
 			const suggestedId = freeCaseOperationName(link.identifier, allLinkIds);
@@ -826,8 +1419,46 @@ function validateWrites(
 				: validateVia(ctx, operation, write, write.via, destination, errors);
 		validateOnlyIfChanged(ctx, operation, write, errors);
 		if (
-			seenWrites.some((seen) =>
-				sameCaseWriteKey(caseWriteKeyOf(seen), caseWriteKeyOf(write)),
+			retainedExternalIdDayRead(
+				externalIdCalendarDayField(operation),
+				write,
+			) !== undefined
+		) {
+			const placement = planPlacements(ctx.doc, ctx.formUuid).placements.get(
+				operation.uuid,
+			)?.placement;
+			const stable =
+				operation.action === "own" &&
+				placement?.kind === "basic" &&
+				placement.slot === "own" &&
+				basicOwnExternalIdDayValue(
+					caseSlotFacts(ctx.doc, ctx.formUuid),
+					write,
+				) !== undefined &&
+				!Object.values(ctx.doc.forms).some(
+					(entry) => entry.shadowOf?.form === ctx.formUuid,
+				);
+			if (!stable)
+				errors.push(
+					opError(
+						ctx,
+						operation,
+						"CASE_OPERATION_EXPRESSION_TYPE",
+						"This question saves its calendar day as the external ID of the case this form opens. You can remove that save before changing how the form opens or saves to the case.",
+						{
+							property: write.property,
+							reason: "external-id-calendar-day-placement",
+						},
+					),
+				);
+		}
+		if (
+			seenWrites.some(
+				(seen) =>
+					sameCaseWriteKey(caseWriteKeyOf(seen), caseWriteKeyOf(write)) ||
+					(seen.property === write.property &&
+						isParentUserWritePath(seen.via) &&
+						isParentUserWritePath(write.via)),
 			)
 		) {
 			errors.push(
@@ -873,6 +1504,28 @@ function validateWrites(
 			);
 		}
 		const read = caseWriteValueField(write.value);
+		if (
+			read !== undefined &&
+			keepsHiddenClock(ctx.doc.fields[read.field]) &&
+			ctx.doc.caseTypes
+				?.find(({ name }) => name === reached)
+				?.properties.some(
+					({ name, data_type }) =>
+						name === write.property && data_type === "date",
+				) &&
+			planPlacements(ctx.doc, ctx.formUuid).placements.get(operation.uuid)
+				?.placement.kind !== "basic"
+		) {
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_EXPRESSION_TYPE",
+					"A hidden timestamp can save its day through basic Case Management. You can save the day as a separate calculated answer here.",
+					{ property: write.property, reason: "hidden-day-placement" },
+				),
+			);
+		}
 		if (
 			read?.link === true &&
 			(isWritableStandardCaseProperty(write.property) ||
@@ -1057,8 +1710,9 @@ function ownSlotRefusal(
 }
 
 /**
- * A save to the case above (`via`): only the own arm of a follow-up or close
- * form holds one, through `parent` and `host` steps the catalog resolves,
+ * A save to the case above (`via`): the form's own case or the first
+ * explicitly chosen case of an Advanced chain. Basic Case Management also holds a direct user index
+ * with one ordinary declared case type at each end. Other writes walk `parent` and `host` steps the catalog resolves,
  * and only while Case Management saves that arm (HQ's update keys
  * `parent/p` and `host/parent/p`, `xform.py::get_case_parent_id_xpath`;
  * Vellum's Save to Case block saves one case, `saveToCase.js`). Returns the
@@ -1094,14 +1748,77 @@ function validateVia(
 			"new-case",
 			`${write.property} is saved to the case above a case this form creates, and that case has no link yet while the form is open. You can save it from a form that opens the existing case.`,
 		);
-	if (operation.action !== "own")
-		return refuse(
-			"target",
-			"Only this form's own case can save to the case above it. You can add a case change that updates that case instead.",
+	const directUserIndex = via.length === 1 && via[0].identifier === "user";
+	let firstAdvancedUserWrite = false;
+	if (operation.action !== "own") {
+		const planned = planPlacements(ctx.doc, ctx.formUuid).placements.get(
+			operation.uuid,
 		);
+		const firstManualLoad =
+			operation.action === "update" &&
+			operation.target.kind === "expression" &&
+			chainLoadOfTarget(ctx.doc, ctx.formUuid, operation.target) === 0 &&
+			formCaseSelections(ctx.doc, ctx.formUuid)[0]?.source.kind === "choose" &&
+			planned?.placement.kind === "advanced";
+		firstAdvancedUserWrite =
+			firstManualLoad &&
+			directUserIndex &&
+			write.property !== "case_name" &&
+			write.property !== "owner_id" &&
+			caseWriteValueField(write.value)?.link !== true;
+		if (
+			!firstManualLoad ||
+			(!firstAdvancedUserWrite &&
+				via.some(
+					(step) => step.identifier !== "parent" && step.identifier !== "host",
+				))
+		)
+			return refuse(
+				"target",
+				"A change can save through a parent or host from this form's own case or its first manually chosen case. You can add a change for the connected case directly.",
+			);
+	}
+	if (isParentUserWritePath(via)) {
+		if (caseWriteValueField(write.value)?.link === true)
+			return refuse(
+				"placement",
+				"This linked change saves answers. A separate case change can save attachments.",
+			);
+		const types = parentUserWriteCaseTypes(via, origin, ctx.caseTypes);
+		if (!types)
+			return refuse(
+				"unresolved",
+				"Saving through this path needs a different ordinary case type for each step, with one declared record type at each link.",
+			);
+		const placement = planPlacements(ctx.doc, ctx.formUuid).placements.get(
+			operation.uuid,
+		)?.placement;
+		if (
+			ctx.form.type !== "followup" ||
+			ctx.form.caseSelections !== undefined ||
+			caseSelectionCardinality(ctx.module) === "multiple" ||
+			(ctx.module.caseListConfig?.additionalCaseTypes?.length ?? 0) > 0 ||
+			placement?.kind !== "basic" ||
+			orderedCaseOperations(ctx.form).some((other) => other.action !== "own") ||
+			(operation.links?.length ?? 0) > 0 ||
+			operation.writes?.some(
+				(other) => other.via !== undefined && !isParentUserWritePath(other.via),
+			) ||
+			Object.values(ctx.doc.forms).some(
+				(form) => form.shadowOf?.form === ctx.formUuid,
+			)
+		)
+			return refuse(
+				"placement",
+				"This path needs a basic follow-up that opens one case and uses a single linked update path.",
+			);
+		return types[1];
+	}
 	const step = via.find(
 		(candidate) =>
-			candidate.identifier !== "parent" && candidate.identifier !== "host",
+			candidate.identifier !== "parent" &&
+			candidate.identifier !== "host" &&
+			!directUserIndex,
 	);
 	if (step !== undefined)
 		return refuse(
@@ -1110,15 +1827,36 @@ function validateVia(
 			{ identifier: step.identifier },
 		);
 	const reached = resolveRelationDestination(
-		{ kind: "ancestor", via },
+		{ kind: "ancestor", via: directUserIndex ? [{ identifier: "user" }] : via },
 		origin,
 		ctx.caseTypes,
 	);
-	if (!reached.ok)
+	if (
+		!reached.ok ||
+		(directUserIndex &&
+			via[0].throughCaseType !== undefined &&
+			via[0].throughCaseType !== reached.caseType)
+	)
 		return refuse(
 			"unresolved",
 			`${write.property} is saved through a link that doesn't lead to a case type. You can choose the case above it again.`,
 		);
+	if (directUserIndex) {
+		const planned = planPlacements(ctx.doc, ctx.formUuid).placements.get(
+			operation.uuid,
+		)?.placement;
+		if (
+			(!firstAdvancedUserWrite && planned?.kind !== "basic") ||
+			(firstAdvancedUserWrite && origin === reached.caseType) ||
+			RESERVED_CASE_OPERATION_TYPES.has(origin) ||
+			RESERVED_CASE_OPERATION_TYPES.has(reached.caseType)
+		)
+			return refuse(
+				"step",
+				"Saving through a user link needs an ordinary case at both ends and a form whose case changes use basic Case Management.",
+				{ identifier: "user" },
+			);
+	}
 	const placement = ownSlotRefusal(ctx, operation);
 	if (placement !== undefined)
 		refuse(
@@ -1296,6 +2034,31 @@ function targetsOwnCase(
 		: CASE_LOADING_FORM_TYPES.has(ctx.form.type) && target.kind === "session";
 }
 
+/** The managed basic follow-up's empty block only records its timestamp.
+ * Its submitted case does not reopen or change a property if the separate
+ * authored close has already run. */
+function closeBesideEmptyBasicFollowup(
+	ctx: OperationRuleContext,
+	own: Extract<CaseOperation, { action: "own" }>,
+	operation: CaseOperation,
+	count: number,
+): boolean {
+	return (
+		ctx.form.type === "followup" &&
+		count === 2 &&
+		own.placement?.kind === "basic" &&
+		own.placement.slot === "own" &&
+		!ownCaseOperationHasEffects(own) &&
+		operation.action === "close" &&
+		operation.target.kind === "session" &&
+		operation.placement?.kind === "save-to-case" &&
+		operation.closeCondition !== undefined &&
+		operation.condition === undefined &&
+		operation.forEach === undefined &&
+		!operation.writes?.length
+	);
+}
+
 /**
  * The own arm's effects mean the same wherever its block runs, because no
  * other operation writes what it writes on the form's own case
@@ -1309,6 +2072,7 @@ function targetsOwnCase(
 function ownCaseIndependenceFindings(
 	ctx: OperationRuleContext,
 	operations: readonly CaseOperation[],
+	overlap: ReturnType<typeof basicOwnTextOverlap>,
 ): ValidationError[] {
 	const own = operations.find((operation) => operation.action === "own");
 	if (own === undefined) return [];
@@ -1331,7 +2095,10 @@ function ownCaseIndependenceFindings(
 	for (const operation of operations) {
 		if (operation.action === "own") continue;
 		if (!targetsOwnCase(ctx, operation.target, own.uuid)) continue;
-		if (operation.action === "close") {
+		if (
+			(operation.action === "close" || operation.closeAfter === true) &&
+			!closeBesideEmptyBasicFollowup(ctx, own, operation, operations.length)
+		) {
 			errors.push(
 				opError(
 					ctx,
@@ -1349,6 +2116,11 @@ function ownCaseIndependenceFindings(
 		if (own.owner !== undefined && operation.owner !== undefined)
 			duplicate(operation, "owner_id");
 		for (const write of operation.writes ?? []) {
+			if (
+				overlap?.authored === operation.uuid &&
+				overlap.property === write.property
+			)
+				continue;
 			const key = caseWriteKeyOf(write);
 			if (
 				(own.name !== undefined &&
@@ -1370,27 +2142,95 @@ function ownCaseIndependenceFindings(
 const WORKER_RECORD_FACETS = [
 	["rename", "rename it"],
 	["owner", "change its owner"],
+	["closeAfter", "close it"],
 	["retype", "change its type"],
 	["links", "link it to another case"],
 	["condition", "run on a condition"],
 	["forEach", "run for each row of a repeat"],
 ] as const;
 
-/**
- * The worker's record (`{kind: "worker-record"}`) is the target of at most
- * one update of `commcare-user` per form, which only saves properties: HQ's
- * usercase block writes property updates alone (`xform.py::_add_usercase`),
- * and Nova keeps that one operation the form's every write to the record.
- */
+function isRepeatedWorkerUpdate(operation: CaseOperation): boolean {
+	return isWorkerRecordUpdate(operation) && operation.forEach !== undefined;
+}
+
+function hasWorkerRecordEffect(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+): boolean {
+	// An empty advanced load has no submitted block. A basic or retained
+	// Save to Case block still advances the case timestamp.
+	return (
+		operation.action !== "own" ||
+		ctx.form.type !== "followup" ||
+		ownCaseOperationHasEffects(operation) ||
+		operation.placement?.kind === "save-to-case" ||
+		!menuEmittedAdvanced(ctx.doc, ctx.moduleUuid)
+	);
+}
+
+function workerRecordTwiceFinding(
+	ctx: OperationRuleContext,
+	operation: CaseOperation,
+	other: CaseOperation,
+): ValidationError {
+	return opError(
+		ctx,
+		operation,
+		"CASE_OPERATION_TARGET_INVALID",
+		`This form already saves to the worker's record in “${other.id}”. You can add these saves there.`,
+		{
+			reason: "worker-record-twice" satisfies WorkerRecordReason,
+			firstOperationUuid: other.uuid,
+		},
+	);
+}
+
+/** Disjoint single-occurrence writes commute even when HQ moves its managed
+ * block after the authored blocks. Empty blocks, aliases and repetitions keep
+ * their existing restrictions. */
+function disjointDirectWorkerUpdates(
+	operations: readonly CaseOperation[],
+): boolean {
+	const properties = new Set<string>();
+	for (const operation of operations) {
+		if (
+			!isWorkerRecordUpdate(operation) ||
+			operation.forEach !== undefined ||
+			!operation.writes?.length
+		)
+			return false;
+		for (const write of operation.writes) {
+			if (write.via !== undefined || properties.has(write.property))
+				return false;
+			properties.add(write.property);
+		}
+	}
+	return true;
+}
+
+/** The worker's record can only receive property updates. A form's separate
+ * direct updates can coexist when every property belongs to one block. */
 function workerRecordFindings(
 	ctx: OperationRuleContext,
 	operations: readonly CaseOperation[],
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
+	const workerOperations = operations.filter((operation) =>
+		addressesWorkerRecord(ctx.form, operation, ctx.module.caseType),
+	);
+	const repeatedWorker = workerOperations.find(isRepeatedWorkerUpdate);
+	const disjoint = disjointDirectWorkerUpdates(workerOperations);
 	let first: CaseOperation | undefined;
-	for (const operation of operations) {
+	for (const operation of workerOperations) {
+		// A repeated direct block cannot also reach the worker through an
+		// own case, a worker selection, or another direct worker change.
+		if (
+			repeatedWorker !== undefined &&
+			operation !== repeatedWorker &&
+			hasWorkerRecordEffect(ctx, operation)
+		)
+			errors.push(workerRecordTwiceFinding(ctx, operation, repeatedWorker));
 		if (operation.action === "own") continue;
-		if (!addressesWorkerRecord(ctx.form, operation)) continue;
 		if (
 			operation.action !== "update" ||
 			operation.caseType !== USERCASE_CASE_TYPE
@@ -1406,21 +2246,38 @@ function workerRecordFindings(
 			);
 			continue;
 		}
-		if (operation.target.kind === "worker-record" && first !== undefined) {
-			errors.push(
-				opError(
-					ctx,
-					operation,
-					"CASE_OPERATION_TARGET_INVALID",
-					`This form already saves to the worker's record in “${first.id}”. You can add these saves there.`,
-					{
-						reason: "worker-record-twice" satisfies WorkerRecordReason,
-						firstOperationUuid: first.uuid,
-					},
-				),
-			);
-		} else if (operation.target.kind === "worker-record") first = operation;
+		if (
+			repeatedWorker === undefined &&
+			operation.target.kind === "worker-record"
+		) {
+			if (first === undefined) first = operation;
+			else if (!disjoint)
+				errors.push(workerRecordTwiceFinding(ctx, operation, first));
+		}
 		for (const [facet, words] of WORKER_RECORD_FACETS) {
+			// Only a direct worker-record target can carry its own condition.
+			if (facet === "condition" && operation.target.kind === "worker-record")
+				continue;
+			if (
+				facet === "forEach" &&
+				operation.target.kind === "worker-record" &&
+				operation.forEach !== undefined &&
+				ctx.form.uuid === ctx.formUuid
+			) {
+				const repeat = operation.forEach.repeat;
+				const field = ctx.doc.fields[repeat];
+				if (
+					field?.kind === "repeat" &&
+					ctx.fields.get(repeat)?.repeatPath.length === 1
+				) {
+					const guards = caseOperationConditionalGuardUuids(
+						ctx.doc,
+						ctx.formUuid,
+						operations,
+					).get(operation.uuid);
+					if (!guards?.size) continue;
+				}
+			}
 			const value = operation[facet];
 			if (value === undefined || (Array.isArray(value) && value.length === 0))
 				continue;
@@ -1449,6 +2306,121 @@ export function caseOperationCaseTypeNameProblem(
 	if (!CASE_TYPE_REGEX.test(caseType)) return "grammar";
 	if (caseType.length > MAX_CASE_TYPE_LENGTH) return "too-long";
 	return undefined;
+}
+
+/** In this range every alternative takes the same authored writes. No later
+ * operation can assume which type the new identity has. */
+function validateCreateTypeChoice(
+	ctx: OperationRuleContext,
+	operation: TargetedCaseOperation,
+	errors: ValidationError[],
+): void {
+	const choice = operation.typeChoice;
+	if (choice === undefined) return;
+	if (choice.reapplyPrimaryAtEnd) {
+		if (
+			caseOperationCaseTypeNameProblem(choice.otherwise) !== undefined ||
+			RESERVED_CASE_OPERATION_TYPES.has(choice.otherwise)
+		)
+			errors.push(
+				opError(
+					ctx,
+					operation,
+					"CASE_OPERATION_INVALID_CASE_TYPE",
+					"The initial case type must be a valid ordinary case type name.",
+				),
+			);
+	} else validateCaseType(ctx, operation, choice.otherwise, errors);
+	validatePredicateSlot(
+		ctx,
+		operation,
+		choice.condition,
+		operationSlot(ctx, operation, "case_operation_type_condition"),
+		errors,
+	);
+	const primary = ctx.caseTypesByName.get(operation.caseType);
+	const alternate = ctx.caseTypesByName.get(choice.otherwise);
+	const compatibleWrites = (operation.writes ?? []).every((write) => {
+		if (
+			write.via !== undefined ||
+			(write.value.kind === "term" && write.value.term.kind === "capture-link")
+		)
+			return false;
+		if (
+			choice.reapplyPrimaryAtEnd ||
+			Object.hasOwn(WRITABLE_STANDARD_CASE_PROPERTY_WORDS, write.property)
+		)
+			return true;
+		const from = primary?.properties.find(
+			(property) => property.name === write.property,
+		);
+		const to = alternate?.properties.find(
+			(property) => property.name === write.property,
+		);
+		return (
+			from !== undefined &&
+			to !== undefined &&
+			from.data_type === to.data_type &&
+			from.data_type !== "single_select" &&
+			from.data_type !== "multi_select" &&
+			(from.options?.length ?? 0) === 0 &&
+			(to.options?.length ?? 0) === 0
+		);
+	});
+	const consumers = (ctx.form.caseOperations ?? []).some((other) =>
+		caseOperationDependencyUuids(other).has(operation.uuid),
+	);
+	const suppliesCaseList = Object.values(ctx.doc.modules).some((menu) => {
+		const action = menu.caseListRegistrationForm;
+		return (
+			action?.kind === "always" &&
+			action.formUuid === ctx.formUuid &&
+			action.target?.kind === "created-case" &&
+			action.target.operationUuid === operation.uuid
+		);
+	});
+	const owners = [
+		{ entity: "form" as const, uuid: ctx.formUuid },
+		...[...ctx.fields.keys()].map((uuid) => ({
+			entity: "field" as const,
+			uuid,
+		})),
+	];
+	let expressionConsumer = false;
+	for (const owner of owners)
+		for (const { expression } of expressionSlotValues(ctx.doc, owner))
+			walkExpressionNodes(expression, (node) => {
+				if (node.kind === "id-of" && node.opUuid === operation.uuid)
+					expressionConsumer = true;
+			});
+	if (
+		operation.typeCalculation !== undefined ||
+		(choice.reapplyPrimaryAtEnd &&
+			(ctx.form.type !== "survey" ||
+				operation.forEach !== undefined ||
+				operation.condition !== undefined ||
+				ctx.form.caseOperations?.length !== 1)) ||
+		choice.otherwise === operation.caseType ||
+		operation.target.kind !== "new" ||
+		operation.target.idFrom !== undefined ||
+		operation.target.expr !== undefined ||
+		(operation.links?.length ?? 0) > 0 ||
+		operation.closeAfter === true ||
+		ctx.form.entryCaseCreations?.includes(operation.uuid) === true ||
+		expressionContainsIdOf(choice.condition) ||
+		consumers ||
+		expressionConsumer ||
+		suppliesCaseList ||
+		!compatibleWrites
+	)
+		errors.push(
+			opError(
+				ctx,
+				operation,
+				"CASE_OPERATION_TYPE_CHOICE_INVALID",
+				"A create that chooses between case types needs a new case, compatible saved properties, and no connected case changes.",
+			),
+		);
 }
 
 function validateCaseType(
@@ -1499,6 +2471,16 @@ function validateTarget(
 ): void {
 	switch (target.kind) {
 		case "new":
+			if (target.expr !== undefined)
+				validateTarget(
+					ctx,
+					operation,
+					{ kind: "expression", expr: target.expr },
+					priorCreates,
+					slot,
+					errors,
+				);
+			return;
 		// The worker's record is always there; `workerRecordFindings` holds
 		// which operation may target it.
 		case "worker-record":
@@ -1520,7 +2502,7 @@ function validateTarget(
 				);
 			}
 			return;
-		case "expression":
+		case "expression": {
 			if (
 				target.expr.kind === "term" &&
 				target.expr.term.kind === "literal" &&
@@ -1542,7 +2524,34 @@ function validateTarget(
 					);
 				}
 			}
-			if (expressionContainsIdOf(target.expr)) {
+			const exactCreateId =
+				slot.slot === "case_operation_target_expression" &&
+				operation.action === "create" &&
+				operation.target.kind === "new" &&
+				operation.target.expr !== undefined;
+			if (exactCreateId && operation.forEach === undefined) {
+				let readsKeyedId = false;
+				walkExpressionNodes(target.expr, (node) => {
+					if (node.kind !== "id-of") return;
+					const create = priorCreates.get(node.opUuid);
+					if (
+						create?.target?.kind === "new" &&
+						create.target.idFrom !== undefined
+					)
+						readsKeyedId = true;
+				});
+				if (readsKeyedId)
+					errors.push(
+						opError(
+							ctx,
+							operation,
+							"CASE_OPERATION_TARGET_INVALID",
+							"The form sets this case ID when it opens, before a keyed case has an ID. Choose a value available when the form opens.",
+							{ reason: "id-of-target" satisfies TargetInvalidReason },
+						),
+					);
+			}
+			if (!exactCreateId && expressionContainsIdOf(target.expr)) {
 				errors.push(
 					opError(
 						ctx,
@@ -1555,6 +2564,7 @@ function validateTarget(
 			}
 			validateExpressionSlot(ctx, operation, target.expr, slot, errors);
 			return;
+		}
 		case "op": {
 			const producer = priorCreates.get(target.opUuid);
 			if (producer === undefined) {
@@ -1577,8 +2587,13 @@ function validateTarget(
 type OperationScalarSlot =
 	| "case_operation_target_expression"
 	| "case_operation_condition"
+	| "case_operation_close_condition"
 	| "case_operation_name"
 	| "case_operation_owner"
+	| "case_operation_type_condition"
+	| "case_operation_owner_condition"
+	| "case_operation_later_owner"
+	| "case_operation_later_owner_condition"
 	| "case_operation_rename";
 function operationSlot(
 	ctx: OperationRuleContext,

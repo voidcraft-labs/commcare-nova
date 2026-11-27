@@ -42,6 +42,7 @@ import type { CasePropertyDataType } from "../../lib/domain/casePropertyTypes";
 import {
 	type CaseTypePropertyJsonSchema,
 	caseTypeToJsonSchema,
+	schemaForDataType,
 } from "../../lib/domain/expression/jsonSchema";
 
 export interface RetypedProperty {
@@ -78,6 +79,8 @@ export interface CaseTypeDrift {
 	readonly unresolvable: readonly UnresolvableProperty[];
 }
 
+const DATE_SCHEMA = canonicalJson(schemaForDataType("date"));
+
 /**
  * Invert a stored per-property JSON Schema spec back to the
  * `CasePropertyDataType` that emitted it — the inverse of
@@ -87,7 +90,8 @@ export interface CaseTypeDrift {
  * legacy select row inverting to `single_select` — so the enum-drop
  * classifies as a refinement (spec re-sync) rather than a spurious
  * text→single_select retype. Current selects carry `x-novaDataType`;
- * a bare string is text. This is diagnostic classification, not admission
+ * a bare string is text. Date can carry either the old format guard or
+ * the canonical union that also admits a present empty string. This is diagnostic classification, not admission
  * of a historical schema to the current runtime: the repair writer still
  * requires its exact canonical stored-schema decoder. Returns `undefined`
  * for a spec no arm ever emitted.
@@ -103,6 +107,8 @@ function dataTypeFromSpec(
 		case "array":
 			return "multi_select";
 		case "string": {
+			if (spec.anyOf !== undefined)
+				return canonicalJson(spec) === DATE_SCHEMA ? "date" : undefined;
 			if (spec["x-novaDataType"] === "single_select" || spec.enum !== undefined)
 				return "single_select";
 			if (spec.pattern !== undefined) return "geopoint";

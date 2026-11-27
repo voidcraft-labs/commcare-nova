@@ -98,14 +98,22 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Case list callout, as an alternative to CASE_LIST_LOOKUP; Android app callouts need only their privileges)",
+		"content": "Android case-list lookup (an alternative to CASE_LIST_LOOKUP)",
 		"contentEntries": [
+			"menus-and-case-lists/lookup-with-text-extras",
 			"menus-and-case-lists/lookup-enabled-lookup-action",
+			"menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum",
+			"menus-and-case-lists/lookup-extras-explicit-evaluation",
+			"menus-and-case-lists/lookup-extra-relative-without-case-context",
 			"menus-and-case-lists/lookup-name",
 			"menus-and-case-lists/lookup-image-jr",
 			"menus-and-case-lists/lookup-autolaunch",
+			"menus-and-case-lists/lookup-extras-fixed-text",
+			"menus-and-case-lists/lookup-extras-worker-context",
 			"menus-and-case-lists/lookup-extras-key-value",
 			"menus-and-case-lists/lookup-responses-key",
+			"menus-and-case-lists/lookup-case-id-confidence",
+			"menus-and-case-lists/lookup-case-id-result-without-a-header-map",
 			"menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template"
 		],
 		"platforms": "n/a",
@@ -174,6 +182,12 @@
 				"gates": ["toggle/CASE_LIST_CLICKABLE_ICON", "toggle/SESSION_ENDPOINTS"]
 			}
 		},
+		"effects": [
+			{
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/endpoint_action[*]"
+			}
+		],
 		"source": {
 			"kind": "row",
 			"table": "app-building-toggles",
@@ -219,14 +233,22 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Case list callout)",
+		"content": "Android case-list lookup",
 		"contentEntries": [
+			"menus-and-case-lists/lookup-with-text-extras",
 			"menus-and-case-lists/lookup-enabled-lookup-action",
+			"menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum",
+			"menus-and-case-lists/lookup-extras-explicit-evaluation",
+			"menus-and-case-lists/lookup-extra-relative-without-case-context",
 			"menus-and-case-lists/lookup-name",
 			"menus-and-case-lists/lookup-image-jr",
 			"menus-and-case-lists/lookup-autolaunch",
+			"menus-and-case-lists/lookup-extras-fixed-text",
+			"menus-and-case-lists/lookup-extras-worker-context",
 			"menus-and-case-lists/lookup-extras-key-value",
 			"menus-and-case-lists/lookup-responses-key",
+			"menus-and-case-lists/lookup-case-id-confidence",
+			"menus-and-case-lists/lookup-case-id-result-without-a-header-map",
 			"menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template"
 		],
 		"platforms": "n/a",
@@ -382,21 +404,32 @@
 			"case-search/inline-search-default-search-on-a-module-without-visible-inputs",
 			"case-search/inline-search-default-search-on-a-module-with-visible-inputs",
 			"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
+			"case-search/an-effective-results-instance-equal-to-a-module-s-that-does-not",
 			"case-search/additional-case-types",
 			"case-search/custom-related-case-property",
 			"case-search/search-on-clear",
+			"case-search/prompt-key-matching-a-direct-parent-date",
+			"case-search/prompt-key-matching-two-parent-links-for-a-date",
+			"case-search/prompt-key-matching-three-parent-links-for-a-date",
+			"case-search/prompt-key-matching-four-parent-links-for-a-date",
+			"case-search/prompt-key-matching-five-parent-links-for-a-date",
+			"case-search/address-picker-on-a-search-screen",
 			"case-search/appearance-address-geocoder-broadcast-emitted-input-address",
+			"case-search/address-picker-with-a-saved-text-default",
 			"case-search/input-checkbox-itemset",
 			"case-search/input-date",
 			"case-search/default-value-lifting-into-valueexpression",
 			"case-search/default-value-on-a-date-range-input",
+			"case-search/default-value-ordering-the-worker-name",
 			"case-search/default-value-outside-valueexpression",
 			"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset",
 			"case-search/hidden-exclude-without-a-default-value-on-a-prompt-with-no",
 			"case-search/hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or",
 			"case-search/hidden-on-a-prompt-that-carries-an-itemset-input-type-or",
 			"case-search/exclude",
+			"case-search/address-picker-receiver-on-a-search-screen",
 			"case-search/receiver-expression",
+			"case-search/additional-record-type-without-menu",
 			"questions/text-address",
 			"questions/secret-address",
 			"questions/barcode-numeric-address-or-receive-topic-field"
@@ -444,6 +477,14 @@
 			"case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
 			"case-search/include-all-related-cases-implied-by-nova-relation-reads",
 			"case-search/include-all-related-cases-authored-without-relation-reads",
+			"case-search/prompt-key-matching-a-direct-parent-property",
+			"case-search/prompt-key-matching-a-direct-parent-date",
+			"case-search/prompt-key-matching-two-parent-links-for-a-date",
+			"case-search/prompt-key-matching-three-parent-links-for-a-date",
+			"case-search/prompt-key-matching-four-parent-links-for-a-date",
+			"case-search/prompt-key-matching-five-parent-links-for-a-date",
+			"case-search/prompt-key-matching-two-parent-links",
+			"case-search/prompt-key-matching-three-parent-links",
 			"case-search/subcase-exists-id-q-subcase-count-id-q-op-n-ancestor-exists-path"
 		],
 		"platforms": "n/a",
@@ -1803,6 +1844,7 @@
 		},
 		"content": "`practice_mobile_worker_id` target value",
 		"contentEntries": [
+			"application-and-settings/build-profiles-non-empty",
 			"application-and-settings/35-hq-practice-mobile-worker-id"
 		],
 		"platforms": "n/a",
@@ -2244,7 +2286,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Question types face capture)",
+		"content": "HELD (Question types face capture)",
 		"contentEntries": ["questions/face-capture-image-face"],
 		"platforms": "n/a",
 		"preflight": {
@@ -2857,6 +2899,7 @@
 			"menus-and-case-lists/case-type-commcare-user-on-an-advancedmodule",
 			"menus-and-case-lists/user-prop-usercase",
 			"menus-and-case-lists/user-steps-prop",
+			"forms-and-case-writes/update-key-through-a-typed-user-index",
 			"forms-and-case-writes/update-key-whose-index-segments-include-user-each-parent-host-or",
 			"forms-and-case-writes/usercase-update-with-condition-always-or-if-read-as-always-xform",
 			"forms-and-case-writes/usercase-preload-into-a-question-outside-any-repeat-on-a-form",
@@ -2933,7 +2976,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Question types callouts)",
+		"content": "HELD (Android app questions, with the action’s built-in or custom privilege)",
 		"contentEntries": [
 			"questions/android-app-callout-input-appearance-intent-id-bind-type-intent"
 		],
@@ -3054,14 +3097,15 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "target value",
+		"content": "The practice worker chosen for a named installation on this project space.",
 		"contentEntries": [
+			"application-and-settings/build-profiles-non-empty",
 			"application-and-settings/35-hq-practice-mobile-worker-id"
 		],
 		"platforms": "n/a",
 		"preflight": {
-			"kind": "none",
-			"cell": "none"
+			"kind": "confirmation",
+			"cell": "Confirmed when a named installation requires a practice worker. Its selected suite and released restore are checked on the target."
 		},
 		"source": {
 			"kind": "row",
@@ -3103,15 +3147,12 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "`build_profiles` target value",
-		"contentEntries": [
-			"application-and-settings/build-profiles-each-profile-s-name-langs-practice-mobile-worker",
-			"application-and-settings/build-profiles-non-empty"
-		],
+		"content": "Named installation profiles and their per-team language order.",
+		"contentEntries": ["application-and-settings/build-profiles-non-empty"],
 		"platforms": "n/a",
 		"preflight": {
-			"kind": "none",
-			"cell": "none"
+			"kind": "confirmation",
+			"cell": "Confirmed before publishing named installations or advancing their profile review."
 		},
 		"source": {
 			"kind": "row",
@@ -3314,7 +3355,9 @@
 		},
 		"content": "HELD (Appearances `address`, asked at publish with CASE_SEARCH_ADVANCED for an app that runs in Web Apps) / HELD-NEW (Search prompts geocoder)",
 		"contentEntries": [
+			"case-search/address-picker-on-a-search-screen",
 			"case-search/appearance-address-geocoder-broadcast-emitted-input-address",
+			"case-search/address-picker-receiver-on-a-search-screen",
 			"case-search/receiver-expression",
 			"questions/text-address",
 			"questions/secret-address",
@@ -3738,6 +3781,7 @@
 		},
 		"content": "practice users 2.26",
 		"contentEntries": [
+			"application-and-settings/build-profiles-non-empty",
 			"application-and-settings/35-hq-practice-mobile-worker-id"
 		],
 		"platforms": "n/a",

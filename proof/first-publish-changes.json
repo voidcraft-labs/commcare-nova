@@ -799,6 +799,12 @@
 			{
 				"check": "proof2",
 				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/prompt[*]/validation[*]/@test",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
 				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=_xpath_query][@ref=*]",
 				"kind": "added"
 			},
@@ -807,6 +813,12 @@
 				"artifact": "suite.xml",
 				"path": "/suite/entry[*]/session[*]/query[*]/prompt[*]/validation[*]",
 				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/query[*]/prompt[*]/validation[*]/@test",
+				"kind": "changed"
 			},
 			{
 				"check": "proof2",
@@ -915,6 +927,100 @@
 		]
 	},
 	{
+		"change": "search-order-direction-signs-respelled",
+		"placeKinds": ["menu"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/default_properties/*/defaultValue"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=commcare_sort][*]/@ref",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/query[*]/data[@key=commcare_sort][*]/@ref",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/params/commcare_sort/*",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/requests/*/params/commcare_sort/*",
+				"kind": "changed"
+			}
+		]
+	},
+	{
+		"change": "search-order-unused-suffix-removed",
+		"placeKinds": ["menu"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/default_properties/*/defaultValue"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/data[@key=commcare_sort][*]/@ref",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/query[*]/data[@key=commcare_sort][*]/@ref",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/params/commcare_sort/*",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "trace@B",
+				"path": "/runs/*/trace/*/requests/*/params/commcare_sort/*",
+				"kind": "changed"
+			}
+		]
+	},
+	{
+		"change": "search-address-receiver-suffix-removed",
+		"placeKinds": ["menu"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/receiver_expression",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/prompt[*]/@receive",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/query[*]/prompt[*]/@receive",
+				"kind": "changed"
+			}
+		]
+	},
+	{
 		"change": "sort-rule-kept-as-hidden-column",
 		"placeKinds": ["menu"],
 		"rows": [
@@ -949,6 +1055,96 @@
 				"check": "proof2",
 				"artifact": "suite.xml",
 				"path": "/suite/detail[@id=*]/field[*]/header[*]/text[*]/locale[*]/@id",
+				"kind": "changed"
+			}
+		]
+	},
+	{
+		"change": "legacy-related-case-text-rekeyed",
+		"placeKinds": ["menu"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/columns/*/field"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/columns/*/enum/*/key"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/columns/*/useXpathExpression"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/long/columns/*/field"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/long/columns/*/enum/*/key"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/long/columns/*/useXpathExpression"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*app_strings:*",
+				"path": "/m*.*.*_*_*.header",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*app_strings:*",
+				"path": "/m*.*.*_*_*.header",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*app_strings:*",
+				"path": "/m*.*.*_*_*.enum.*",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*app_strings:*",
+				"path": "/m*.*.*_*_*.enum.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/header[*]/text[*]/locale[*]/@id",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/template[*]/text[*]/xpath[*]/variable[*]/@name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/template[*]/text[*]/xpath[*]/variable[*]/locale[*]/@id",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/sort[*]/text[*]/xpath[*]/variable[*]/@name",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/sort[*]/text[*]/xpath[*]/variable[*]/locale[*]/@id",
 				"kind": "changed"
 			}
 		]
@@ -1030,6 +1226,16 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/name"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/search_config/properties/*/group_key"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/modules/*/search_config/properties/*/label"
 			},
 			{
@@ -1095,6 +1301,11 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/lookup_field_header"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/modules/*/search_config/search_button_label"
 			},
 			{
@@ -1106,6 +1317,180 @@
 				"check": "proof2",
 				"artifact": "suite.xml",
 				"path": "/suite/detail[@id=*]/field[*]/sort[*]/@blanks",
+				"kind": "added"
+			}
+		]
+	},
+	{
+		"change": "legacy-search-group-wording-rekeyed",
+		"placeKinds": ["app", "menu"],
+		"rows": [
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/translations/*/search_group_heading",
+				"kind": "removed"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/translations/*/search_group_heading",
+				"kind": "added"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/translations/*/identical_search_group_heading",
+				"kind": "removed"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/translations/*/replaced_dormant_search_group_heading",
+				"kind": "removed"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/translations/*/replaced_dormant_search_group_heading",
+				"kind": "changed"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/translations/*/removed_dormant_search_group_heading",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*/app_strings:*",
+				"path": "/search_property.m*.*",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*/app_strings:*",
+				"path": "/search_property.m*.*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*/app_strings:*",
+				"path": "/search_property.m*.*",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*.hint",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*/app_strings:*",
+				"path": "/search_property.m*.*.hint",
+				"kind": "removed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "app_strings:*",
+				"path": "/search_property.m*.*.hint",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*/app_strings:*",
+				"path": "/search_property.m*.*.hint",
+				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/group[*]/@key",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*/suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/group[*]/@key",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/group[*]/display[*]/text[*]/locale[*]/@id",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*/suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/group[*]/display[*]/text[*]/locale[*]/@id",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/prompt[*]/@group_key",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "*/suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/prompt[*]/@group_key",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@*",
+				"path": "/runs/*/steps/*/response/displays/*/groupKey",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@*",
+				"path": "/runs/*/steps/*/response/groupHeaders/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@*",
+				"path": "/runs/*/steps/*/response/groupHeaders/*",
+				"kind": "added"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@*",
+				"path": "/runs/*/steps/*/response/queryResponse/displays/*/groupKey",
+				"kind": "changed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@*",
+				"path": "/runs/*/steps/*/response/queryResponse/groupHeaders/*",
+				"kind": "removed"
+			},
+			{
+				"check": "proof3",
+				"artifact": "formplayer@*",
+				"path": "/runs/*/steps/*/response/queryResponse/groupHeaders/*",
 				"kind": "added"
 			}
 		]
@@ -1983,6 +2368,11 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/lookup_image"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/logo_refs/*"
 			},
 			{
@@ -2014,6 +2404,12 @@
 				"artifact": "app.json",
 				"path": "/modules/*/forms/*/media/*",
 				"kind": "added"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/lookup[*]/@image",
+				"kind": "changed"
 			},
 			{
 				"check": "proof2",
@@ -2085,6 +2481,11 @@
 			{
 				"check": "source",
 				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/lookup_image"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
 				"path": "/logo_refs/*"
 			},
 			{
@@ -2115,6 +2516,12 @@
 				"check": "proof2",
 				"artifact": "form:0.0",
 				"path": "/html/head[*]/model[*]/itext[*]/translation[@lang=*]/text[@id=*]/value[@form=image]/text()",
+				"kind": "changed"
+			},
+			{
+				"check": "proof2",
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/lookup[*]/@image",
 				"kind": "changed"
 			},
 			{
@@ -2226,6 +2633,11 @@
 				"check": "source",
 				"artifact": "app.json",
 				"path": "/modules/*/case_details/*/columns/*/enum/*/value/*"
+			},
+			{
+				"check": "source",
+				"artifact": "app.json",
+				"path": "/modules/*/case_details/short/lookup_image"
 			},
 			{
 				"check": "source",

@@ -27,8 +27,8 @@ each failing by base with what is missing:
 4. every HELD entry the base exhibits whose claim sits in the app's JSON under
    a case list or a case detail has a ``caseList`` expectation naming it, run
    on the local archive alone, and the base is read under a declaration that
-   includes Android. The unrestated Visits list filter in the Web Apps-only
-   Search base instead has a hand-written Web Apps worker expectation;
+   includes Android. Two Web Apps-only shapes use their own native list
+   observations: the unstated Visits filter and the 101-case flat close;
 5. every first-publish id of the base whose entry holds a ``proof3`` row in
    ``proof/first-publish-changes.json`` has a ``<id>:before`` expectation run
    on A alone and an ``<id>:after`` one run on B and the archive, whose values
@@ -66,6 +66,8 @@ PROOF = Path(__file__).resolve().parents[1]
 ENTRIES = PROOF.parent / "lib" / "commcare" / "surface" / "entries"
 FIRST_PUBLISH_CHANGES = PROOF / "first-publish-changes.json"
 WEB_APPS_SEARCH_FILTER = PROOF / "webapps" / "fixtures" / "web-apps-search-filter.json"
+BOUNDED_CLOSE_CASE_LIST = PROOF / "formplayer" / "fixtures" / "bounded-flat-close-case-list.json"
+BOUNDED_CLOSE_MAXIMUM = "menus-and-case-lists/detail-max-select-value-for-flat-close"
 UNRESTATED_SEARCH_FILTER = "case-search/case-list-filter-clause-the-search-does-not-restate"
 CASE_XMLNS = "http://commcarehq.org/case/transaction/v2"
 XFORMS = "http://www.w3.org/2002/xforms"
@@ -86,9 +88,8 @@ def _held_entries():
 # The last step of a trace path that names a media reference Core read for a screen (a question's, a choice's or a
 # menu entry's picture, sound or video), not a value.
 MEDIA_REFERENCES = frozenset({"image", "audio", "video"})
-# The step of a trace path above a value a search sent HQ: one of its ``_xpath_query`` values, on the search's step
-# or one of its requests (``proof/checks/compare/trace.py::queries_as_multisets``).
-SEARCH_QUERY = "_xpath_query"
+# Trace paths to query and order values sent to HQ, on the Search step or its request.
+SEARCH_REQUEST_PARAMS = frozenset({"_xpath_query", "commcare_sort"})
 # The last step of a trace path that names how many cases HQ's search view answered one of a search's requests with
 # (``.../requests/*/answered``, ``ProofSessionUtils.java``'s count of HQ's answer).
 SEARCH_ANSWER = ("requests", "*", "answered")
@@ -135,6 +136,11 @@ def _native_screen_only(row):
         content = steps[4:]
         if content in (["response", "commands", "*", "displayText"], ["response", "headers", "*"]):
             return True
+        query = content[2:] if content[:2] == ["response", "queryResponse"] else content[1:]
+        if content[:1] == ["response"] and query in (["displays", "*", "groupKey"], ["groupHeaders", "*"]):
+            # The Formplayer client uses these identities to group Search inputs; Core's form evaluator
+            # never reads them. The paired native observation compares the heading value independently.
+            return True
         tree = content[:2] == ["response", "tree"] or content[:1] == ["tree"]
         return tree and content[-1] in {"caption_image", "caption_audio", "caption_video"}
     if reader in ("android", "android-tablet") and steps[:5] == ["walks", "*", "steps", "*", "form"]:
@@ -164,11 +170,17 @@ def _shows_a_value(row):
     if _native_screen_only(row):
         return False
     steps = row.get("path", "").split("/")
+    search_request_parameter = (
+        steps[1:5] == ["runs", "*", "trace", "*"]
+        and steps[5:-2] in (["params"], ["requests", "*", "params"])
+        and steps[-2] in SEARCH_REQUEST_PARAMS
+        and steps[-1] == "*"
+    )
     return (
         row.get("check") == "proof3"
         and steps[-1] not in MEDIA_REFERENCES
         and tuple(steps[-len(FORM_TITLE) :]) != FORM_TITLE
-        and SEARCH_QUERY not in steps[-2:]
+        and not search_request_parameter
         and tuple(steps[-len(SEARCH_ANSWER) :]) != SEARCH_ANSWER
         and not (steps[1:5] == ["runs", "*", "trace", "*"] and len(steps) > 5 and steps[5] in SCREEN_ONLY)
     )
@@ -377,6 +389,29 @@ def _web_apps_search_filter_problems(app, listed):
     return []
 
 
+def _web_apps_bounded_close_problems(app, listed):
+    """Tie Formplayer's case-list witness to the exact held source and limit."""
+    try:
+        witness = json.loads(BOUNDED_CLOSE_CASE_LIST.read_text(encoding="utf-8"))
+        source = "/modules/0/case_details/short/max_select_value"
+        (claim,) = listed
+        if not (claim["where"] == witness["source"] == source
+                and witness["entry"] == BOUNDED_CLOSE_MAXIMUM and witness["platform"] == "web-apps"):
+            raise ValueError("the witness must name the held Web Apps case list")
+        (menu,) = app["modules"]
+        (form,) = menu["forms"]
+        detail = menu["case_details"]["short"]
+        if not (menu["name"]["en"] == witness["menu"] and form["name"]["en"] == witness["form"]
+                and detail["multi_select"] is True and detail["auto_select"] is True
+                and detail["max_select_value"] == witness["selectedCount"] == 101
+                and witness["overflowCount"] == witness["selectedCount"] + 1
+                and 0 < witness["pageSize"] < witness["selectedCount"]):
+            raise ValueError("the witness must exercise the saved automatic list below and above its maximum")
+    except (KeyError, OSError, TypeError, ValueError) as error:
+        return [f"the Web Apps bounded case list witness is invalid ({error})"]
+    return []
+
+
 def _problems(base, claim_log, held, proof3):
     directory = HQ_APPS / base.id
     hand = HAND / base.id
@@ -512,6 +547,9 @@ def _problems(base, claim_log, held, proof3):
             if base.id == "hq-search" and entry == UNRESTATED_SEARCH_FILTER and runs_only_on == "web-apps":
                 problems.extend(_web_apps_search_filter_problems(app, listed))
                 continue
+            if base.id == "hq-bounded-flat-close" and entry == BOUNDED_CLOSE_MAXIMUM and runs_only_on == "web-apps":
+                problems.extend(_web_apps_bounded_close_problems(app, listed))
+                continue
             case_lists = [
                 expectation
                 for expectation in expectations
@@ -570,6 +608,9 @@ def test_a_change_shown_only_by_what_a_trace_read_or_a_search_sent_needs_no_valu
 
     assert not _shows_a_value(row("/runs/*/trace/*/params/_xpath_query/*"))
     assert not _shows_a_value(row("/runs/*/trace/*/requests/*/params/_xpath_query/*"))
+    assert not _shows_a_value(row("/runs/*/trace/*/params/commcare_sort/*"))
+    assert not _shows_a_value(row("/runs/*/trace/*/requests/*/params/commcare_sort/*"))
+    assert _shows_a_value(row("/runs/*/trace/*/rows/*/fields/commcare_sort/*"))
     assert not _shows_a_value(row("/runs/*/trace/*/requests/*/answered"))
     # A step's own key of that name, not a request's answer, still asks one.
     assert _shows_a_value(row("/runs/*/trace/*/answered"))

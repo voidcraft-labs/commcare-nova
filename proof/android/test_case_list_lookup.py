@@ -1,0 +1,586 @@
+"""The installed case-list lookup receives a companion's Android activity result."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from io import BytesIO
+from zipfile import ZipFile
+
+import pytest
+from lxml import etree
+
+from proof.android import observe
+from proof.editors.conftest import write_evidence
+from proof.editors.test_case_list_lookup_page import ACTION, _lookup_case_list
+from proof.formplayer import hq as formplayer
+from proof.hq.check import hq_check
+from proof.hq.configuration import Configuration
+from proof.observe import casedata
+from proof.observe.record import Blobs
+
+pytestmark = pytest.mark.reader("android")
+
+CONFIGURATION = Configuration(privileges={"CLOUDCARE"}, flags={"CASE_LIST_LOOKUP"})
+
+
+def _case(key, name):
+    return casedata.CaseRecord(
+        case_id=key,
+        case_type="visit",
+        name=name,
+        owner_id=casedata.USER_ID,
+        opened_on="2025-12-01T08:00:00.000000Z",
+        modified_on="2025-12-01T08:00:00.000000Z",
+        external_id=None,
+        properties=(),
+        indices=(),
+    )
+
+
+def _view_texts(value):
+    if isinstance(value, list):
+        return [text for child in value for text in _view_texts(child)]
+    if not isinstance(value, dict) or value.get("visibility") in ("gone", "invisible"):
+        return []
+    return ([value["text"]] if value.get("text") else []) + _view_texts(value.get("children", []))
+
+
+def test_case_list_lookup_reads_the_companions_native_result(hq, editor_driver):
+    """HQ's Case List save sets up the action; only Android's own result branches may filter the list."""
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=(_case("lookup-cedar", "Cedar"), _case("lookup-juniper", "Juniper")),
+    )
+    commands = [
+        {"missingHandler": True},
+        {"primary": "  Cedar  "},
+        {"primary": "Juniper", "cancel": True},
+        {"named": {"first": "Juniper"}},
+        {"primary": None, "named": {"second": "Cedar", "first": "Juniper"}},
+        {"primary": None, "named": {"first": None, "second": "Cedar"}},
+        {"primary": "unmatchable"},
+        {"identify": "lookup-juniper", "inspectScores": True},
+        {"identify": "not-in-restore"},
+    ]
+    with hq_check(CONFIGURATION) as (state, _):
+        app_id, _ = _lookup_case_list(state, editor_driver)
+        with formplayer.serve(state, None, app_id, database=database, label="case-list-lookup") as served:
+            blobs = Blobs()
+            record = observe.app(
+                served,
+                blobs,
+                label="case-list-lookup",
+                archive=observe.release_archive(served),
+                case_lookup_returns=commands,
+            )
+            installed = blobs.get_json(record["answer"])
+
+    assert installed["install"] == "Installed", installed
+    (observed,) = [
+        step["list"]["lookupReturns"]
+        for walk in installed["walks"].values()
+        for step in walk.get("steps", [])
+        if isinstance(step.get("list"), dict) and "lookupReturns" in step["list"]
+    ]
+    write_evidence("android-case-list-lookup", observed)
+    missing, text, canceled, no_marker, named, fallback, no_match, identity, unknown_identity = observed
+    assert sorted(missing["before"]) == sorted(missing["after"]) == ["Cedar", "Juniper"]
+    assert ACTION in missing["toast"]
+    for sample in observed[1:]:
+        assert sample["action"] == ACTION
+        assert sample["sent"] == {"visit_mode": "followup", "visit_limit": "3"}
+    assert (text["after"], text["searchText"]) == (["Cedar"], "Cedar")
+    assert (canceled["after"], canceled["searchText"]) == (["Cedar"], "Cedar")
+    assert no_marker["toast"] and (no_marker["after"], no_marker["searchText"]) == (["Cedar"], "Cedar")
+    assert (named["after"], named["searchText"]) == (["Juniper"], "Juniper")
+    assert (fallback["after"], fallback["searchText"]) == (["Cedar"], "Cedar")
+    assert (no_match["after"], no_match["searchText"]) == ([], "unmatchable")
+    assert all(not reply["isIdentification"] for reply in observed[:7])
+    assert identity["isIdentification"] and identity["after"] == ["Juniper"]
+    assert "Match" in _view_texts(identity["scoreHeader"])
+    assert _view_texts(identity["scoreRows"]) == ["Juniper", "★★★★★"]
+    assert unknown_identity["isIdentification"] and unknown_identity["after"] == []
+
+
+@pytest.mark.parametrize("heading", [None, "Match"], ids=["absent-heading-map", "alternate-result-key"])
+def test_case_list_lookup_uses_the_saved_result_field(hq, editor_driver, heading):
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=(
+            replace(_case("lookup-cedar", "Cedar"), properties=(("scan_id", "card-22"),)),
+            replace(_case("lookup-juniper", "Juniper"), properties=(("scan_id", "card-41"),)),
+        ),
+    )
+    template = "@case_id" if heading is None else "scan_id"
+    with hq_check(CONFIGURATION) as (state, _):
+        app_id, _ = _lookup_case_list(state, editor_driver, result_heading=heading, result_template=template)
+        with formplayer.serve(state, None, app_id, database=database, label="case-list-lookup-result") as served:
+            archive = observe.release_archive(served)
+            with ZipFile(BytesIO(archive)) as released:
+                suite = etree.fromstring(released.read("suite.xml"))
+            (field,) = suite.findall(".//lookup/field")
+            assert field.find("template/text/xpath").get("function") == template
+            header = field.find("header")
+            header_xml = etree.tostring(header, encoding="unicode")
+            if heading is None:
+                assert header.get("width") == "0" and len(header) == 0, header_xml
+            else:
+                assert header.find("text/locale") is not None, header_xml
+            blobs = Blobs()
+            record = observe.app(
+                served,
+                blobs,
+                label="case-list-lookup-result",
+                archive=archive,
+                case_lookup_returns=[
+                    {"identify": "lookup-juniper"},
+                    {"identify": "card-41", "inspectScores": True},
+                ],
+            )
+            installed = blobs.get_json(record["answer"])
+
+    variant = "absent-heading-map" if heading is None else "alternate-result-key"
+    write_evidence(f"android-case-list-lookup-{variant}", {"header": header_xml, "android": installed})
+    if heading is None:
+        assert installed == {"install": "InvalidResource"}, installed
+        return
+
+    assert installed["install"] == "Installed", installed
+    assert installed["signIn"].startswith("Success("), installed
+    (observed,) = [
+        step["list"]["lookupReturns"]
+        for walk in installed["walks"].values()
+        for step in walk.get("steps", [])
+        if "lookupReturns" in (step.get("list") or {})
+    ]
+    case_id, alternate = observed
+    assert sorted(case_id["before"]) == ["Cedar", "Juniper"] and case_id["after"] == []
+    assert alternate["isIdentification"] and alternate["after"] == ["Juniper"]
+    assert "Match" in _view_texts(alternate["scoreHeader"])
+    assert _view_texts(alternate["scoreRows"]) == ["Juniper", "★★★★★"]
+
+
+def test_case_list_lookup_matches_duplicate_and_missing_case_properties(hq, editor_driver):
+    """Only list rows take part, and duplicate property values receive the same score."""
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=(
+            replace(_case("lookup-cedar", "Cedar"), properties=(("scan_id", "card-22"),)),
+            replace(_case("lookup-juniper", "Juniper"), properties=(("scan_id", "card-41"),)),
+            replace(_case("lookup-oak", "Oak"), properties=(("scan_id", "card-41"),)),
+            _case("lookup-maple", "Maple"),
+            replace(_case("lookup-birch", "Birch"), properties=(("scan_id", ""),)),
+            replace(_case("lookup-elm", "Elm"), case_type="other", properties=(("scan_id", "card-41"),)),
+        ),
+    )
+    with hq_check(CONFIGURATION) as (state, _):
+        app_id, _ = _lookup_case_list(state, editor_driver, result_template="scan_id")
+        with formplayer.serve(state, None, app_id, database=database, label="case-list-lookup-property") as served:
+            blobs = Blobs()
+            record = observe.app(
+                served,
+                blobs,
+                label="case-list-lookup-property",
+                archive=observe.release_archive(served),
+                case_lookup_returns=[
+                    {"identifyKeys": ["card-41"], "inspectScores": True},
+                    {"identifyKeys": ["unknown"]},
+                    {"identifyKeys": [""], "inspectScores": True},
+                ],
+            )
+            installed = blobs.get_json(record["answer"])
+
+    write_evidence("android-case-list-lookup-case-property", installed)
+    assert installed["install"] == "Installed", installed
+    assert installed["signIn"].startswith("Success("), installed
+    (observed,) = [
+        step["list"]["lookupReturns"]
+        for walk in installed["walks"].values()
+        for step in walk.get("steps", [])
+        if "lookupReturns" in (step.get("list") or {})
+    ]
+    duplicate, unmatched, empty = observed
+    assert all(reply["isIdentification"] for reply in observed)
+    assert sorted(duplicate["before"]) == ["Birch", "Cedar", "Juniper", "Maple", "Oak"]
+    assert sorted(duplicate["after"]) == ["Juniper", "Oak"]
+    assert sorted(_view_texts(duplicate["scoreRows"])) == ["Juniper", "Oak", "★★★★★", "★★★★★"]
+    assert unmatched["after"] == []
+    assert sorted(empty["after"]) == ["Birch", "Maple"]
+    assert sorted(_view_texts(empty["scoreRows"])) == ["Birch", "Maple", "★★★★★", "★★★★★"]
+
+
+@pytest.mark.parametrize(("scenario", "extra"), [("relative", "scan"), ("text", "'scan'")], ids=["relative", "text"])
+def test_case_list_lookup_evaluates_extras_before_a_case_is_selected(hq, editor_driver, scenario, extra):
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=(
+            replace(_case("lookup-cedar", "Cedar"), properties=(("scan", "first record"),)),
+            replace(_case("lookup-juniper", "Juniper"), properties=(("scan", "second record"),)),
+        ),
+    )
+    with hq_check(CONFIGURATION) as (state, _):
+        app_id, _ = _lookup_case_list(state, editor_driver, extras=[{"key": "mode", "value": extra}])
+        with formplayer.serve(state, None, app_id, database=database, label="case-list-lookup") as served:
+            blobs = Blobs()
+            record = observe.app(
+                served,
+                blobs,
+                label="case-list-lookup-extra",
+                archive=observe.release_archive(served),
+                case_lookup_returns=[{"primary": "  Juniper  "}],
+            )
+            installed = blobs.get_json(record["answer"])
+
+    write_evidence(f"android-case-list-lookup-extra-{scenario}", installed)
+    assert installed["install"] == "Installed", installed
+    assert installed["signIn"].startswith("Success("), installed
+    walks = installed["walks"].values()
+    if scenario == "relative":
+        (failure,) = [walk["raised"] for walk in walks if "raised" in walk]
+        assert "Cannot evaluate the reference [/scan]" in failure["stack"], failure
+        assert "No default instance has been declared!" in failure["stack"], failure
+        assert "EntitySelectCalloutSetup.buildCalloutIntent" in failure["stack"], failure
+        assert "EntitySelectActivity.setUpCalloutClickListener" in failure["stack"], failure
+        assert not any(
+            "lookupReturns" in (step.get("list") or {})
+            for walk in walks for step in walk.get("steps", [])
+        ), installed["walks"]
+    else:
+        assert not any("raised" in walk for walk in walks), installed["walks"]
+        (observed,) = [
+            step["list"]["lookupReturns"]
+            for walk in walks for step in walk.get("steps", [])
+            if "lookupReturns" in (step.get("list") or {})
+        ]
+        (reply,) = observed
+        assert set(reply["before"]) == {"Cedar", "Juniper"}
+        assert reply["action"] == ACTION and reply["sent"] == {"mode": "scan"}
+        assert (reply["searchText"], reply["after"]) == ("Juniper", ["Juniper"])
+
+
+def test_retained_two_step_lookup_extra_depends_on_worker_mode(hq, editor_driver):
+    """Drive the retained HQ setting through the stock save and installed companion."""
+    import json
+    from urllib.parse import parse_qsl
+
+    from proof.editors import pages
+    from proof.hq import operations
+    from proof.matrix.authoring import Authoring
+    from proof.matrix.registry import base
+    from proof.matrix.variants import menus_and_case_lists
+
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=tuple(
+            replace(_case(f"lookup-{name.lower()}", name), case_type="patient",
+                    properties=(("dob", "2010-01-01"), ("mode", value)))
+            for name, value in (("Cedar", "first record"), ("Juniper", "second record"))
+        ),
+    )
+
+    def save_and_observe(state, app_id, expression, modes):
+        expected = [{"key": "mode", "value": expression}]
+        module = operations.held_app(state, app_id).modules[0]
+        saved = pages.fresh_section_save(editor_driver, state, pages.CASE_LIST, app_id, module.unique_id)
+        assert saved.save and saved.save.status == 200 and not saved.refused, saved.alerts
+        posted = dict(parse_qsl(saved.save.body.decode("utf-8"), keep_blank_values=True))
+        lookup = json.loads(posted["case_list_lookup"])
+        assert lookup["lookup_action"] == "org.example.SCAN"
+        assert lookup["lookup_extras"] == expected
+        assert lookup["lookup_responses"] == [{"key": "patient_id"}]
+        assert operations.held_app(state, app_id).modules[0].case_details.short.lookup_extras == expected
+
+        results = {}
+        with formplayer.serve(state, None, app_id, database=database, label="retained-lookup-extra") as served:
+            archive = observe.release_archive(served)
+            with ZipFile(BytesIO(archive)) as release:
+                suite = etree.fromstring(release.read("suite.xml"))
+                assert suite.xpath(".//lookup/extra[@key='mode']/@value") == [expression]
+            for mode, legacy in modes:
+                blobs = Blobs()
+                record = observe.app(
+                    served, blobs, label=mode, archive=archive, case_lookup_legacy_mode=legacy,
+                    case_lookup_returns=[{"primary": " Juniper "}],
+                )
+                results[mode] = blobs.get_json(record["answer"])
+        return results
+
+    with hq_check(CONFIGURATION) as (state, _):
+        authoring = Authoring(state, {}, "retained-case-list-lookup", editor_driver, operation=state.operation)
+        app_id = base("hq-case-lists").build(authoring)
+        menus_and_case_lists.callout_with_a_multi_step_field_argument(authoring, app_id)
+        observations = save_and_observe(
+            state, app_id, "properties/mode", (("ordinary", False), ("legacy", True)),
+        )
+        menus_and_case_lists.named_callout(authoring, app_id, value="'properties/mode'")
+        observations.update(save_and_observe(state, app_id, "'properties/mode'", (("fixed-text", False),)))
+
+    write_evidence("retained-two-step-lookup-extra", observations)
+    for mode, installed in observations.items():
+        assert installed["install"] == "Installed", installed
+        assert installed["signIn"].startswith("Success("), installed
+        walks = installed["walks"].values()
+        failures = [walk["raised"] for walk in walks if "raised" in walk]
+        replies = [
+            reply
+            for walk in walks if "raised" not in walk
+            for step in walk.get("steps", [])
+            for reply in (step.get("list") or {}).get("lookupReturns", [])
+        ]
+        if mode == "ordinary":
+            assert failures and not replies, installed
+            for failure in failures:
+                assert "Cannot evaluate the reference [/properties/mode]" in failure["stack"], failure
+                assert "No default instance has been declared!" in failure["stack"], failure
+                assert "EntitySelectCalloutSetup.buildCalloutIntent" in failure["stack"], failure
+        else:
+            assert replies and not failures, installed
+            for reply in replies:
+                assert reply["action"] == "org.example.SCAN"
+                assert reply["sent"] == {"mode": "properties/mode"}
+                assert set(reply["before"]) == {"Cedar", "Juniper"}
+                assert (reply["searchText"], reply["after"]) == ("Juniper", ["Juniper"])
+
+
+@pytest.mark.parametrize(("mode", "value", "expected"), [
+    ("ordinary", "1 + 2", "3"),
+    ("ordinary", "'3'", "3"),
+    ("plain", "1 + 2", "1 + 2"),
+    ("plain", "'3'", "'3'"),
+    ("forced", "1 + 2", "3"),
+], ids=["ordinary-calculation", "ordinary-text", "plain-calculation", "plain-text", "plain-forced"])
+def test_case_list_lookup_sends_saved_extra_under_the_worker_mode(hq, editor_driver, mode, value, expected):
+    """The same saved lookup extra is evaluated or sent verbatim depending on the installed worker mode."""
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=(_case("lookup-cedar", "Cedar"), _case("lookup-juniper", "Juniper")),
+    )
+    extras = [{"key": "mode", "value": value}]
+    if mode == "forced":
+        extras.append({"key": "force_xpath_parsing", "value": "yes"})
+    with hq_check(CONFIGURATION) as (state, _):
+        app_id, _ = _lookup_case_list(state, editor_driver, extras=extras)
+        with formplayer.serve(state, None, app_id, database=database, label="case-list-lookup-mode") as served:
+            blobs = Blobs()
+            archive = observe.release_archive(served)
+            with ZipFile(BytesIO(archive)) as build:
+                suite = etree.fromstring(build.read("suite.xml"))
+                assert suite.xpath(".//lookup/extra[@key='mode']/@value") == [value]
+            result = observe.app(
+                served, blobs, label="case-list-lookup-mode", archive=archive,
+                case_lookup_legacy_mode=mode != "ordinary", case_lookup_returns=[{"primary": " Juniper "}],
+            )
+            installed = blobs.get_json(result["answer"])
+
+    assert installed["install"] == "Installed", installed
+    assert installed["signIn"].startswith("Success("), installed
+    raised = {name: walk["raised"] for name, walk in installed["walks"].items() if "raised" in walk}
+    write_evidence("lookup-mode-walks", installed["walks"])
+    assert not raised, raised
+    (observed,) = [
+        step["list"]["lookupReturns"]
+        for walk in installed["walks"].values()
+        for step in walk.get("steps", [])
+        if "lookupReturns" in (step.get("list") or {})
+    ]
+    (reply,) = observed
+    write_evidence("lookup-extra-sent", reply)
+    assert reply["action"] == ACTION and reply["sent"] == {"mode": expected}, reply
+    assert set(reply["before"]) == {"Cedar", "Juniper"}
+    assert (reply["searchText"], reply["after"]) == ("Juniper", ["Juniper"])
+
+
+@pytest.mark.parametrize("heading", ["ordinary", "generated"])
+def test_nova_archive_and_hq_release_send_extras_and_search_text(hq, android_documents, heading):
+    from proof.android.test_form_reads import _served
+    from proof.observe.served import local_archive
+
+    case = "targeted-case-list-device-lookup"
+    document = android_documents[case if heading == "ordinary" else f"{case}-wording"]
+    expected_heading = "Confidence" if heading == "ordinary" else "Match score"
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=(_case("lookup-cedar", "Cedar"), _case("lookup-juniper", "Juniper")),
+    )
+    commands = [
+        {"automatic": True, "primary": " Cedar ", "inspectIcon": True},
+        {"primary": None, "named": {"first": "Juniper", "second": "Cedar"}},
+        {"primary": "none-matches"},
+        {"identify": "lookup-juniper", "inspectScores": True},
+    ]
+    with _served(document, database=database) as (served, released):
+        blobs = Blobs()
+        assert document.local_ccz is not None
+        local = local_archive(document.local_ccz, served.app_id)
+        for label, archive in (("hq", released), ("local", local)):
+            answer = observe.app(served, blobs, label=label, archive=archive, case_lookup_returns=commands)
+            installed = blobs.get_json(answer["answer"])
+            write_evidence(f"nova-case-list-lookup-{label}-walk", installed)
+            assert installed["install"] == "Installed", installed
+            observations = [
+                step["list"]["lookupReturns"]
+                for walk in installed["walks"].values()
+                for step in walk.get("steps", [])
+                if isinstance(step.get("list"), dict) and "lookupReturns" in step["list"]
+            ]
+            assert len(observations) == 1, (label, blobs.get_json(answer["hq"]), installed["walks"].keys())
+            (results,) = observations
+            assert results[0]["iconCenterARGB"] == "ff49a274"  # The uploaded PNG’s one pixel.
+            assert results[0]["lookupName"] == "Find a visit"
+            assert results[0]["toolbarTitle"] == "Scan Barcode"
+            assert [result["after"] for result in results] == [["Cedar"], ["Juniper"], [], ["Juniper"]]
+            assert [result["searchText"] for result in results[:3]] == ["Cedar", "Juniper", "none-matches"]
+            assert results[3]["isIdentification"]
+            assert expected_heading in _view_texts(results[3]["scoreHeader"])
+            assert _view_texts(results[3]["scoreRows"]) == ["Juniper", "★★★★★"]
+            assert all(result["action"] == ACTION for result in results)
+            assert all(result["sent"] == {
+                "visit_mode": "followup", "visit_limit": "3",
+                "worker_name": database.username, "worker_id": database.user_id,
+            } for result in results)
+            write_evidence(f"nova-case-list-lookup-{heading}-{label}", results)
+
+
+def test_nova_archives_keep_the_integer_sum_in_both_worker_modes(hq, android_documents):
+    from proof.android.test_form_reads import _served
+    from proof.observe.served import local_archive
+
+    document = android_documents["targeted-case-list-device-lookup-sum"]
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=(_case("lookup-cedar", "Cedar"), _case("lookup-juniper", "Juniper")),
+    )
+    with _served(document, database=database) as (served, released):
+        assert document.local_ccz is not None
+        local = local_archive(document.local_ccz, served.app_id)
+        for publisher, archive in (("hq", released), ("local", local)):
+            with ZipFile(BytesIO(archive)) as product:
+                suite = etree.fromstring(product.read("suite.xml"))
+            assert suite.xpath(".//lookup/extra[@key='visit_limit']/@value") == ["1 + 2"]
+            for mode, legacy, expected in (("ordinary", False, "3"), ("legacy", True, "1 + 2")):
+                label = f"nova-sum-{publisher}-{mode}"
+                blobs = Blobs()
+                record = observe.app(
+                    served, blobs, label=label, archive=archive, case_lookup_legacy_mode=legacy,
+                    case_lookup_returns=[{"primary": " Juniper "}],
+                )
+                installed = blobs.get_json(record["answer"])
+                write_evidence(label, installed)
+                assert installed["install"] == "Installed", installed
+                assert installed["signIn"].startswith("Success("), installed
+                assert not any("raised" in walk for walk in installed["walks"].values()), installed
+                replies = [
+                    reply for walk in installed["walks"].values() for step in walk.get("steps", [])
+                    for reply in (step.get("list") or {}).get("lookupReturns", [])
+                ]
+                assert replies and all(reply["sent"]["visit_limit"] == expected for reply in replies), replies
+                assert all(reply["after"] == ["Juniper"] for reply in replies), replies
+
+
+def test_nova_lookup_result_filters_both_archives_by_the_same_case_property(hq, android_documents):
+    from proof.android.test_form_reads import _served
+    from proof.observe.served import local_archive
+
+    document = android_documents["targeted-case-list-device-lookup-property"]
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=(
+            _case("lookup-cedar", "Cedar"),
+            replace(_case("lookup-juniper", "Juniper"), properties=(("scan_id", "card-41"),)),
+            replace(_case("lookup-oak", "Oak"), properties=(("scan_id", "card-41"),)),
+            replace(_case("lookup-elm", "Elm"), case_type="other", properties=(("scan_id", "card-41"),)),
+        ),
+    )
+    with _served(document, database=database) as (served, released):
+        assert document.local_ccz is not None
+        local = local_archive(document.local_ccz, served.app_id)
+        for carrier, archive in (("hq", released), ("local", local)):
+            blobs = Blobs()
+            record = observe.app(
+                served,
+                blobs,
+                label=carrier,
+                archive=archive,
+                case_lookup_returns=[
+                    {"automatic": True, "identifyKeys": ["card-41"], "inspectScores": True},
+                    {"identifyKeys": ["lookup-juniper"]},
+                ],
+            )
+            installed = blobs.get_json(record["answer"])
+            assert installed["install"] == "Installed", installed
+            (observations,) = [
+                step["list"]["lookupReturns"]
+                for walk in installed["walks"].values()
+                for step in walk.get("steps", [])
+                if "lookupReturns" in (step.get("list") or {})
+            ]
+            write_evidence(f"nova-case-property-lookup-{carrier}", observations)
+            property_reply, id_reply = observations
+            assert sorted(property_reply["after"]) == ["Juniper", "Oak"]
+            assert "Confidence" in _view_texts(property_reply["scoreHeader"])
+            assert sorted(_view_texts(property_reply["scoreRows"])) == ["Juniper", "Oak", "★★★★★", "★★★★★"]
+            assert id_reply["after"] == []
+
+
+def test_lookup_count_comes_from_the_selected_native_frame(hq, android_documents):
+    """A completed form receives the selection step's unique response keys, including keys absent from restore."""
+    from lxml import etree
+
+    from proof.android.test_form_reads import _app, _child, _completed_walk, _served
+    from proof.observe.served import local_archive
+
+    document = android_documents["targeted-case-list-device-lookup-count"]
+    database = casedata.CaseDatabase(
+        user_id=casedata.USER_ID,
+        username=casedata.USERNAME,
+        user_data=(),
+        cases=(_case("lookup-cedar", "Cedar"), _case("lookup-juniper", "Juniper")),
+    )
+    controls = [
+        ("ordinary", [], "lookup-cedar", None),
+        ("missing-handler", [{"missingHandler": True}], "lookup-cedar", None),
+        ("cancelled", [{"primary": "Juniper", "cancel": True}], "lookup-cedar", None),
+        ("text-only", [{"primary": "Cedar"}], "lookup-cedar", None),
+        ("empty-identification", [{"identifyKeys": []}, {"primary": "Cedar"}], "lookup-cedar", "0"),
+        ("one-key", [{"identifyKeys": ["lookup-juniper"]}], "lookup-juniper", "1"),
+        ("one-match-two-keys", [{"identifyKeys": ["lookup-juniper", "outside", "lookup-juniper"]}],
+         "lookup-juniper", "2"),
+    ]
+    with _served(document, database=database) as (served, released):
+        assert document.local_ccz is not None
+        local = local_archive(document.local_ccz, served.app_id)
+        for carrier, archive in (("hq", released), ("local", local)):
+            seen = {}
+            for label, commands, chosen, count in controls:
+                answer, sent = _app(
+                    served, archive, f"{carrier}-{label}", commands=["m0-f0"],
+                    case_lookup_returns=commands, questions={"/data/note": "checked"},
+                )
+                assert answer["install"] == "Installed", answer
+                _completed_walk(answer, "m0-f0")
+                (instance,) = sent
+                root = etree.fromstring(instance, etree.XMLParser(resolve_entities=False, no_network=True))
+                native_list, = [step["list"] for step in answer["walks"]["m0-f0"]["steps"] if "lookupReturns" in step.get("list", {})]
+                assert native_list["chose"] == chosen, (carrier, label, native_list)
+                value = _child(root, "lookup_count").text
+                assert value == count, (carrier, label, value, native_list)
+                seen[label] = {"chosen": chosen, "count": value, "results": native_list["lookupReturns"]}
+            write_evidence(f"native-companion-lookup-count-{carrier}", seen)

@@ -2136,6 +2136,75 @@ test("a date or a number equal to text HQ's search does not convert finds the ca
 	).toEqual(["dated"]);
 });
 
+test("a numeric literal compares a custom date to the exact stored spelling in Search", async ({
+	db,
+}) => {
+	await seedProperties(db, [
+		["untyped", { dob: "3" }],
+		["padded", { dob: "003" }],
+		["decimal", { dob: "3.0" }],
+		["at-fraction", { dob: "3.50" }],
+		["exact-fraction", { dob: "3.5" }],
+		["over-fraction", { dob: "3.6" }],
+		["four", { dob: "4" }],
+		["epoch", { dob: "1970-01-04" }],
+		["absent", {}],
+	]);
+	const dob = prop("patient", "dob");
+	expect(await matchedIds(db, eq(dob, literal(3)))).toEqual(["untyped"]);
+	expect(await matchedIds(db, eq(dob, literal(3.5)))).toEqual([
+		"exact-fraction",
+	]);
+	expect(await matchedIds(db, eq(dob, literal("3.50")))).toEqual([
+		"at-fraction",
+	]);
+	expect(await matchedIds(db, neq(dob, literal(3.5)))).toEqual([
+		"absent",
+		"at-fraction",
+		"decimal",
+		"epoch",
+		"four",
+		"over-fraction",
+		"padded",
+		"untyped",
+	]);
+	expect(await matchedIds(db, neq(dob, literal(3)))).toEqual([
+		"absent",
+		"at-fraction",
+		"decimal",
+		"epoch",
+		"exact-fraction",
+		"four",
+		"over-fraction",
+		"padded",
+	]);
+	expect(await matchedIds(db, gt(dob, literal(3)))).toEqual([
+		"at-fraction",
+		"exact-fraction",
+		"four",
+		"over-fraction",
+	]);
+	expect(await matchedIds(db, gt(dob, literal(3.5)))).toEqual([
+		"four",
+		"over-fraction",
+	]);
+	expect(await matchedIds(db, gte(dob, literal(3.5)))).toEqual([
+		"at-fraction",
+		"exact-fraction",
+		"four",
+		"over-fraction",
+	]);
+	expect(await matchedIds(db, gte(dob, literal(3)))).toEqual([
+		"at-fraction",
+		"decimal",
+		"exact-fraction",
+		"four",
+		"over-fraction",
+		"padded",
+		"untyped",
+	]);
+});
+
 test("a list of values matches a time by the wall clock Nova stores and a date by the text a device writes, as a single value does", async ({
 	db,
 }) => {

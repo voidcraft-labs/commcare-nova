@@ -88,6 +88,7 @@ import {
 import { outputLocaleRole } from "../localeFile";
 import { appPlacements, placedBasic, planBasicSubcases } from "../placement";
 import { placementsToHold } from "../placementHolds";
+import { searchGroupLocaleId } from "../suite/case-search/searchGroups";
 import { fieldBindType, hiddenAnswerTypeOf } from "../xform/bindType";
 import { applicationReading, type HeldTranslationKey } from "./appShell";
 import { withCandidate } from "./candidate";
@@ -100,6 +101,7 @@ import {
 	columnsJoinedAsRead,
 	columnsOfAMenuThatListsNoCases,
 	columnsOffAScreenLast,
+	settleFlatCloseSelectionLimits,
 	sortNamedHiddenColumnHeader,
 } from "./caseList/details";
 import { columnFieldWordsRead } from "./caseList/fieldWords";
@@ -118,6 +120,7 @@ import {
 } from "./caseManagement/saveToCase";
 import { account, defineClaims, derived, refuse, take } from "./claims";
 import type { DraftForm, DraftModule, ReadContext } from "./context";
+import { readProjectSearchBindings } from "./context";
 import { readerDefect } from "./defects";
 import {
 	classifyGeneratedTranslationKeys,
@@ -134,13 +137,18 @@ import {
 	unheldRefusal,
 	unheldText,
 } from "./heldText";
+import { readInstallationBindings } from "./installationBindings";
 import { isJsonObject, pointerToken, sameJson } from "./jsonCursor";
 import { resourcedDocument, sourceLanguageAsRead } from "./languages";
+import { settleMenuFrames } from "./menus";
 import {
 	defaultPostSubmitAbsent,
 	searchLinkGuardsAreCarriedValues,
 } from "./menus/afterSubmit";
-import { shownBlockMedia } from "./menus/navMedia";
+import {
+	accountNavigationMediaOverride,
+	shownBlockMedia,
+} from "./menus/navMedia";
 import {
 	parentFollowUpsReturnToTheList,
 	registrationFormLast,
@@ -1553,6 +1561,99 @@ function keyTarget(
 	};
 }
 
+/** A stored group's heading locale before HQ's editor respells it by row. */
+function sourceSearchGroupKey(
+	module: DraftModule | undefined,
+	key: string,
+	codes: readonly string[],
+):
+	| {
+			readonly canonical: boolean;
+			readonly destination?: string;
+			readonly owner?: string;
+			readonly unit?: TranslationUnitId;
+			readonly missingSpanishLabel?: true;
+	  }
+	| undefined {
+	if (!module) return;
+	const menu = `m${module.index}`;
+	const prefix = searchGroupLocaleId(menu, "");
+	if (!key.startsWith(prefix)) return;
+	const config = module.json.peek("search_config");
+	if (!isJsonObject(config) || !Array.isArray(config.properties)) return;
+	const group = key.slice(prefix.length);
+	const rows = config.properties;
+	const index = rows.findIndex(
+		(row: unknown) =>
+			isJsonObject(row) &&
+			row.is_group === true &&
+			row.group_key === group &&
+			row.name === group,
+	);
+	if (index < 0) return;
+	const canonicalKey = `group_header_${index}`;
+	if (group === canonicalKey) return { canonical: true };
+	const legacy = { canonical: false };
+	if (
+		rows.some(
+			(row: unknown) =>
+				isJsonObject(row) &&
+				(row.name === canonicalKey || row.group_key === canonicalKey),
+		)
+	)
+		return legacy;
+	// The bounded alias is a plain heading name. Positional-looking keys
+	// can still identify a different heading, and punctuated names can
+	// coincide with a prompt's hint, required message or validation.
+	if (
+		!/^[A-Za-z][A-Za-z0-9_-]*$/.test(group) ||
+		/^group_header_[0-9]+$/.test(group)
+	)
+		return legacy;
+	const member = rows[index + 1];
+	if (
+		!isJsonObject(member) ||
+		member.is_group === true ||
+		member.group_key !== group
+	)
+		return legacy;
+	const row = rows[index];
+	const labels =
+		isJsonObject(row) && isJsonObject(row.label) ? row.label : undefined;
+	const readable = (label: unknown) =>
+		typeof label === "string" &&
+		holdText(label) === label &&
+		hqDeviceText(label).trim() !== "";
+	const missingSpanishLabel =
+		codes.length === 2 &&
+		codes[0] === "en" &&
+		codes[1] === "es" &&
+		labels !== undefined &&
+		readable(labels.en) &&
+		!Object.hasOwn(labels, "es");
+	if (
+		!labels ||
+		(!missingSpanishLabel && !codes.every((code) => readable(labels[code])))
+	)
+		return legacy;
+	const groupPosition = rows
+		.slice(0, index)
+		.filter(
+			(row: unknown) => isJsonObject(row) && row.is_group === true,
+		).length;
+	const typed =
+		module.module.caseListConfig?.searchInputGroups?.[groupPosition];
+	return typed === undefined
+		? legacy
+		: {
+				...legacy,
+				destination: searchGroupLocaleId(menu, canonicalKey),
+				owner: `${module.json.pointer}/search_config/properties/${index}/group_key`,
+				unit: generatedWordingId(typed.uuid, "searchGroupHeading"),
+				...(missingSpanishLabel && { missingSpanishLabel }),
+			};
+}
+
 /** Whether what a key names read: its menu and its form have drafts. A key naming a position
  *  HQ's app holds no menu or form at names nothing that failed to read, and keeps its own
  *  spelling, which no string of the table has. */
@@ -1723,6 +1824,7 @@ function decideGeneratedKeys(
 	const findings = ctx.accounting.findings();
 	const left: { held: HeldTranslationKey; target: KeyTarget }[] = [];
 	for (const held of reading.generatedKeys) {
+		if (accountNavigationMediaOverride(ctx, doc, held)) continue;
 		const target = keyTarget(ctx, doc, held.key);
 		const finding = coveringFinding(ctx, findings, held, target);
 		if (finding !== undefined) {
@@ -1735,6 +1837,7 @@ function decideGeneratedKeys(
 	const table = ctx.input.appStrings(
 		underProposedDeclaration(doc, declaration),
 		columnFieldWordsRead(ctx, doc),
+		readProjectSearchBindings(ctx),
 	);
 	if (table === null) {
 		const first = [...findings].sort((a, b) => placeOrder(a.place, b.place))[0];
@@ -1746,22 +1849,111 @@ function decideGeneratedKeys(
 			ctx.accounting.cover({ json: held.json, key: held.key }, first);
 		return false;
 	}
+	const units = snapshotTranslationUnits(doc);
 	const classified: HeldGeneratedKey[] = [];
-	for (const { held } of left) {
-		if (typeof held.value !== "string") continue;
-		const target = keyTarget(ctx, doc, held.key);
-		if (!readWhole(ctx, held.key, target)) continue;
+	const verdicts = new Map<string, GeneratedKeyVerdict>();
+	const moved = new Map<HeldTranslationKey, { key: string; owner: string }>();
+	const stored = new Map<string, HeldTranslationKey[]>();
+	for (const key of reading.generatedKeys) {
+		const uses = stored.get(key.key);
+		if (uses) uses.push(key);
+		else stored.set(key.key, [key]);
+	}
+	const replacedDestinations = new Map<HeldTranslationKey, boolean>();
+	for (const { held, target } of left) {
+		if (typeof held.value !== "string" || !readWhole(ctx, held.key, target))
+			continue;
+		const id =
+			target.position === undefined
+				? held.key
+				: repositionGeneratedKey(held.key, target.position);
+		const own = table.wordingUnits?.[id];
+		const readsGroup =
+			own !== undefined &&
+			units.get(own)?.generated?.role === "searchGroupHeading";
+		const sourceGroup = sourceSearchGroupKey(
+			target.module,
+			held.key,
+			reading.languages.codes,
+		);
+		if (sourceGroup && !sourceGroup.canonical) {
+			const destination = sourceGroup.destination;
+			const copies =
+				destination === undefined ? [] : (stored.get(destination) ?? []);
+			const source = ctx.input.source.raw;
+			const build = source.build_langs;
+			// A dormant canonical locale does not supply the live legacy heading
+			// in either language. Drop both stored copies when moving the live
+			// English override. The ordinary labels still supply the same text in
+			// the Spanish locale and in each profile's default table.
+			const ordinaryCopies = copies.every(
+				(copy) =>
+					typeof copy.value === "string" &&
+					holdText(copy.value) === copy.value &&
+					hqDeviceText(copy.value).trim() !== "",
+			);
+			const bilingualFallback =
+				sourceGroup.missingSpanishLabel === true &&
+				held.language === "en" &&
+				source.translation_strategy === "select-known" &&
+				Array.isArray(build) &&
+				build.length === 2 &&
+				build[0] === "en" &&
+				build[1] === "es" &&
+				(stored.get(held.key)?.length ?? 0) === 1 &&
+				(copies.length === 1 || copies.length === 2) &&
+				copies.some((copy) => copy.language === "en") &&
+				copies.every(
+					(copy) => copy.language === "en" || copy.language === "es",
+				) &&
+				ordinaryCopies;
+			const dormant =
+				ordinaryCopies &&
+				(bilingualFallback ||
+					(reading.languages.codes.length === 1 &&
+						copies.length === 1 &&
+						copies[0].language === held.language));
+			if (
+				destination !== undefined &&
+				sourceGroup.owner !== undefined &&
+				sourceGroup.unit !== undefined &&
+				target.position?.menu === target.module?.index &&
+				(copies.length === 0 || dormant) &&
+				(sourceGroup.missingSpanishLabel !== true || bilingualFallback) &&
+				table.wordingUnits?.[destination] === sourceGroup.unit &&
+				holdText(held.value) === held.value &&
+				hqDeviceText(held.value).trim() !== ""
+			) {
+				classified.push({
+					language: held.language,
+					key: held.key,
+					id: destination,
+					value: held.value,
+				});
+				moved.set(held, { key: destination, owner: sourceGroup.owner });
+				if (dormant)
+					for (const copy of copies)
+						replacedDestinations.set(copy, copy.language !== held.language);
+			} else {
+				verdicts.set(
+					`${held.language}\u0000${held.key}`,
+					held.value === "" ? { kind: "inert" } : { kind: "not-yet" },
+				);
+			}
+			continue;
+		}
+		// A key unused in the source cannot take over a normalized heading.
+		if (readsGroup && !sourceGroup) {
+			verdicts.set(`${held.language}\u0000${held.key}`, { kind: "inert" });
+			continue;
+		}
 		classified.push({
 			language: held.language,
 			key: held.key,
-			id:
-				target.position === undefined
-					? held.key
-					: repositionGeneratedKey(held.key, target.position),
+			id,
 			value: held.value,
 		});
 	}
-	const verdicts = new Map<string, GeneratedKeyVerdict>();
 	const langs = reading.languages.codes;
 	classifyGeneratedTranslationKeys(classified, table, (one) =>
 		mediaKeyReading(ctx.input.source.raw.modules, langs, one),
@@ -1771,11 +1963,21 @@ function decideGeneratedKeys(
 			verdicts.set(`${one.language}\u0000${one.key}`, verdict);
 	});
 	const languages = reading.languages;
-	const units = snapshotTranslationUnits(doc);
 	/* Each output's wordings, by language code, as held. */
 	const worded = new Map<TranslationUnitId, Map<string, string>>();
 	let hasWording = false;
 	for (const { held } of left) {
+		const removed = replacedDestinations.get(held);
+		if (removed !== undefined) {
+			held.json.take(held.key, wordingClaim(held.key), () => held.value).value;
+			if (removed)
+				ctx.facts.sameStateRewrites.push({
+					entry: CLAIMS.generatedWording.entry,
+					path: `${held.json.pointer}/${pointerToken(held.key)}`,
+					register: "legacy-search-group-wording-rekeyed",
+				});
+			continue;
+		}
 		const verdict = verdicts.get(`${held.language}\u0000${held.key}`) ?? {
 			kind: "not-yet",
 		};
@@ -1826,6 +2028,18 @@ function decideGeneratedKeys(
 				).value;
 				ctx.translations.set(verdict.unit, "text", new Map([[tag, wording]]));
 				ctx.translations.own(verdict.unit, tag);
+				const movedTo = moved.get(held);
+				if (movedTo !== undefined)
+					for (const path of [
+						movedTo.owner,
+						`${held.json.pointer}/${pointerToken(held.key)}`,
+						`${held.json.pointer}/${pointerToken(movedTo.key)}`,
+					])
+						ctx.facts.sameStateRewrites.push({
+							entry: CLAIMS.generatedWording.entry,
+							path,
+							register: "legacy-search-group-wording-rekeyed",
+						});
 				const byCode = worded.get(verdict.unit) ?? new Map<string, string>();
 				byCode.set(held.language, wording);
 				worded.set(verdict.unit, byCode);
@@ -2246,6 +2460,19 @@ export function* assembleDocumentSteps(
 	// 2. The declaration, over the document as it stands, in every reading.
 	const working = ctx.doc ?? provisionalDocument(ctx);
 	const declaration = judgeDeclaration(ctx, working);
+	if (ctx.doc !== undefined)
+		settleMenuFrames(
+			ctx,
+			working,
+			declaration.kind === "choices" &&
+				declaration.choices.every((choice) => choice.runsOnlyOn === "web-apps"),
+		);
+	settleFlatCloseSelectionLimits(
+		ctx,
+		working,
+		declaration.kind === "choices" &&
+			declaration.choices[declaration.proposed]?.runsOnlyOn === "web-apps",
+	);
 	yield;
 
 	// 3. The document, where no finding stands yet.
@@ -2321,7 +2548,13 @@ export function* assembleDocumentSteps(
 				})),
 			),
 			keyedCreates: keyedCreatesRead(ctx, doc),
+			...(ctx.input.source.buildProfiles.length > 0 && {
+				installationProfiles: readInstallationBindings(ctx),
+			}),
 			columnFieldWords: columnFieldWordsRead(ctx, doc),
+			...(ctx.draft.projectSearches.size && {
+				projectSearches: readProjectSearchBindings(ctx),
+			}),
 			entries: ctx.identities.entries(),
 		},
 		declaration,

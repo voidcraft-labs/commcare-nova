@@ -123,7 +123,9 @@ the inspector under **Extended text**, **QR code** and **Spoken text**, each
 translated like the label:
 
 - **Extended text** shows in place of the label wherever the label's
-  **Format text** is off.
+  **Format text** is off. Groups, repeats and sections also offer extended
+  text for their headings. A repeat's default add button uses its extended
+  text whenever it has one.
 - **QR code** is the text Android draws as a QR code beside the question, in
   place of the label's image. Web Apps shows no QR code.
 - **Spoken text** is what Android reads aloud from a speaker button beside a
@@ -137,7 +139,12 @@ A question's label media can also hold an **Inline video**, which you can
 attach beside its image, audio and video, and choose per language like them.
 Android plays it inside the question, in place of the QR code and the label's
 image. Web Apps doesn't show it. A help text and a choice hold no inline
-video; you can attach a video there instead, which plays from a button.
+video. You can attach a video there and workers can play it from a button.
+When an app brought in from HQ has inline video outside question labels,
+the first-publish review shows the references that workers never see.
+When inline video is the only content of a question’s help, Android opens
+empty help. You can fix it in CommCare HQ by adding help text and attaching
+the file as a regular video, or by moving the inline video to the question label.
 
 You can type `<`, `>` and `&` directly in your wording. With formatting off,
 spellings such as `&amp;` and `&#65;` also stay as written. With formatting on,
@@ -280,6 +287,9 @@ Apps' rules on both, each runtime draws images, sound and video with its own
 player, and a label without formatting shows a tag in its text as formatting in
 Web Apps and as written on Android. The builder notes each one where you set it up.
 
+In Android Preview, erasing the clock text lets you enter a replacement. If
+you leave the screen with the clock box empty, the picker keeps its last time.
+
 Preview formats a label the way the device does, with any values already in
 place, so formatting inside a case property or an answer shows in Preview just
 as it does for a worker. Two things in a label's text work differently in
@@ -355,6 +365,8 @@ of every answer in a submission. New forms start at `data`. A form brought
 in from CommCare HQ keeps its existing name. If your reporting system expects
 `survey`, for example, you can use that name to submit a question called
 `name` at `/survey/name`. Workers see the same question on their screen.
+Web Apps requires an answer root with ASCII characters. An Android-only app
+can use a name such as `survéy`.
 People with Viewer access can see the submitted answer root in **Form settings**.
 A shared entry shows the root of the form it opens. You can change the root on
 that form.
@@ -383,6 +395,29 @@ In **Form settings**, **Form behavior** lets you choose a question or choice tex
 Android opens and submits these forms as it does any other form.
 
 To reuse the same setting on another question or choice, open **Shared texts**. Shared texts need matching wording, formatting and media in every language. If CommCare HQ would combine two texts and lose a setting, Nova names both texts. Changing either one or choosing another text lets you carry on.
+
+### Show recent form activity in Web Apps
+
+In **Form settings → Form behavior**, **Activity notice key** lets the form
+warn a worker when another worker recently opened or submitted it for the
+same evaluated key. A question text that reads the record ID lets different
+records keep their own notices. The existing question text still appears
+on the form.
+
+**Activity notice record title** can give the notice a readable record name.
+**Activity notice window** can supply the number of seconds to keep it. The
+default is five minutes, and Web Apps keeps a notice for at most one hour.
+Android keeps showing the question texts and does not show the notice.
+
+### Name saved forms on Android
+
+In **Form settings**, choose **Form behavior** then **Saved form label**. You can use a question or choice text that already appears in the form, including one that shows an answer. Android evaluates the text in the worker's language when they save, then lists it with the form's name.
+
+In Android Preview, **Save for later** returns to the home screen. Open **Incomplete forms** to pick up the same entry. **Saved forms** lists submissions you completed in this Preview. Turn on the corresponding buttons under **App settings** then **Saved and incomplete forms**. Preview keeps these records in the current tab and clears them when you leave Preview or change workers. If you edit the app after saving an incomplete form, you can start a fresh form.
+
+### Keep a case change in its submitted position
+
+Some forms brought in from CommCare HQ show a **Case change** among their questions. The row marks where the form submits an update or closes a case. Workers see the surrounding questions as usual. Keep the row in the same group or repeat when you want the submitted update to stay at its existing address. A close condition applies to the close itself, so the form can save an update even when the case stays open.
 
 ## Share a document with Nova
 
@@ -520,7 +555,7 @@ questions closes any optional editor you had just opened.
 
 **Show when** affects the question's data as well as its visibility. When its
 condition is false, the answer is omitted from submission and can read as blank
-in other expressions. A **Hidden** field carries a value without showing a question. Its **Starting value** runs when the form opens or its repeat row is added. A later question can copy that value as its own starting answer. Its **Calculation** updates the hidden value as answers change. You can use either setting, both, or leave the field blank. In a repeat, a hidden value with both runs differently on each platform. In Web Apps, the worker's next answer works out the calculation again, so the starting value is gone before the form is sent. On Android, the starting value stays, and is sent, until the calculation runs again.
+in other expressions. A **Hidden** field carries a value without showing a question. Its **Starting value** runs when the form opens or its repeat row is added. A later question can copy that value as its own starting answer. Its **Calculation** updates the hidden value as answers change. You can use either setting, both, or leave the field blank. In a repeat, a hidden value with both runs differently on each platform. In Web Apps, the worker's next answer works out the calculation again, so the starting value is gone before the form is sent. On Android, the starting value stays until the calculation runs again. Moving past a screen with one ordinary text question accepts its shown starting answer. That acceptance runs calculations that read the answer, even when the worker leaves the text as it is.
 
 A starting value can read another answer in the form. Renaming that question in
 Nova keeps the starting value reading it; renaming it in CommCare HQ's form
@@ -827,4 +862,4 @@ You can give a message or a location a starting value, and a message, a location
 
 A repeating group that workers fill themselves starts empty. They can add as many entries as they need and remove the last one to leave the group empty again. Its add button can use different words before and after the first entry. In the group's display settings, **First entry button** sets the first invitation and **Another entry button** sets the next one. If you give only the second, workers see it for both. Each language can have its own wording.
 
-In a worker test, opening a form or editing an ordinary answer leaves messages unanswered. Turning a page on Android confirms the messages on that page. On Web Apps, submitting the form confirms its messages.
+In a worker test, opening a form or editing an ordinary answer leaves messages unanswered. Turning a page on Android confirms ordinary passive messages on that page. An Android banner shows its message above the questions and keeps its answer. On Web Apps, submitting the form confirms its messages.

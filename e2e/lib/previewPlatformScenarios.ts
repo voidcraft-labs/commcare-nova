@@ -16,7 +16,11 @@
 import type { Platform } from "@/lib/domain/platforms";
 
 export type PreviewPlatformFixture =
+	| "face-photo"
 	| "question-display"
+	| "datetime-picker"
+	| "android-app"
+	| "android-app-required"
 	| "questions"
 	| "sections"
 	| "screens"
@@ -32,6 +36,29 @@ export interface PreviewPlatformScenario {
 }
 
 export const PREVIEW_PLATFORM_SCENARIOS = {
+	"datetime-picker-android": {
+		platform: "android",
+		fixture: "datetime-picker",
+		describe: "commits the day and minute on the worker's local clock",
+	},
+	"datetime-picker-web-apps": {
+		platform: "web-apps",
+		fixture: "datetime-picker",
+		describe:
+			"keeps blank split questions and preserves seconds in the joined answer",
+	},
+	"face-photo-android": {
+		platform: "android",
+		fixture: "face-photo",
+		describe:
+			"the worker switches and closes a face camera, then saves its cropped photograph",
+	},
+	"face-photo-web-apps": {
+		platform: "web-apps",
+		fixture: "face-photo",
+		describe:
+			"the worker attaches the unchanged picture to the same face question",
+	},
 	"visit-display-web-apps": {
 		platform: "web-apps",
 		fixture: "question-display",
@@ -43,6 +70,18 @@ export const PREVIEW_PLATFORM_SCENARIOS = {
 		fixture: "question-display",
 		describe:
 			"a worker searches and clears a route, sees a paired status banner, keeps a masked code and uses the keyboard action",
+	},
+	"android-app-answers": {
+		platform: "android",
+		fixture: "android-app",
+		describe:
+			"two questions open the same Android app and accept a typed result in the current repeat row",
+	},
+	"android-app-required": {
+		platform: "android",
+		fixture: "android-app-required",
+		describe:
+			"a primary-only Android result can supply, retain, and clear a required answer",
 	},
 	"location-map-web-apps": {
 		platform: "web-apps",

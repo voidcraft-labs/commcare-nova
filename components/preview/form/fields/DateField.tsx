@@ -1,4 +1,5 @@
 "use client";
+import { useRef, useState } from "react";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { AlternateDatePicker } from "@/components/preview/shared/AlternateDatePicker";
 import { WorkerDatePicker } from "@/components/preview/shared/WorkerDatePicker";
@@ -10,9 +11,11 @@ import type {
 } from "@/lib/domain";
 import { hasOtherDisplay } from "@/lib/domain/questionDisplay";
 import {
+	isReadableTemporalValue,
 	paddedTimeOfDay,
 	storageDatetimeValue,
 	storageTimeValue,
+	storedWallClock,
 } from "@/lib/domain/temporalValues";
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type { FieldState } from "@/lib/preview/engine/types";
@@ -97,12 +100,9 @@ interface DateFieldProps {
  *
  * A NEWLY entered datetime takes the offset of the viewer's zone, matching
  * the device stamping its own (`DateTimeData::uncast`, and Web Apps'
- * browser-offset provider). An answer that already carries an offset keeps
- * it, and its wall clock is displayed exactly as stored, so an answer
- * entered on some other device reads as the clock that was entered there,
- * and moving its date does not quietly relocate it to the author's zone.
- * The offset belongs to the answer; only a clock the person types here is
- * this viewer's to stamp.
+ * browser-offset provider). Web Apps displays an existing offset and wall
+ * clock as stored. Android shows the instant on the device's own clock and
+ * saves the displayed day and minute in the zone of that selected day.
  */
 export function DateField({
 	field,
@@ -114,6 +114,8 @@ export function DateField({
 	const rules = usePreviewPlatformRules();
 	const clearable = rules.datePicker === "clearable";
 	const { language } = useBuilderLanguage();
+	const [blankClockDraft, setBlankClockDraft] = useState(false);
+	const lastPickerAnswer = useRef<string | undefined>(undefined);
 	const showError = state.touched && !state.valid;
 	const stored = state.value;
 	const errorSlot = showError && state.errorMessage && (
@@ -204,25 +206,33 @@ export function DateField({
 	// construction in the stored TIME shape, so the same reader the
 	// standalone time question uses projects it, and it keeps doing so
 	// while the other half is missing or half-typed.
-	const separator = stored.indexOf("T");
-	const datePart = separator === -1 ? stored : stored.slice(0, separator);
-	const timePart = separator === -1 ? "" : stored.slice(separator + 1);
+	const editingClock =
+		state.edited &&
+		stored.includes("T") &&
+		storedWallClock(stored.slice(stored.indexOf("T") + 1)) === null;
+	const displayed = editingClock
+		? stored
+		: (state.androidPickerDatetime ?? stored);
+	const separator = displayed.indexOf("T");
+	const datePart = separator === -1 ? displayed : displayed.slice(0, separator);
+	const timePart = separator === -1 ? "" : displayed.slice(separator + 1);
 
 	/**
-	 * Commit the two halves as one answer. Each arm produces a value the
-	 * split above can read back, and none of them invents a half nobody
-	 * entered: the join has to survive being HALF filled in, because that
-	 * is the state a person passes through on the way to filling it.
-	 *
-	 * A bare date is deliberately left bare rather than extended to its own
-	 * midnight here. It is already a readable datetime that the storage
-	 * boundary reads as midnight, so leaving it alone keeps an empty clock
-	 * box honest ("you have not set a time") instead of answering the
-	 * question on the person's behalf with a 12:00 AM they never chose and
-	 * cannot clear: clearing it would just put it straight back.
+	 * Android saves a complete local minute. A blank clock input is a draft
+	 * for editing the picker. Web Apps can save the halves independently.
 	 */
 	const commit = (date: string, time: string): void => {
-		const clock = parseClockTime(time) ?? time.trim();
+		const parsedClock = parseClockTime(time);
+		const clock = parsedClock ?? time.trim();
+		if (!clearable) {
+			const minute = storedWallClock(time) ?? parsedClock;
+			const zone = viewerTimeZone();
+			if (date === "" || clock === "") return;
+			if (minute !== null) {
+				onChange(storageDatetimeValue(`${date}T${minute.slice(0, 5)}`, zone));
+				return;
+			}
+		}
 		if (date === "" && clock === "") {
 			onChange("");
 			return;
@@ -253,8 +263,10 @@ export function DateField({
 				className="flex min-w-0 flex-wrap gap-2"
 			>
 				<WorkerDatePicker
+					clearable={clearable}
 					value={datePart}
 					onValueChange={(next) => {
+						if (!next && !clearable) return;
 						commit(next, timePart);
 						onBlur();
 					}}
@@ -264,17 +276,39 @@ export function DateField({
 					className={`min-w-0 flex-1 ${PV_TRIGGER}`}
 				/>
 				<ClockTimeField
-					value={formatClockTime(timePart) ?? timePart}
-					onValueChange={(next) =>
-						// Both halves empty is an empty answer, not the `T` that
-						// joining two empty strings would leave behind: a value
-						// no schema accepts and no person typed.
+					value={blankClockDraft ? "" : (formatClockTime(timePart) ?? timePart)}
+					onValueChange={(next) => {
+						if (!clearable) {
+							const pickerAnswer = isReadableTemporalValue("datetime", stored)
+								? stored
+								: state.androidPickerDatetime;
+							if (pickerAnswer !== undefined && !editingClock)
+								lastPickerAnswer.current = pickerAnswer;
+							const blank = next.trim() === "";
+							setBlankClockDraft(blank);
+							if (blank) {
+								// Erasing the browser text does not operate Android's
+								// Clear action. Discard any incomplete clock text and
+								// keep the last complete answer for screen exit.
+								if (editingClock && lastPickerAnswer.current !== undefined)
+									onChange(lastPickerAnswer.current);
+								return;
+							}
+						}
 						onChange(
 							next === "" && datePart === "" ? "" : `${datePart}T${next}`,
-						)
-					}
+						);
+					}}
 					onBlur={(text) => {
-						commit(datePart, text);
+						// Merely focusing and leaving the displayed clock keeps the
+						// suggested answer local until the worker leaves this screen.
+						if (
+							(clearable || text.trim() !== "") &&
+							(editingClock ||
+								state.androidPickerDatetime === undefined ||
+								text !== (formatClockTime(timePart) ?? timePart))
+						)
+							commit(datePart, text);
 						onBlur();
 					}}
 					aria-label={runtimeMessage(language, "timeLabel")}

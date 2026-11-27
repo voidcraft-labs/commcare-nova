@@ -93,6 +93,7 @@ import {
 	isAnsweredDefault,
 	isFormAnswer,
 } from "../answeredCondition";
+import { comparesNumericallyOrderedSearchText } from "../comparisonModel";
 import {
 	predicateEditContextFrom,
 	usePredicateEditContext,
@@ -446,6 +447,15 @@ export function buildComparison(
 				`Comparison transition produced '${preserved.kind}' instead of '${kind}'.`,
 			);
 		}
+		if (
+			comparesNumericallyOrderedSearchText(
+				ctx,
+				kind,
+				preserved.left,
+				preserved.right,
+			)
+		)
+			return COMPARISON_BUILDERS[kind](preserved.left, preserved.right);
 		const accepts = comparisonObjectTypesFor(
 			kind,
 			resolveExpressionType(preserved.left, ctx),
@@ -1067,8 +1077,12 @@ export function verbEntryAdmitted(
 	const applicable =
 		(VERB_ENTRIES.includes(entry) && subject !== undefined) ||
 		predicateCardSchemas[entry.schemaKind].applicable(editCtx);
-	const subjectAdmitted =
-		entry.subjectGate === undefined || entry.subjectGate(subjectType, subject);
+	const subjectAdmitted = verbSubjectAdmitted(
+		entry,
+		value,
+		subjectType,
+		editCtx,
+	);
 	const runtimeAdmitted =
 		entry.contextGate === undefined || entry.contextGate(editCtx);
 	const carryAdmitted =
@@ -1082,6 +1096,29 @@ export function verbEntryAdmitted(
 			entry.build(value, editCtx),
 			editCtx.expressionContext,
 		).ok
+	);
+}
+
+function verbSubjectAdmitted(
+	entry: VerbEntry,
+	value: Expression,
+	subjectType: ScalarType | undefined,
+	ctx: PredicateEditContext,
+): boolean {
+	const subject = subjectOf(value);
+	return (
+		entry.subjectGate === undefined ||
+		entry.subjectGate(subjectType, subject) ||
+		((entry.id === "gt" ||
+			entry.id === "lt" ||
+			entry.id === "gte" ||
+			entry.id === "lte") &&
+			comparesNumericallyOrderedSearchText(
+				ctx,
+				entry.id,
+				subject,
+				objectOf(value),
+			))
 	);
 }
 
@@ -1194,9 +1231,12 @@ export function PredicateVerbMenu({
 		const admitted = localAdmission && (wholeAdmission?.admitted ?? true);
 		// Re-derive the gate pieces only to phrase the disabled reason.
 		const subject = subjectOf(value);
-		const subjectAdmitted =
-			entry.subjectGate === undefined ||
-			entry.subjectGate(subjectType, subject);
+		const subjectAdmitted = verbSubjectAdmitted(
+			entry,
+			value,
+			subjectType,
+			editCtx,
+		);
 		const applicable =
 			(VERB_ENTRIES.includes(entry) && subject !== undefined) ||
 			predicateCardSchemas[entry.schemaKind].applicable(editCtx);

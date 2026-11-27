@@ -83,6 +83,7 @@ const CORE_TYPE_BY_BIND: Readonly<Record<FieldBindType, CoreAnswerType>> = {
 	"xsd:dateTime": "datetime",
 	geopoint: "geopoint",
 	barcode: "untyped",
+	intent: "untyped",
 	binary: "untyped",
 };
 

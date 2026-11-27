@@ -8,6 +8,7 @@
 			"SYNC_SEARCH_CASE_CLAIM"
 		],
 		"namedPrivileges": [
+			"GEOCODER",
 			"LOOKUP_TABLES"
 		],
 		"commcareVersion": "2.57.0",
@@ -17,10 +18,13 @@
 	},
 	"declaration": "preselected",
 	"exhibits": [
+		"case-search/address-picker-on-a-search-screen",
+		"case-search/address-receiver-with-an-unused-suffix",
 		"case-search/appearance-barcode-scan",
 		"case-search/case-list-filter-clause-the-search-does-not-restate",
 		"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
 		"case-search/date-prompt-matched-by-hq-s-own-rule",
+		"case-search/default-filter-orders-the-records-the-search-sends",
 		"case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
 		"case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
 		"case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project",

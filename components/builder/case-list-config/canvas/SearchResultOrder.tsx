@@ -8,7 +8,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
-import type { SearchRequestOrder } from "@/lib/domain/modules";
+import type { SearchFilterOrder } from "@/lib/domain/modules";
 
 interface Option {
 	value: string;
@@ -54,6 +54,10 @@ const comparisons = [
 	{ value: "number", label: "Number" },
 	{ value: "date", label: "Date" },
 ] as const;
+const fallbackComparison = {
+	value: "indexed-fallback",
+	label: "Numbers, dates, then text",
+} as const;
 const directions = [
 	{ value: "ascending", label: "Ascending" },
 	{ value: "descending", label: "Descending" },
@@ -64,33 +68,65 @@ const directions = [
 export function SearchResultOrder({
 	order,
 	properties,
+	fallbackProperties = [],
 	onChange,
 }: {
-	order: SearchRequestOrder;
+	order: SearchFilterOrder;
 	properties: readonly Option[];
-	onChange: (next: SearchRequestOrder) => void;
+	fallbackProperties?: readonly string[];
+	onChange: (next: SearchFilterOrder) => void;
 }) {
+	const mixed = order.find(
+		(term) =>
+			term.comparison === "indexed-fallback" && term.savedSuffix === "obsolete",
+	);
+	if (mixed)
+		return (
+			<p className="text-xs text-nova-text-secondary">
+				The saved index fallback orders by {mixed.property} and replaces the
+				earlier order in this filter.
+			</p>
+		);
+	const saved = order.find((term) => term.comparison === "discarded");
+	if (saved)
+		return (
+			<p className="text-xs text-nova-text-secondary">
+				A later index fallback replaces the saved order on {saved.property}.
+			</p>
+		);
 	return (
 		<div className="space-y-2">
 			{order.map((item, index) => {
-				const options = properties.some(
+				if (item.comparison === "discarded") return null;
+				const fallback = item.comparison === "indexed-fallback";
+				const eligible =
+					order.length === 1 && fallbackProperties.includes(item.property);
+				const propertyChoices = fallback
+					? properties.filter((option) =>
+							fallbackProperties.includes(option.value),
+						)
+					: properties;
+				const options = propertyChoices.some(
 					(option) => option.value === item.property,
 				)
-					? properties
-					: [...properties, { value: item.property, label: item.property }];
+					? propertyChoices
+					: [
+							...propertyChoices,
+							{ value: item.property, label: item.property },
+						];
 				// A patch names the flags a choice clears as `undefined`; the term
 				// drops them, since a saved batch carries no `undefined` value.
-				const change = (patch: Partial<typeof item>) =>
+				const change = (next: SearchFilterOrder[number]) =>
 					onChange(
 						order.map((existing, position) =>
 							position === index
 								? (Object.fromEntries(
-										Object.entries({ ...existing, ...patch }).filter(
+										Object.entries(next).filter(
 											([, value]) => value !== undefined,
 										),
-									) as typeof item)
+									) as typeof next)
 								: existing,
-						) as SearchRequestOrder,
+						),
 					);
 				return (
 					<div
@@ -104,39 +140,64 @@ export function SearchResultOrder({
 							value={item.property}
 							options={options}
 							onChange={(property) =>
-								change({ property, recordName: undefined })
+								change(
+									fallback
+										? { ...item, property }
+										: { ...item, property, recordName: undefined },
+								)
 							}
 						/>
 						<Choice
 							label={`Compare property ${index + 1} as`}
 							value={item.comparison}
-							options={comparisons}
+							options={
+								fallback || eligible
+									? [...comparisons, fallbackComparison]
+									: comparisons
+							}
 							onChange={(value) => {
+								if (value === "indexed-fallback") {
+									change({
+										property: item.property,
+										comparison: value,
+										direction: "ascending",
+									});
+									return;
+								}
 								const choice = comparisons.find(
 									(option) => option.value === value,
 								);
 								if (choice)
 									change({
+										...item,
 										comparison: choice.value,
 										implicitComparison: undefined,
 									});
 							}}
 						/>
-						<Choice
-							label={`Direction for property ${index + 1}`}
-							value={item.direction}
-							options={directions}
-							onChange={(value) => {
-								const choice = directions.find(
-									(option) => option.value === value,
-								);
-								if (choice)
-									change({
-										direction: choice.value,
-										implicitDirection: undefined,
-									});
-							}}
-						/>
+						{fallback ? (
+							<p className="text-xs text-nova-text-secondary">
+								Ascending, with missing values last. Replaces earlier order
+								filters.
+							</p>
+						) : (
+							<Choice
+								label={`Direction for property ${index + 1}`}
+								value={item.direction}
+								options={directions}
+								onChange={(value) => {
+									const choice = directions.find(
+										(option) => option.value === value,
+									);
+									if (choice)
+										change({
+											...item,
+											direction: choice.value,
+											implicitDirection: undefined,
+										});
+								}}
+							/>
+						)}
 						{index > 0 && (
 							<Button
 								variant="ghost"
@@ -145,7 +206,7 @@ export function SearchResultOrder({
 									const next = [...order];
 									next.splice(index, 1);
 									next.splice(index - 1, 0, item);
-									onChange(next as SearchRequestOrder);
+									onChange(next);
 								}}
 							>
 								Move earlier
@@ -155,11 +216,7 @@ export function SearchResultOrder({
 							variant="ghost"
 							type="button"
 							onClick={() =>
-								onChange(
-									order.filter(
-										(_, position) => position !== index,
-									) as SearchRequestOrder,
-								)
+								onChange(order.filter((_, position) => position !== index))
 							}
 						>
 							Remove property
@@ -167,22 +224,24 @@ export function SearchResultOrder({
 					</div>
 				);
 			})}
-			<Button
-				variant="outline"
-				type="button"
-				onClick={() =>
-					onChange([
-						...order,
-						{
-							property: properties[0]?.value ?? "case_name",
-							comparison: "text",
-							direction: "ascending",
-						},
-					])
-				}
-			>
-				{order.length > 0 ? "Add tie-breaker" : "Choose order"}
-			</Button>
+			{!order.some((term) => term.comparison === "indexed-fallback") && (
+				<Button
+					variant="outline"
+					type="button"
+					onClick={() =>
+						onChange([
+							...order,
+							{
+								property: properties[0]?.value ?? "case_name",
+								comparison: "text",
+								direction: "ascending",
+							},
+						])
+					}
+				>
+					{order.length > 0 ? "Add tie-breaker" : "Choose order"}
+				</Button>
+			)}
 		</div>
 	);
 }

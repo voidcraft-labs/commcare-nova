@@ -7,6 +7,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { menuEmittedAdvanced } from "@/lib/domain/advancedEntryDatums";
+import { authoredBoundedFlatSelection } from "@/lib/domain/boundedFlatClose";
 import { caseListRegistrationAdmission } from "../caseListRegistration";
 import { readCases } from "../engine/caseDataBindingHelpers";
 import { searchOutcomeFromLoad } from "../engine/searchPhase";
@@ -119,10 +120,18 @@ export async function appTestRecords(
 	scope: AppTestScope,
 	state: AppTestSessionState,
 	answers?: readonly { name: string; value: string }[],
+	automaticMaximum?: number,
 ) {
 	const prepared = await prepareAppTestRecords(context, scope, state, answers);
 	const { state: next, search, searched, read, refusal } = prepared;
 	const screen = next.screen;
+	const boundedFlatClose =
+		!screen.formEntry &&
+		!!authoredBoundedFlatSelection(
+			context.doc,
+			screen.moduleUuid,
+			context.doc.formOrder[screen.moduleUuid]?.[0],
+		);
 	const result =
 		refusal !== undefined
 			? ({
@@ -135,7 +144,13 @@ export async function appTestRecords(
 				: await readingSurface("list", () =>
 						readCases(context.store, {
 							...read,
-							page: { offset: screen.offset ?? 0, limit: 50 },
+							...(automaticMaximum === undefined
+								? { page: { offset: screen.offset ?? 0, limit: 50 } }
+								: {
+										datumOrder: true,
+										automaticMaximum,
+										...(boundedFlatClose && { boundedFlatClose: true }),
+									}),
 						}),
 					);
 	const candidateUuid = afterEmptySearchRegistrationFormOf(

@@ -46,7 +46,7 @@ import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerExclamationCircle from "@iconify-icons/tabler/exclamation-circle";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerWand from "@iconify-icons/tabler/wand";
-import { type RefObject, useMemo, useRef, useState } from "react";
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import {
 	type SearchableChoice,
 	SearchableChoiceCombobox,
@@ -112,10 +112,12 @@ import {
 	isSelectSearchInputType,
 	type LookupOptionsSource,
 	multiSelectSearchInputRefusal,
+	SEARCH_ADDRESS_PARTS,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	SEARCH_INPUT_TYPES,
 	SEARCH_MODE_PROPERTY_TYPES,
+	type SearchAddressReceiver,
 	type SearchInputDef,
 	type SearchInputMode,
 	type SearchInputRequired,
@@ -142,6 +144,8 @@ import {
 import { languageDisplayLabel } from "@/lib/domain/languageRegistry";
 import {
 	hiddenSearchFieldRefusal,
+	parentPathSearchRequestKey,
+	parentPathSearchSettingsFit,
 	projectSpaceMatchingFits,
 	searchForBlankRefusal,
 	takesMultipleSearchChoices,
@@ -224,6 +228,11 @@ export interface SearchInputEditorProps {
 	/** Opens one of this field's conditions in the center-canvas workbench:
 	 *  the custom match, the required condition, or the check rule. */
 	readonly onEditCondition: (slot: SearchConditionSlot) => void;
+	readonly addressRemovalReview?: {
+		readonly sourceLabel: string;
+		readonly token: number;
+		readonly onReturn: () => void;
+	};
 }
 
 /** Placeholder a fresh check carries until the author writes the real one. */
@@ -336,6 +345,34 @@ export function SearchInputEditor(props: SearchInputEditorProps) {
 			</div>
 		);
 	}
+	if (props.value.kind === "address") {
+		const input = props.value;
+		return (
+			<div className="space-y-5">
+				{props.moduleUuid && <ControlWording owner={input.uuid} />}
+				<FieldRow label="Label">
+					<BlurCommitTextInput
+						value={input.label}
+						onCommit={(label) => props.onChange({ ...input, label })}
+						ariaLabel="Address search label"
+					/>
+				</FieldRow>
+				<FieldRow label="Hint">
+					<BlurCommitTextInput
+						value={input.hint ?? ""}
+						onCommit={(hint) =>
+							props.onChange({ ...input, hint: hint.trim() || undefined })
+						}
+						ariaLabel="Address search hint"
+					/>
+				</FieldRow>
+				<SearchInputPlatformNotes
+					moduleUuid={props.moduleUuid}
+					inputUuid={input.uuid}
+				/>
+			</div>
+		);
+	}
 	return <VisibleSearchInputEditor {...props} value={props.value} />;
 }
 
@@ -344,7 +381,180 @@ interface VisibleSearchInputEditorProps
 	readonly value: VisibleSearchInputDef;
 }
 
+function AddressFillSetting({
+	inputs,
+	receiver,
+	onChange,
+	review,
+}: {
+	readonly inputs: readonly SearchInputDef[];
+	readonly receiver: SearchAddressReceiver | undefined;
+	readonly onChange: (receiver: SearchAddressReceiver | undefined) => void;
+	readonly review?: SearchInputEditorProps["addressRemovalReview"];
+}) {
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const reviewToken = review?.token;
+	useEffect(() => {
+		if (reviewToken === undefined) return;
+		const frame = requestAnimationFrame(() => triggerRef.current?.focus());
+		return () => cancelAnimationFrame(frame);
+	}, [reviewToken]);
+	const addresses = inputs.filter((input) => input.kind === "address");
+	if (addresses.length === 0 && receiver === undefined && review === undefined)
+		return null;
+	const linked = receiver?.kind === "address" ? receiver : undefined;
+	const clearing = receiver?.kind === "address-clear" ? receiver : undefined;
+	const source = addresses.find(
+		(input) => input.uuid === (linked?.source ?? clearing?.source),
+	);
+	const label = source?.label || source?.name;
+	const savedTopic =
+		receiver?.kind === "unsubscribed" || receiver?.kind === "unsubscribed-topic"
+			? receiver.topic
+			: undefined;
+	return (
+		<FieldRow
+			label="Fill from an address"
+			hint={
+				clearing
+					? "Picking or clearing this address clears the answer in Web Apps."
+					: savedTopic === undefined
+						? "Workers can still edit the answer in Web Apps."
+						: "This saved topic has no address field to fill the answer. You can choose a field below."
+			}
+		>
+			{review && (
+				<p className="text-[12px] text-nova-text-muted">
+					Choose No address field or another address field to remove the link to{" "}
+					{review.sourceLabel}.
+				</p>
+			)}
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					ref={triggerRef}
+					render={<Button type="button" variant="outline" />}
+				>
+					{label ?? savedTopic ?? "No address field"}
+				</DropdownMenuTrigger>
+				<DropdownMenuContent>
+					<DropdownMenuRadioGroup
+						value={source?.uuid ?? savedTopic ?? ""}
+						onValueChange={(choice) => {
+							const selected = addresses.find((input) => input.uuid === choice);
+							onChange(
+								selected === undefined
+									? undefined
+									: clearing
+										? { ...clearing, source: selected.uuid }
+										: {
+												kind: "address",
+												source: selected.uuid,
+												parts: linked?.parts ?? ["city"],
+											},
+							);
+						}}
+					>
+						<DropdownMenuRadioItem value="" closeOnClick>
+							No address field
+						</DropdownMenuRadioItem>
+						{addresses.map((input) => (
+							<DropdownMenuRadioItem
+								key={input.uuid}
+								value={input.uuid}
+								closeOnClick
+							>
+								{input.label || input.name}
+							</DropdownMenuRadioItem>
+						))}
+					</DropdownMenuRadioGroup>
+				</DropdownMenuContent>
+			</DropdownMenu>
+			{review && (
+				<Button
+					type="button"
+					variant="outline"
+					className="h-auto min-h-11 whitespace-normal break-words"
+					onClick={review.onReturn}
+				>
+					Back to {review.sourceLabel} search field
+				</Button>
+			)}
+			{linked?.parts.map((part, index) => (
+				<DropdownMenu key={part}>
+					<DropdownMenuTrigger
+						render={<Button type="button" variant="outline" />}
+					>
+						{index === 0 ? "Address part" : "If unavailable"} ·{" "}
+						{part.replaceAll("_", " ")}
+					</DropdownMenuTrigger>
+					<DropdownMenuContent>
+						<DropdownMenuRadioGroup
+							value={part}
+							onValueChange={(choice) => {
+								const selected = SEARCH_ADDRESS_PARTS.find(
+									(value) => value === choice,
+								);
+								const parts =
+									selected === undefined
+										? linked.parts.filter((_, position) => position !== index)
+										: linked.parts.map((value, position) =>
+												position === index ? selected : value,
+											);
+								if (parts.length > 0) onChange({ ...linked, parts });
+							}}
+						>
+							{index > 0 && (
+								<DropdownMenuRadioItem value="">
+									Remove fallback
+								</DropdownMenuRadioItem>
+							)}
+							{SEARCH_ADDRESS_PARTS.filter(
+								(candidate) =>
+									candidate === part || !linked.parts.includes(candidate),
+							).map((value) => (
+								<DropdownMenuRadioItem key={value} value={value}>
+									{value.replaceAll("_", " ")}
+								</DropdownMenuRadioItem>
+							))}
+						</DropdownMenuRadioGroup>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			))}
+			{linked && linked.parts.length < SEARCH_ADDRESS_PARTS.length && (
+				<DropdownMenu>
+					<DropdownMenuTrigger
+						render={<Button type="button" variant="ghost" />}
+					>
+						Add fallback
+					</DropdownMenuTrigger>
+					<DropdownMenuContent>
+						<DropdownMenuRadioGroup
+							value=""
+							onValueChange={(choice) => {
+								const part = SEARCH_ADDRESS_PARTS.find(
+									(value) => value === choice,
+								);
+								if (part !== undefined)
+									onChange({ ...linked, parts: [...linked.parts, part] });
+							}}
+						>
+							{SEARCH_ADDRESS_PARTS.filter(
+								(value) => !linked.parts.includes(value),
+							).map((value) => (
+								<DropdownMenuRadioItem key={value} value={value}>
+									{value.replaceAll("_", " ")}
+								</DropdownMenuRadioItem>
+							))}
+						</DropdownMenuRadioGroup>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			)}
+		</FieldRow>
+	);
+}
+
 function VisibleSearchInputEditor({
+	addressRemovalReview,
 	moduleUuid,
 	value,
 	index,
@@ -370,6 +580,11 @@ function VisibleSearchInputEditor({
 	const typeTriggerRef = useRef<HTMLButtonElement>(null);
 	const matchTriggerRef = useRef<HTMLButtonElement>(null);
 	const projectProse = useProseProjection();
+	const parentKey = parentPathSearchRequestKey(value);
+	const parentCandidate =
+		value.kind === "simple"
+			? parentPathSearchRequestKey({ ...value, matching: "project-space" })
+			: undefined;
 	const transitionFocusRef = useRef<TransitionFocus>("type");
 	const resolved: ResolvedRow = useMemo(() => {
 		const rows = resolveRows(
@@ -506,9 +721,7 @@ function VisibleSearchInputEditor({
 			currentDefault !== undefined &&
 			nextDefault === undefined &&
 			expressionHasMeaningfulContent(currentDefault);
-		const choicesRemoved =
-			searchInputOptions(value) !== undefined &&
-			searchInputOptions(next) === undefined;
+		const choicesRemoved = "options" in value && !("options" in next);
 		const hiddenRemoved = value.hidden === true && next.hidden !== true;
 		if (
 			!modeChanged &&
@@ -784,6 +997,7 @@ function VisibleSearchInputEditor({
 	};
 
 	const toCustomCondition = () => {
+		if (value.kind === "parameter") return;
 		if (value.kind === "advanced") {
 			onEditCondition("match");
 			return;
@@ -969,6 +1183,22 @@ function VisibleSearchInputEditor({
 					</FieldRow>
 				)}
 
+				{parentKey === undefined &&
+					value.hidden !== true &&
+					(value.type === "text" || value.type === "multi-select") && (
+						<AddressFillSetting
+							inputs={siblings}
+							receiver={value.addressReceiver}
+							review={addressRemovalReview}
+							onChange={(addressReceiver) => {
+								const { addressReceiver: _previous, ...input } = value;
+								onChange({
+									...input,
+									...(addressReceiver === undefined ? {} : { addressReceiver }),
+								});
+							}}
+						/>
+					)}
 				{value.kind === "simple" && (
 					<FieldRow label="Case information">
 						<BindingPicker
@@ -1033,72 +1263,99 @@ function VisibleSearchInputEditor({
 					<FieldRow
 						label="Choices"
 						hint={
-							takesMultipleSearchChoices(value.type)
-								? "People tick any that apply, and a case matches when it holds one of them"
-								: "People pick one, and a case matches when it holds that value"
+							value.kind === "parameter"
+								? "The project space uses the selected values to find matches"
+								: takesMultipleSearchChoices(value.type)
+									? "People tick any that apply, and a case matches when it holds one of them"
+									: "People pick one, and a case matches when it holds that value"
 						}
 					>
-						<SearchChoiceSourceEditor
-							slot={inputSlot("search_input_options")}
-							candidateForSource={(options) => rebuildRow(value, { options })}
-							value={searchInputOptions(value)}
-							caseTypes={caseTypes}
-							userProperties={userProperties}
-							rowIndex={index}
-							onCommit={setOptions}
-						/>
+						{"options" in value &&
+						value.options.kind === "restored-case-names" ? (
+							<p className="text-sm text-muted-foreground">
+								Open {value.options.caseType} records on the worker’s device
+							</p>
+						) : (
+							<SearchChoiceSourceEditor
+								slot={inputSlot("search_input_options")}
+								candidateForSource={(options) => rebuildRow(value, { options })}
+								value={searchInputOptions(value)}
+								caseTypes={caseTypes}
+								userProperties={userProperties}
+								rowIndex={index}
+								onCommit={setOptions}
+							/>
+						)}
 					</FieldRow>
 				) : null}
 
-				<FieldRow
-					label="How it matches"
-					hint={
-						value.kind === "advanced"
-							? "The condition below decides which cases match"
-							: SEARCH_MODE_DESCRIPTIONS[effectiveModeKind(value)]
-					}
-				>
-					<MatchPicker
-						value={value}
-						candidateRefusal={(kind) =>
-							value.kind === "simple"
-								? searchFieldCandidateRefusal(
-										modeCandidate(value, kind),
-										propertyDataType,
-									)
-								: undefined
-						}
-						customRefusal={
-							value.kind === "simple" && value.hidden === true
-								? hiddenSearchFieldRefusal({
-										...value,
-										kind: "advanced",
-										predicate: { kind: "match-all" },
-									} as VisibleSearchInputDef)
-								: undefined
-						}
-						invalid={resolved.typeCouplingErrors.length > 0}
-						rowIndex={index}
-						triggerRef={matchTriggerRef}
-						onPickMode={
-							value.kind === "simple" ? setModeKind : requestStandardMode
-						}
-						onPickCustom={toCustomCondition}
+				{value.kind === "parameter" ? (
+					<ToggleRow
+						label="Send this answer"
+						description="The project space receives the answer under this field’s name. With this off, other named values can still use the answer."
+						checked={value.sendAnswer}
+						onChange={(sendAnswer) => onChange({ ...value, sendAnswer })}
 					/>
-				</FieldRow>
+				) : (
+					<FieldRow
+						label="How it matches"
+						hint={
+							value.kind === "advanced"
+								? "The condition below decides which cases match"
+								: SEARCH_MODE_DESCRIPTIONS[effectiveModeKind(value)]
+						}
+					>
+						<MatchPicker
+							value={value}
+							candidateRefusal={(kind) =>
+								value.kind === "simple"
+									? searchFieldCandidateRefusal(
+											modeCandidate(value, kind),
+											propertyDataType,
+										)
+									: undefined
+							}
+							customRefusal={
+								value.kind === "simple" && value.hidden === true
+									? hiddenSearchFieldRefusal({
+											...value,
+											kind: "advanced",
+											predicate: { kind: "match-all" },
+										})
+									: undefined
+							}
+							invalid={resolved.typeCouplingErrors.length > 0}
+							rowIndex={index}
+							triggerRef={matchTriggerRef}
+							onPickMode={
+								value.kind === "simple" ? setModeKind : requestStandardMode
+							}
+							onPickCustom={toCustomCondition}
+						/>
+					</FieldRow>
+				)}
 
-				{/* Offered wherever the gate admits it (`projectSpaceMatchingFits`):
-				    a field over its own property, under that property's name,
-				    matched exactly or by a date range. With it on, the widget and
-				    the match need not fit the property's type. */}
+				{/* Match directly by the field’s property key or a typed parent path. */}
 				{value.kind === "simple" &&
 					projectSpaceMatchingFits(value) &&
 					(effectiveModeKind(value) === "exact" ||
 						value.type === "date-range") && (
 						<ToggleRow
 							label="Use project space matching"
-							description="Send the answer to the project space using this field’s name."
+							description={
+								parentCandidate === undefined
+									? "Send the answer to the project space using this field’s name."
+									: parentCandidate.startsWith("parent/parent/")
+										? "Match the answer against the information on the grandparent case."
+										: "Match the answer against the information on the parent case."
+							}
 							checked={value.matching === "project-space"}
+							disabledReason={
+								parentCandidate !== undefined &&
+								!parentPathSearchSettingsFit(value)
+									? "Use a label with no starting value, checks or address filling."
+									: undefined
+							}
 							onChange={(enabled) =>
 								onChange(
 									rebuildRow(value, {
@@ -1121,7 +1378,11 @@ function VisibleSearchInputEditor({
 						)
 					}
 					disabledReason={
-						value.hidden === true ? undefined : hiddenSearchFieldRefusal(value)
+						parentKey !== undefined
+							? "A parent Search field stays visible."
+							: value.hidden === true
+								? undefined
+								: hiddenSearchFieldRefusal(value)
 					}
 				/>
 
@@ -1172,49 +1433,53 @@ function VisibleSearchInputEditor({
 
 				<InlineError errors={resolved.typeCouplingErrors} />
 
-				<DefaultValueSlot
-					slot={inputSlot("search_input_default")}
-					candidate={value}
-					value={searchInputDefault(value)}
-					inputType={value.type}
-					caseTypes={caseTypes}
-					currentCaseType={currentCaseType}
-					userProperties={userProperties}
-					rowIndex={index}
-					onChange={setDefault}
-				/>
-
-				{(value.hidden !== true || value.required !== undefined) && (
-					<RequiredSlot
-						expressionContext={requiredContext}
-						value={value.required}
+				{parentKey === undefined && (
+					<DefaultValueSlot
+						slot={inputSlot("search_input_default")}
+						candidate={value}
+						value={searchInputDefault(value)}
+						inputType={value.type}
+						caseTypes={caseTypes}
+						currentCaseType={currentCaseType}
+						userProperties={userProperties}
 						rowIndex={index}
-						summaryContext={{
-							caseTypes,
-							currentCaseType,
-							knownInputs,
-							projectProse,
-						}}
-						onChange={setRequired}
-						onEditCondition={() => onEditCondition("required")}
+						onChange={setDefault}
 					/>
 				)}
 
-				{(value.hidden !== true || value.validation !== undefined) && (
-					<CheckSlot
-						expressionContext={validationContext}
-						value={value.validation}
-						rowIndex={index}
-						summaryContext={{
-							caseTypes,
-							currentCaseType,
-							knownInputs,
-							projectProse,
-						}}
-						onChange={setValidation}
-						onEditRule={() => onEditCondition("validation")}
-					/>
-				)}
+				{parentKey === undefined &&
+					(value.hidden !== true || value.required !== undefined) && (
+						<RequiredSlot
+							expressionContext={requiredContext}
+							value={value.required}
+							rowIndex={index}
+							summaryContext={{
+								caseTypes,
+								currentCaseType,
+								knownInputs,
+								projectProse,
+							}}
+							onChange={setRequired}
+							onEditCondition={() => onEditCondition("required")}
+						/>
+					)}
+
+				{parentKey === undefined &&
+					(value.hidden !== true || value.validation !== undefined) && (
+						<CheckSlot
+							expressionContext={validationContext}
+							value={value.validation}
+							rowIndex={index}
+							summaryContext={{
+								caseTypes,
+								currentCaseType,
+								knownInputs,
+								projectProse,
+							}}
+							onChange={setValidation}
+							onEditRule={() => onEditCondition("validation")}
+						/>
+					)}
 
 				<SearchInputPlatformNotes
 					moduleUuid={moduleUuid}
@@ -1223,13 +1488,25 @@ function VisibleSearchInputEditor({
 
 				<AdvancedInputSettings active={resolved.nameState.kind !== "ok"}>
 					<FieldRow
-						label="Name used in other conditions"
-						hint="A unique name for this search answer"
+						label={
+							parentKey === undefined
+								? "Name used in other conditions"
+								: "Field name"
+						}
+						hint={
+							parentKey === undefined
+								? "A unique name for this search answer"
+								: "Changing this name keeps the parent property the field searches."
+						}
 					>
 						<BlurCommitTextInput
 							value={value.name}
 							onCommit={setName}
-							ariaLabel={`Search field ${index + 1} name used in other conditions`}
+							ariaLabel={
+								parentKey === undefined
+									? `Search field ${index + 1} name used in other conditions`
+									: `Search field ${index + 1} name`
+							}
 						/>
 						{nameRefusal !== null && <InlineError errors={[nameRefusal]} />}
 						{resolved.nameState.kind === "empty" && (
@@ -1832,9 +2109,20 @@ function BindingPicker({
 					destinationProperties,
 					projectProse,
 				);
+	const parentDepth =
+		row.via?.kind === "ancestor" &&
+		parentPathSearchRequestKey(row) !== undefined
+			? row.via.via.length
+			: 0;
+	const linkedSource =
+		parentDepth === 3
+			? "Great-grandparent case"
+			: parentDepth === 2
+				? "Grandparent case"
+				: "Linked case";
 	const sourceLabel =
 		scope === "custom"
-			? "Linked case"
+			? linkedSource
 			: scope === "parent"
 				? "Parent case"
 				: "This case";
@@ -2093,7 +2381,13 @@ function rebuildRow(
 	const allowBlank =
 		"allowBlank" in patch ? patch.allowBlank : value.allowBlank;
 	const hidden = "hidden" in patch ? patch.hidden : value.hidden;
+	const addressReceiver =
+		hidden !== true &&
+		(type === "text" || type === "select" || type === "multi-select")
+			? value.addressReceiver
+			: undefined;
 	const visible = {
+		...(addressReceiver === undefined ? {} : { addressReceiver }),
 		...(hint === undefined ? {} : { hint }),
 		...(required === undefined ? {} : { required }),
 		...(validation === undefined ? {} : { validation }),
@@ -2101,6 +2395,28 @@ function rebuildRow(
 		...(hidden === true && { hidden }),
 	};
 	const dflt = "default" in patch ? patch.default : searchInputDefault(value);
+	if (
+		value.type === "select" &&
+		"options" in value &&
+		value.options.kind === "restored-case-names" &&
+		type === "select" &&
+		patch.options === undefined
+	) {
+		const retained = { ...value, name, label, ...visible, default: dflt };
+		for (const slot of [
+			"hint",
+			"required",
+			"validation",
+			"allowBlank",
+			"hidden",
+			"addressReceiver",
+		] as const)
+			if (!(slot in visible)) delete retained[slot];
+		return value.kind === "simple" && retained.kind === "simple"
+			? { ...retained, property: patch.property ?? value.property }
+			: retained;
+	}
+
 	// A choice widget's list rides along whenever the target is still a choice
 	// widget; every other widget drops it. The type picker stages a choice
 	// widget until a list exists, so a select without options never reaches here.
@@ -2111,6 +2427,22 @@ function rebuildRow(
 		throw new Error(
 			"A choice search field cannot be rebuilt without its lookup source.",
 		);
+	}
+	if (value.kind === "parameter") {
+		const common = {
+			uuid: value.uuid,
+			kind: "parameter" as const,
+			name,
+			label,
+			sendAnswer: value.sendAnswer,
+			...visible,
+		};
+		if (type === "date-range") return { ...common, type };
+		if (isSelectSearchInputType(type)) {
+			if (!options) throw new Error("A choice field needs a table of choices.");
+			return { ...common, type, options, ...(dflt && { default: dflt }) };
+		}
+		return { ...common, type, ...(dflt && { default: dflt }) };
 	}
 	if (value.kind === "simple") {
 		const property = patch.property ?? value.property;

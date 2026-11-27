@@ -334,7 +334,14 @@ harness keeps, each with its reason.
   from its stored document (`proof/hq/operations.py::save_authored_app`,
   `Application.from_source` and `save_attachments`) and never through Nova's
   import. Its case database is seeded from A alone (`proof/matrix/seed.py`),
-  so a reader that drops something cannot empty both walks. What a person
+  so a reader that drops something cannot empty both walks. A base that uses
+  a project search retains its synthetic active service in `project-searches.json`
+  beside the app. HQ recreates the service on the original project space. For
+  its ProjectDB provider the lane owns a separate database and domain SQL role,
+  pools their real connections before a unit opens, and populates the service's
+  visit table with the cases that walk is given. Formplayer's request executes
+  through HQ's service, and the worker's submitted instance identifies the case
+  they claimed and updated. What a person
   writes about a base (`proof/matrix/hand/`) is written from A's authored
   meaning, never from a reading. A retained base is written only by
   `python3 -m proof.matrix.adopt` over every output of a run, never deleted
@@ -608,10 +615,12 @@ harness keeps, each with its reason.
   proof.lane.gate <output> --documents <id>,<id>`; `proof/README.md`,
   "Seeing a reader's verdict before a merge"). A test that starts a served
   reader is marked `reader`, by its fixture or by hand, and the readers-off
-  run refuses one left unmarked. A shard's checkout holds `proof/`,
-  `lib/commcare/surface/` and its two actions, with no `node_modules`, so a
-  lane test reads nothing else of the repository: one that does passes on a
-  proof machine, which copies the whole tree, and fails on every shard. What
+  run refuses one left unmarked. A shard's container sees `proof/`,
+  `lib/commcare/surface/`, the two XML name-range JSON files used by the
+  manifest and Advanced editor checks, and the dependency pins, with no
+  installed `node_modules`. The shard's checkout also holds its own actions.
+  A local proof copies the whole tree. The hosted view limits what a lane
+  test can read from the repository. What
   the lane's code and a workflow must say alike is tested on the vitest
   side, where the checkout is whole (`proof/ci/__tests__/`). Hosted jobs have
   four vCPUs and 16 GiB: the served-reader profile runs two workers (about

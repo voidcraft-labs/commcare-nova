@@ -41,12 +41,16 @@ import {
 	ancestorPath,
 	count,
 	type Expression,
+	eq,
 	isRelationPath,
+	literal,
+	prop,
 	type RelationPath,
 	relationStep,
 	selfPath,
 	subcasePath,
 } from "@/lib/domain/expression";
+import { restoredCasePropertyMatch } from "@/lib/domain/expression/ruleSets";
 import { expressionRowScope } from "@/lib/domain/expression/typeChecker";
 import {
 	CONDITION_SEED_UNAVAILABLE_REASON,
@@ -59,6 +63,7 @@ import {
 } from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendKind, appendKindSlot, type EditorPath } from "../../path";
+import { BlurCommitTextInput } from "../../primitives/BlurCommitTextInput";
 import { InlineError } from "../../primitives/CardShell";
 import { RelationPathBuilder } from "../../primitives/RelationPathBuilder";
 import {
@@ -81,7 +86,26 @@ function menuCountSources(
 	].includes(slot);
 }
 
+function deviceCaseCountAvailable(
+	ctx: Pick<ExpressionEditContext, "expressionContext">,
+) {
+	return (
+		ctx.expressionContext.slot.slot === "search_button_display_condition" ||
+		(menuCountSources(ctx) && ctx.expressionContext.profile.caseData)
+	);
+}
+
+function typeRows(caseType: string): ExpressionOfKind<"cases"> {
+	return {
+		kind: "cases",
+		source: "casedb",
+		where: [eq({ kind: "case-row-type" }, { kind: "case-type", caseType })],
+	};
+}
+
 export function hasCountableRelation(ctx: ExpressionEditContext): boolean {
+	if (ctx.expressionContext.slot.slot === "search_input_required_when")
+		return ctx.caseTypes.length > 0;
 	const current = ctx.caseTypes.find(
 		(caseType) => caseType.name === ctx.currentCaseType,
 	);
@@ -94,9 +118,8 @@ export function hasCountableRelation(ctx: ExpressionEditContext): boolean {
 	return (
 		hasParent ||
 		hasChild ||
-		(menuCountSources(ctx) &&
-			(ctx.expressionContext.profile.caseData ||
-				Boolean(ctx.lookupTables?.length)))
+		deviceCaseCountAvailable(ctx) ||
+		(menuCountSources(ctx) && Boolean(ctx.lookupTables?.length))
 	);
 }
 
@@ -106,12 +129,18 @@ export function hasCountableRelation(ctx: ExpressionEditContext): boolean {
 export function countDefault(
 	ctx: ExpressionEditContext,
 ): ExpressionOfKind<"count"> {
+	if (ctx.expressionContext.slot.slot === "search_input_required_when") {
+		const caseType =
+			ctx.caseTypes.find((type) => type.name === ctx.currentCaseType) ??
+			ctx.caseTypes[0];
+		if (caseType !== undefined) return count(typeRows(caseType.name));
+	}
+	if (deviceCaseCountAvailable(ctx))
+		return {
+			kind: "count",
+			via: { kind: "cases", source: "casedb", where: [] },
+		};
 	if (menuCountSources(ctx)) {
-		if (ctx.expressionContext.profile.caseData)
-			return {
-				kind: "count",
-				via: { kind: "cases", source: "casedb", where: [] },
-			};
 		const first = ctx.lookupTables?.[0];
 		if (first)
 			return {
@@ -159,10 +188,22 @@ function DeviceCountCard({
 	const ctx = usePredicateEditContext();
 	const rows = value.via;
 	const conditionIdentity = useStableListIdentity(rows.where);
-	const kinds = ctx.caseTypes ?? [];
-	const tables = ctx.lookupTables ?? [];
+	const slot = ctx.expressionContext?.slot.slot;
+	const isSearchButton = slot === "search_button_display_condition";
+	const columnCount =
+		slot === "case_list_column_expression" && rows.kind === "cases";
+	const requiredSearchCount = slot === "search_input_required_when";
+	const singleCaseType = columnCount || requiredSearchCount;
+	const columnRow = ctx.expressionContext?.rows[0];
+	const ownType = columnRow?.kind === "case" ? columnRow.caseType : undefined;
+	const kinds = (ctx.caseTypes ?? []).filter(
+		(kind) => !columnCount || kind.name === ownType,
+	);
+	const allCases = isSearchButton || ctx.expressionContext?.profile.caseData;
+	const tables =
+		isSearchButton || singleCaseType ? [] : (ctx.lookupTables ?? []);
 	const options = [
-		...(ctx.expressionContext?.profile.caseData
+		...(allCases && !singleCaseType
 			? [
 					{
 						id: "all",
@@ -173,28 +214,14 @@ function DeviceCountCard({
 							where: [],
 						},
 					},
-					...kinds.map((type) => ({
-						id: `case:${type.name}`,
-						label: type.name,
-						rows: {
-							kind: "cases" as const,
-							source: "casedb" as const,
-							where: [
-								{
-									kind: "eq" as const,
-									left: {
-										kind: "term" as const,
-										term: { kind: "case-row-type" as const },
-									},
-									right: {
-										kind: "term" as const,
-										term: { kind: "case-type" as const, caseType: type.name },
-									},
-								},
-							],
-						},
-					})),
 				]
+			: []),
+		...(allCases || singleCaseType
+			? kinds.map((type) => ({
+					id: `case:${type.name}`,
+					label: type.name,
+					rows: typeRows(type.name),
+				}))
 			: []),
 		...tables.map((table) => ({
 			id: `table:${table.id}`,
@@ -211,6 +238,42 @@ function DeviceCountCard({
 				? `case:${scope.caseType}`
 				: "all";
 	const chosen = options.find((option) => option.id === sourceId);
+	const requiredCaseType =
+		singleCaseType && scope?.kind === "case" ? scope.caseType : undefined;
+	const propertyMatch = singleCaseType
+		? restoredCasePropertyMatch(rows)
+		: undefined;
+	const textProperties =
+		kinds
+			.find(({ name }) => name === requiredCaseType)
+			?.properties.filter(
+				({ data_type }) => (data_type ?? "text") === "text",
+			) ?? [];
+	const setPropertyMatch = (
+		property: string,
+		match: NonNullable<typeof propertyMatch>["match"],
+	) => {
+		if (requiredCaseType === undefined) return;
+		const typed = typeRows(requiredCaseType);
+		onChange({
+			...value,
+			via:
+				property === "$any"
+					? typed
+					: {
+							...typed,
+							where: [
+								...typed.where,
+								eq(
+									prop(requiredCaseType, property),
+									match.kind === "property"
+										? prop(requiredCaseType, match.value)
+										: literal(match.value),
+								),
+							],
+						},
+		});
+	};
 	const setRows = (
 		where: Expression[],
 		edit: Parameters<typeof conditionIdentity.stage>[1],
@@ -240,46 +303,122 @@ function DeviceCountCard({
 					))}
 				</SelectContent>
 			</Select>
-			{rows.where.map((condition, index) => (
-				<div key={conditionIdentity.keys[index]}>
-					<PredicateFocusBoundary
-						value={condition}
-						path={[...path, "count", "via", rows.kind, "where", index]}
-						onChange={(next) =>
-							setRows(
-								rows.where.map((old, i) => (index === i ? next : old)),
-								{ kind: "replace" },
-							)
-						}
-					/>
+			{singleCaseType && textProperties.length > 0 && (
+				<>
+					<Select
+						value={propertyMatch?.property ?? "$any"}
+						onValueChange={(property) => {
+							if (property !== null)
+								setPropertyMatch(
+									property,
+									propertyMatch?.match ?? { kind: "text", value: "" },
+								);
+						}}
+					>
+						<SelectTrigger aria-label="Text property to match">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="$any">Any value</SelectItem>
+							{textProperties.map(({ name }) => (
+								<SelectItem key={name} value={name}>
+									{name}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					{propertyMatch && (
+						<>
+							{requiredSearchCount && (
+								<Select
+									value={
+										propertyMatch.match.kind === "property"
+											? propertyMatch.match.value
+											: "$text"
+									}
+									onValueChange={(choice) => {
+										if (choice !== null)
+											setPropertyMatch(
+												propertyMatch.property,
+												choice === "$text"
+													? { kind: "text", value: "" }
+													: { kind: "property", value: choice },
+											);
+									}}
+								>
+									<SelectTrigger aria-label="Compare with">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="$text">Entered text</SelectItem>
+										{textProperties.map(({ name }) => (
+											<SelectItem key={name} value={name}>
+												{name}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							)}
+							{propertyMatch.match.kind === "text" && (
+								<BlurCommitTextInput
+									ariaLabel="Text to match"
+									value={propertyMatch.match.value}
+									onCommit={(text) =>
+										setPropertyMatch(propertyMatch.property, {
+											kind: "text",
+											value: text,
+										})
+									}
+								/>
+							)}
+						</>
+					)}
+				</>
+			)}
+			{!singleCaseType && (
+				<>
+					{rows.where.map((condition, index) => (
+						<div key={conditionIdentity.keys[index]}>
+							<PredicateFocusBoundary
+								value={condition}
+								path={[...path, "count", "via", rows.kind, "where", index]}
+								onChange={(next) =>
+									setRows(
+										rows.where.map((old, i) => (index === i ? next : old)),
+										{ kind: "replace" },
+									)
+								}
+							/>
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={() =>
+									setRows(
+										rows.where.filter((_, i) => i !== index),
+										{ kind: "splice", index, deleteCount: 1, insertCount: 0 },
+									)
+								}
+							>
+								Remove condition
+							</Button>
+						</div>
+					))}
 					<Button
 						type="button"
 						variant="ghost"
 						onClick={() =>
-							setRows(
-								rows.where.filter((_, i) => i !== index),
-								{ kind: "splice", index, deleteCount: 1, insertCount: 0 },
-							)
+							setRows([...rows.where, { kind: "match-all" }], {
+								kind: "splice",
+								index: rows.where.length,
+								deleteCount: 0,
+								insertCount: 1,
+							})
 						}
 					>
-						Remove condition
+						Add condition
 					</Button>
-				</div>
-			))}
-			<Button
-				type="button"
-				variant="ghost"
-				onClick={() =>
-					setRows([...rows.where, { kind: "match-all" }], {
-						kind: "splice",
-						index: rows.where.length,
-						deleteCount: 0,
-						insertCount: 1,
-					})
-				}
-			>
-				Add condition
-			</Button>
+				</>
+			)}
 		</div>
 	);
 }

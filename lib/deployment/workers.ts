@@ -46,12 +46,14 @@ import type { StoredLocation } from "@/lib/organization/types";
 import { namesInWords } from "@/lib/publish/planFeatures";
 import {
 	DeploymentAppDeletedError,
+	DeploymentCredentialInactiveError,
 	DeploymentEndedError,
 	DeploymentError,
 } from "./errors";
 import { readManagedPlaceIds } from "./managedData";
 import { hqAnsweredWrite } from "./remoteWrites";
 import { deploymentEnding, publishedRemoteApp } from "./resources";
+import { DeploymentSessionEndedError } from "./sessionManagementGrant";
 import {
 	admitWorkerWrite,
 	type DeploymentScope,
@@ -131,6 +133,8 @@ export const WORKER_REFUSAL_CODES = [
 	 * recorded as Nova's.
 	 */
 	"app_not_available",
+	/** This request’s credential stopped authorizing new worker writes. */
+	"credential_inactive",
 ] as const;
 export type WorkerRefusalCode = (typeof WORKER_REFUSAL_CODES)[number];
 
@@ -245,6 +249,7 @@ export async function provisionWorkers(
 		domain: input.domain,
 	};
 
+	await input.scope.requireOperation?.();
 	const resolved = await resolveCredentials(input);
 	if ("code" in resolved) return refused(resolved);
 	const { creds, domain } = resolved;
@@ -438,7 +443,10 @@ export async function provisionWorkers(
 			 * their admissions and answered beside the refusal. A member who
 			 * may still make them is told the app was deleted; anyone else gets
 			 * the not-found as it stands. */
-			if (!(error instanceof DeploymentError && error.code === "not_found"))
+			if (
+				!(error instanceof DeploymentCredentialInactiveError) &&
+				!(error instanceof DeploymentError && error.code === "not_found")
+			)
 				throw error;
 			const deleted = error instanceof DeploymentAppDeletedError;
 			if (writeIds.length === 0)
@@ -446,7 +454,11 @@ export async function provisionWorkers(
 					? error.restated(appDeletedBeforeAccounts(domain))
 					: error;
 			return stopped({
-				code: "app_not_available",
+				code:
+					error instanceof DeploymentCredentialInactiveError &&
+					!(error instanceof DeploymentSessionEndedError)
+						? "credential_inactive"
+						: "app_not_available",
 				message: deleted ? appDeletedBetweenAccounts(domain) : error.message,
 				details: [],
 				conflicts: [],

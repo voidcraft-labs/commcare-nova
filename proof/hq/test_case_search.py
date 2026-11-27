@@ -492,6 +492,72 @@ def test_destination_day_and_native_range_read_the_index_at_a_dst_boundary(hq):
         assert matches("visit", "__range__2024-03-10__2024-03-10") == {"before", "start"}
 
 
+def test_numeric_search_equality_reads_the_exact_stored_custom_property(hq):
+    """Distinguish a literal number from a numeric range or a calendar day."""
+    import hashlib
+    import os
+    from pathlib import Path
+
+    from casexml.apps.case.mock import CaseBlock
+    from corehq.apps.app_manager.models import DefaultCaseSearchProperty
+    from corehq.apps.hqcase.utils import submit_case_blocks
+
+    from proof.hq import redis as hq_redis
+    from proof.native.hq_support import write_evidence
+
+    cases = {
+        "untyped": "3",
+        "padded": "003",
+        "decimal": "3.0",
+        "at-fraction": "3.50",
+        "exact-fraction": "3.5",
+        "over-fraction": "3.6",
+        "four": "4",
+        "epoch-day": "1970-01-04",
+        "ordinary-day": "2024-03-10",
+        "missing": None,
+    }
+    with hq_check(Configuration(case_search_enabled=True)) as (state, _):
+        with hq_redis.shared(None), state.committing():
+            label = "lexical equality of a stored custom date property"
+            with state.operation(label, hashlib.sha256(label.encode()).digest()):
+                blocks = [CaseBlock(
+                    case_id=key, create=True, case_type="patient", case_name=key, owner_id="worker",
+                    update={"dob": value} if value is not None else {},
+                ).as_text() for key, value in cases.items()]
+                submit_case_blocks(blocks, state.domain, user_id="worker", device_id="proof")
+
+        def match(expression):
+            source = f'"{expression}"'
+            datum = DefaultCaseSearchProperty(property="_xpath_query", defaultValue=source)
+            offered, queries = _built_queries(state.domain, [datum])
+            assert offered and len(queries) == 1
+            values = [element.get("ref") for element in queries[0].iter("data")
+                      if element.get("key") == "_xpath_query"]
+            assert values == [source]
+            query = _built_search(state, [("_xpath_query", values[0][1:-1])])
+            return {"expression": expression, "matches": sorted(hit["_id"] for hit in query.run().raw_hits)}
+
+        cases_seen = [match(expression) for expression in (
+            "dob = 3", "dob = '3'", "dob = '003'", "dob = '3.0'", "dob = '1970-01-04'", "dob != 3",
+            "dob > 3", "dob > 3.5", "dob >= 3.5",
+            "dob = 3.5", "dob = 3.50", "dob = '3.50'", "dob != 3.5",
+        )]
+        if out := os.environ.get("PROOF_OUT"):
+            directory = Path(out, "hq")
+            directory.mkdir(parents=True, exist_ok=True)
+            write_evidence(directory, "numeric-custom-date-equality", {"results": cases_seen})
+        assert [case["matches"] for case in cases_seen] == [
+            ["untyped"], ["untyped"], ["padded"], ["decimal"], ["epoch-day"],
+            sorted(set(cases) - {"untyped"}),
+            ["at-fraction", "exact-fraction", "four", "over-fraction"],
+            ["four", "over-fraction"],
+            ["at-fraction", "exact-fraction", "four", "over-fraction"],
+            ["exact-fraction"], ["exact-fraction"], ["at-fraction"],
+            sorted(set(cases) - {"exact-fraction"}),
+        ]
+
+
 def test_ordered_server_keys_choose_matches_after_excluding_named_owners(hq):
     """Run HQ's actual index and request parser. A string property can be
     sorted as text, a number or a date. The second datum breaks ties left by
@@ -499,6 +565,7 @@ def test_ordered_server_keys_choose_matches_after_excluding_named_owners(hq):
     import hashlib
 
     from casexml.apps.case.mock import CaseBlock
+    from corehq.apps.app_manager.models import DefaultCaseSearchProperty
     from corehq.apps.hqcase.utils import submit_case_blocks
 
     from proof.hq import redis as hq_redis
@@ -531,4 +598,105 @@ def test_ordered_server_keys_choose_matches_after_excluding_named_owners(hq):
         assert ordered(("commcare_sort", "+priority:exact,-visit:date"), exclude) == [
             "ten", "two-late", "two-early", "none",
         ]
+        # HQ strips both leading signs before looking up the property, while
+        # keeping the first sign's direction, even when the following sign
+        # requests the opposite order.
+        def build_order(text):
+            value = f"'{text}'"
+            held = DefaultCaseSearchProperty(property="commcare_sort", defaultValue=value)
+            offered, queries = _built_queries(state.domain, [held])
+            assert offered and len(queries) == 1
+            refs = [datum.get("ref") for datum in queries[0].iter("data") if datum.get("key") == "commcare_sort"]
+            assert refs == [value]
+            return ("commcare_sort", refs[0][1:-1])
+
+        for spelling, canonical in [
+            ("++priority:exact,-visit:date", "+priority:exact,-visit:date"),
+            ("+-priority:exact,-visit:date", "+priority:exact,-visit:date"),
+            ("-+priority:exact,-visit:date", "-priority:exact,-visit:date"),
+        ]:
+            assert ordered(build_order(spelling), exclude) == ordered(build_order(canonical), exclude)
         assert set(ordered(first, second)) == {case[0] for case in cases}
+
+
+def test_mixed_search_keeps_only_its_requested_paths_and_searchable_child_types(hq):
+    """Run HQ's form-encoded request, search index and related-case reader against
+    real submissions. A closed supporting parent supplies the sibling detail's
+    terminal. A child can join the fixture independently of the tab's visibility."""
+    import hashlib
+
+    from casexml.apps.case.mock import CaseBlock
+    from corehq.apps.app_manager.models import Application, CaseSearchProperty, DetailColumn, DetailTab, Module
+    from corehq.apps.case_search.const import IS_RELATED_CASE
+    from corehq.apps.case_search.utils import _get_helper, get_unconfigured_endpoint_results
+    from corehq.apps.hqcase.utils import submit_case_blocks
+
+    from proof.hq import redis as hq_redis
+
+    with hq_check(Configuration(case_search_enabled=True)) as (state, _):
+        with hq_redis.shared(None), state.committing(), state.operation("mixed search", hashlib.sha256(b"mixed search").digest()):
+            app = Application.new_app(state.domain, "Outreach")
+            for record_type, tab_type in [("household", "visit"), ("referral", "task"), ("patient", "ignored")]:
+                menu = app.add_module(Module.new_module(record_type, "en"))
+                menu.case_type = record_type
+                if tab_type != "ignored":
+                    menu.search_config.properties = [CaseSearchProperty(name="note", label={"en": "Note"})]
+                menu.case_details.short.columns = [DetailColumn(header={"en": "Name"}, model="case", field="name", format="plain")]
+                if record_type == "household":
+                    menu.case_details.short.columns[0].field = "parent/parent/name"
+                menu.case_details.long.columns = [DetailColumn(header={"en": "Name"}, model="case", field="name", format="plain")]
+                menu.case_details.long.tabs = [DetailTab(starting_index=0, has_nodeset=True, nodeset_case_type=tab_type,
+                                                        nodeset="instance('casedb')/casedb/case", relevant="false()")]
+            app.save()
+            blocks = []
+            for case_id, kind, parent, target_type in [
+                ("terminal", "region", None, None), ("middle", "group", "terminal", "region"),
+                ("dynamic", "care", "middle", "group"), ("patient", "patient", None, None),
+                ("home", "household", None, None), ("referral", "referral", None, None),
+                ("visit", "visit", "dynamic", "care"), ("task", "task", "home", "household"),
+                ("ignored", "ignored", "patient", "patient"),
+            ]:
+                blocks.append(CaseBlock(case_id=case_id, create=True, case_type=kind, case_name=case_id, owner_id="another-worker",
+                                        index={"parent": (target_type, parent)} if parent else {},
+                                        update={"care_record": "dynamic"} if case_id == "patient" else {}))
+            blocks.extend([
+                CaseBlock(case_id="extension-host", create=True, case_type="care", case_name="Extension host", owner_id="another-worker"),
+                CaseBlock(case_id="extension-seed", create=True, case_type="care", case_name="Explicit extension", owner_id="another-worker",
+                          index={"host": ("care", "extension-host", "extension")}),
+                CaseBlock(case_id="extension-leaf", create=True, case_type="care", case_name="Nested extension", owner_id="another-worker",
+                          index={"host": ("care", "extension-seed", "extension")}),
+                CaseBlock(case_id="referral", update={"care_record": "extension-seed"}),
+            ])
+            blocks.extend(CaseBlock(case_id=case_id, close=True) for case_id in [
+                "dynamic", "middle", "terminal", "visit", "task", "extension-seed",
+            ])
+            submit_case_blocks([block.as_text() for block in blocks], state.domain, user_id="worker", device_id="proof")
+
+        def returned(*include):
+            pairs = [("case_type", kind) for kind in ["patient", "household", "referral"]]
+            pairs.append(("x_commcare_custom_related_case_property", "care_record"))
+            pairs.extend(("x_commcare_include_all_related_cases", value) for value in include)
+            request = operations.search_request_config(state, app._id, pairs)
+            results = get_unconfigured_endpoint_results(_get_helper(None, state.domain, request.case_types, None), request, app._id)
+            return {case.case_id: (case.case_json.get(IS_RELATED_CASE), case.closed) for case in results}
+
+        details = returned()
+        assert {case_id for case_id, (tag, _) in details.items() if not tag} == {"patient", "home", "referral"}
+        assert {case_id for case_id, value in details.items() if value == ("true", True)} == {
+            "dynamic", "extension-seed", "terminal", "task", "visit"
+        }
+        assert {"middle", "ignored", "extension-host", "extension-leaf"}.isdisjoint(details)
+        assert returned("") == details
+        # HQ tests truthiness after unwrapping only a singleton. It preserves
+        # the separate choices of a dedicated setting and ordered defaults.
+        for values in [("false",), ("", ""), ("true", "")]:
+            hierarchy = returned(*values)
+            assert hierarchy["ignored"][0] == "true"
+            # The explicitly fetched record is a hierarchy root even though
+            # it is closed. Its closed parent and grandparent are still tagged.
+            assert hierarchy["dynamic"] == ("true", True)
+            assert hierarchy["middle"] == ("true", True)
+            assert hierarchy["terminal"] == ("true", True)
+            assert hierarchy["extension-host"] == ("true", False)
+            assert hierarchy["extension-seed"] == ("true", True)
+            assert hierarchy["extension-leaf"] == ("true", False)

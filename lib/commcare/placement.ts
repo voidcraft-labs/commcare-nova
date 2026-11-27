@@ -32,8 +32,11 @@ import {
 	type AdvancedPlacement,
 	type BlueprintDoc,
 	type CaseOperation,
+	type CaseOperationWrite,
 	type CasePlacement,
+	effectiveCaseTypes,
 	type FormCaseSelection,
+	isStandardCaseListProperty,
 	opensWithWorkerValue,
 	operationSavesOnlyChanged,
 	type PlacementIneligibility,
@@ -55,6 +58,7 @@ import {
 } from "@/lib/domain/advancedEntryDatums";
 import {
 	appendedNameTaken,
+	bareRead,
 	basicCaseSlots,
 	type CaseSlotFacts,
 	type ConditionScope,
@@ -78,7 +82,11 @@ import { openActionViewBefore } from "./advancedPlacement";
 import type { PlannedLoad } from "./advancedSelections";
 import { allocateAdvancedTags } from "./advancedTags";
 import { emittedModuleKind } from "./moduleKind";
-import { collectFieldLocations, saveToCaseBlockShape } from "./xform/caseOps";
+import {
+	authoredCaseChangePaths,
+	collectFieldLocations,
+	saveToCaseBlockShape,
+} from "./xform/caseOps";
 import { descendFormPathIntoField, FormPath } from "./xform/formPath";
 import { planGeneratedNodes } from "./xform/generatedNodes";
 
@@ -209,6 +217,15 @@ function saveToCaseReasons(
 			? f.operations.find((op) => op.uuid === subject.operationUuid)
 			: undefined;
 	const reasons: PlacementIneligibility[] = [];
+	const authored =
+		operation === undefined
+			? undefined
+			: authoredCasePlacement(f, operation.uuid);
+	if (authored !== undefined) {
+		if (!sameCasePlacement(authored, placement))
+			reasons.push({ reason: "block-shape" });
+		return reasons;
+	}
 	const writes = operation?.writes ?? [];
 	if (operation !== undefined && operationSavesOnlyChanged(operation))
 		reasons.push({ reason: "only-if-changed" });
@@ -275,10 +292,22 @@ function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 	});
 	/** The own arm's or a create's Save to Case place: its held block, or
 	 *  the one the allocator gives it. */
+	const positioned = (op: CaseOperation): PlannedPlacement | undefined => {
+		const placement = authoredCasePlacement(f, op.uuid);
+		return placement === undefined
+			? undefined
+			: {
+					placement,
+					held:
+						op.placement !== undefined &&
+						sameCasePlacement(op.placement, placement),
+				};
+	};
 	const saveToCaseOf = (op: CaseOperation, held: boolean): PlannedPlacement =>
-		held && op.placement?.kind === "save-to-case"
+		positioned(op) ??
+		(held && op.placement?.kind === "save-to-case"
 			? { placement: op.placement, held: true }
-			: { placement: derivedPath(asSubject(op)), held: false };
+			: { placement: derivedPath(asSubject(op)), held: false });
 
 	// The own arm and the worker's record take their slots first: each slot
 	// has one subject, and the subcases read whether the own arm is basic.
@@ -289,7 +318,15 @@ function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 			placements.set(
 				op.uuid,
 				choice?.kind === "basic"
-					? { placement: { kind: "basic", slot: "own" }, held: choice.held }
+					? {
+							placement:
+								choice.held &&
+								op.placement?.kind === "basic" &&
+								op.placement.slot === "own"
+									? op.placement
+									: { kind: "basic", slot: "own" },
+							held: choice.held,
+						}
 					: saveToCaseOf(op, choice?.held === true),
 			);
 		} else if (isWorkerRecordUpdate(op)) {
@@ -370,6 +407,11 @@ function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 		sharedBy.set(close.uuid, createUuid);
 	for (const op of f.operations) {
 		if (placements.has(op.uuid)) continue;
+		const authored = positioned(op);
+		if (authored !== undefined) {
+			placements.set(op.uuid, authored);
+			continue;
+		}
 		const createUuid = sharedBy.get(op.uuid);
 		const shared =
 			createUuid === undefined ? undefined : placements.get(createUuid);
@@ -466,6 +508,29 @@ function receiverSafeOperationName(facts: CaseSlotFacts, id: string): string {
  * reserved every held path's segment first), and the block named by the
  * operation's id.
  */
+function authoredCasePlacement(
+	f: CaseSlotFacts,
+	operationUuid: Uuid,
+): SaveToCasePlacement | undefined {
+	const located = authoredCaseChangePaths(f.doc, f.formUuid).get(operationUuid);
+	if (located === undefined) return undefined;
+	const scope =
+		located.repeat === undefined
+			? undefined
+			: repeatRowPath(f.doc, f.formUuid, located.repeat);
+	const names = located.path
+		.segments()
+		.slice(scope?.segments().length ?? 1)
+		.map((segment) => segment.name);
+	const [first, ...rest] = names;
+	if (first === undefined) return undefined;
+	return {
+		kind: "save-to-case",
+		...(located.repeat !== undefined && { repeat: located.repeat }),
+		path: [first, ...rest],
+	};
+}
+
 function derivedSaveToCase(
 	f: CaseSlotFacts,
 	subject: PlacementSubject,
@@ -475,6 +540,11 @@ function derivedSaveToCase(
 		subject.kind === "operation"
 			? f.operations.find((op) => op.uuid === subject.operationUuid)
 			: undefined;
+	const authored =
+		operation === undefined
+			? undefined
+			: authoredCasePlacement(f, operation.uuid);
+	if (authored !== undefined) return authored;
 	const repeat = operation?.forEach?.repeat;
 	let scope =
 		repeat === undefined
@@ -701,6 +771,16 @@ function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 		loadIndex({ kind: "worker" });
 
 	for (const op of f.operations) {
+		const authored = authoredCasePlacement(f, op.uuid);
+		if (authored !== undefined) {
+			elsewhere.set(op.uuid, {
+				placement: authored,
+				held:
+					op.placement !== undefined &&
+					sameCasePlacement(op.placement, authored),
+			});
+			continue;
+		}
 		const createUuid = sharedBy.get(op.uuid);
 		const shared =
 			createUuid === undefined ? undefined : onAction.get(createUuid);
@@ -940,7 +1020,22 @@ function corePlan(
 	if (known !== undefined) return known;
 	const f = caseSlotFacts(doc, formUuid);
 	const core: CoreOptions = {
-		exclude: new Set(exclude),
+		exclude: new Set([
+			...exclude,
+			...authoredCaseChangePaths(doc, formUuid).keys(),
+			...f.operations
+				.filter(
+					(operation) =>
+						(operation.action === "create" &&
+							(operation.typeCalculation !== undefined ||
+								operation.typeChoice !== undefined)) ||
+						operation.closeAfter === true ||
+						operation.closeCondition !== undefined ||
+						operation.ownerCondition !== undefined ||
+						operation.ownerAfterCreate !== undefined,
+				)
+				.map((operation) => operation.uuid),
+		]),
 		carried: new Set(carriedCreates(doc, formUuid).keys()),
 		...(forceBasic !== undefined && { forceBasic }),
 	};
@@ -1030,6 +1125,138 @@ export function planPlacements(
 	};
 	forms.set(key, plan);
 	return plan;
+}
+
+/**
+ * HQ appends a basic form's Case Management update after its authored blocks.
+ * Keep this overlap only when both sides write one ordinary Text property of
+ * the same selected case. Other blocks may create fresh child cases but
+ * cannot change the selected case's identity, type or lifecycle.
+ */
+export function basicOwnTextOverlap(doc: BlueprintDoc, formUuid: Uuid) {
+	const facts = caseSlotFacts(doc, formUuid);
+	const own = facts.own;
+	const caseType = facts.module?.caseType;
+	if (
+		facts.form.type !== "followup" ||
+		facts.form.shadowOf !== undefined ||
+		facts.severalCases ||
+		facts.operations.length < 2 ||
+		own === undefined ||
+		own.action !== "own" ||
+		own.name !== undefined ||
+		own.owner !== undefined ||
+		own.links?.length ||
+		caseType === undefined ||
+		own.writes?.length !== 1
+	)
+		return undefined;
+
+	const prop = own.writes[0].property;
+	const isPlainTextWrite = (
+		write: CaseOperationWrite | undefined,
+		optional: boolean,
+	) => {
+		if (
+			write === undefined ||
+			write.property !== prop ||
+			write.via !== undefined ||
+			write.condition !== undefined ||
+			write.onlyIfChanged
+		)
+			return false;
+		const answer = bareRead(write.value);
+		const field = answer === undefined ? undefined : doc.fields[answer];
+		return (
+			answer !== undefined &&
+			doc.fieldParent[answer] === formUuid &&
+			field?.kind === "text" &&
+			field.relevant === undefined &&
+			(!optional || field.required === undefined)
+		);
+	};
+	if (
+		isStandardCaseListProperty(prop) ||
+		!isPlainTextWrite(own.writes[0], true) ||
+		!effectiveCaseTypes(doc)
+			.find((type) => type.name === caseType)
+			?.properties.some(
+				(property) =>
+					property.name === prop && (property.data_type ?? "text") === "text",
+			)
+	)
+		return undefined;
+
+	const plan = planPlacements(doc, formUuid);
+	if (
+		plan.formKind !== "basic" ||
+		plan.placements.get(own.uuid)?.placement.kind !== "basic"
+	)
+		return undefined;
+
+	const authored = facts.operations.filter(
+		(operation) =>
+			plan.placements.get(operation.uuid)?.placement.kind === "save-to-case",
+	);
+	const early = authored[0];
+	if (
+		authored.length !== 1 ||
+		early?.action !== "update" ||
+		early.target.kind !== "session" ||
+		early.caseType !== caseType ||
+		early.forEach !== undefined ||
+		early.condition !== undefined ||
+		early.rename !== undefined ||
+		early.owner !== undefined ||
+		early.retype !== undefined ||
+		early.closeAfter ||
+		early.links?.length ||
+		early.writes?.length !== 1 ||
+		!isPlainTextWrite(early.writes[0], false) ||
+		Object.values(doc.forms).some((form) => form.shadowOf?.form === formUuid)
+	)
+		return undefined;
+
+	if (
+		facts.positionedOperations.has(early.uuid) &&
+		!(facts.submittedChildren.get(formUuid) ?? []).some((uuid) => {
+			const field = doc.fields[uuid];
+			return (
+				field?.kind === "case_change" && field.operationUuid === early.uuid
+			);
+		})
+	)
+		return undefined;
+
+	const children = facts.operations.filter(
+		(operation) => operation !== own && operation !== early,
+	);
+	for (const child of children) {
+		const planned = plan.placements.get(child.uuid);
+		if (
+			child.action === "own" ||
+			child.forEach !== undefined ||
+			child.caseType === caseType ||
+			planned?.placement.kind !== "basic" ||
+			planned.placement.slot !== "subcase" ||
+			(child.action === "create" && child.target.kind !== "new") ||
+			(child.action === "create" &&
+				child.target.kind === "new" &&
+				(child.target.idFrom !== undefined ||
+					child.target.expr !== undefined)) ||
+			(child.action === "close" &&
+				(child.target.kind !== "op" ||
+					child.target.opUuid !== planned.sharesWith)) ||
+			child.action === "update"
+		)
+			return undefined;
+	}
+	return {
+		authored: early.uuid,
+		own: own.uuid,
+		property: prop,
+		appended: [...children.map(({ uuid }) => uuid), own.uuid],
+	};
 }
 
 /**

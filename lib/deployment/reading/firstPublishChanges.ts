@@ -318,6 +318,11 @@ export interface FirstPublishChange {
 	 * entry. A pointer covers everything under it.
 	 */
 	readonly paths: readonly string[];
+	/**
+	 * Where the reader records a composite source rewrite when it binds
+	 * a broader value than the fields the publish may change.
+	 */
+	readonly sourceRecordPaths?: readonly string[];
 	/** Where the change stands on a reading it applies on. */
 	readonly at: FirstPublishChangeAt;
 }
@@ -336,6 +341,8 @@ export type FirstPublishChangeAt =
 	  }
 	| { readonly appWide: string };
 
+const LOOKUP_IMAGE_PATH = "/modules/*/case_details/short/lookup_image";
+
 /** The pointers a media reference lives under in CommCare HQ's stored app. */
 export const MEDIA_REFERENCE_PATHS: readonly string[] = [
 	"/_attachments/*",
@@ -348,6 +355,7 @@ export const MEDIA_REFERENCE_PATHS: readonly string[] = [
 	"/modules/*/forms/*/media_image/*",
 	"/modules/*/forms/*/media_audio/*",
 	"/modules/*/case_details/*/columns/*/enum/*/value/*",
+	LOOKUP_IMAGE_PATH,
 	"/logo_refs/*",
 ];
 
@@ -487,6 +495,8 @@ export const RESPELLED_FORM_PARTS = [
 
 /** A Search field's keys a reading takes as spelled another way (`search/prompts.ts`). */
 const SEARCH_FIELD_RESPELLED_KEYS: readonly string[] = [
+	"name",
+	"group_key",
 	"label",
 	"hint",
 	"receiver_expression",
@@ -1082,7 +1092,7 @@ function unshownMediaPlaces(facts: FirstPublishFacts): string[] {
 		const position = `${place.menu}.${place.form}` as const;
 		const places = [
 			nodePlace(position, `/data/${place.path}`) +
-				placeOf(":itext", ref.role, ref.languageCode, ref.mediaKind),
+				placeOf(":itext", ...ref.role, ref.languageCode, ref.form),
 		];
 		if (!retained.has(ref.path))
 			places.push(placeOf("app", "multimedia_map", ref.path));
@@ -1457,6 +1467,40 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 		},
 		paths: ["/modules/*/search_config/default_properties"],
 	},
+	"search-order-direction-signs-respelled": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("search-order-direction-signs-respelled"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) =>
+				recordedPlaces(facts, "search-order-direction-signs-respelled"),
+		},
+		paths: ["/modules/*/search_config/default_properties/*/defaultValue"],
+	},
+	"search-order-unused-suffix-removed": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("search-order-unused-suffix-removed"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) =>
+				recordedPlaces(facts, "search-order-unused-suffix-removed"),
+		},
+		paths: ["/modules/*/search_config/default_properties/*/defaultValue"],
+	},
+	"search-address-receiver-suffix-removed": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("search-address-receiver-suffix-removed"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) =>
+				recordedPlaces(facts, "search-address-receiver-suffix-removed"),
+		},
+		paths: ["/modules/*/search_config/properties/*/receiver_expression"],
+	},
+
 	/**
 	 * A sort rule over a property the list doesn't show, written as a hidden
 	 * column, recorded by `caseList/order.ts` where a sort element names a
@@ -1478,6 +1522,31 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/case_details/short/columns",
 			"/modules/*/case_details/short/sort_elements/*/field",
 			"/modules/*/case_details/short/sort_elements/*/display",
+		],
+	},
+	/** HQ accepts stored legacy related-property text, and its editor keeps
+	 * Translatable Text only on calculated columns. The worker's text and
+	 * ordering are the same with the calculation's generated keys. */
+	"legacy-related-case-text-rekeyed": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("legacy-related-case-text-rekeyed"),
+		at: {
+			kinds: ["menu"],
+			places: (facts) =>
+				recordedPlaces(facts, "legacy-related-case-text-rekeyed"),
+		},
+		sourceRecordPaths: [
+			"/modules/*/case_details/short/columns/*",
+			"/modules/*/case_details/long/columns/*",
+		],
+		paths: [
+			"/modules/*/case_details/short/columns/*/field",
+			"/modules/*/case_details/short/columns/*/enum/*/key",
+			"/modules/*/case_details/short/columns/*/useXpathExpression",
+			"/modules/*/case_details/long/columns/*/field",
+			"/modules/*/case_details/long/columns/*/enum/*/key",
+			"/modules/*/case_details/long/columns/*/useXpathExpression",
 		],
 	},
 	/**
@@ -1525,8 +1594,24 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			"/modules/*/case_details/*/columns/*/enum/*/value",
 			"/modules/*/case_details/*/no_items_text",
 			"/modules/*/case_details/*/select_text",
+			"/modules/*/case_details/short/lookup_field_header",
 			"/modules/*/search_config/search_button_label",
 			"/modules/*/case_details/*/columns/*/enum/*/alt_text",
+		],
+	},
+	/** A unique active legacy heading keeps its wording at the current group key. */
+	"legacy-search-group-wording-rekeyed": {
+		touchesWorkers: false,
+		scope: "reading",
+		applies: sameStateRecorded("legacy-search-group-wording-rekeyed"),
+		at: {
+			kinds: ["app", "menu"],
+			places: (facts) =>
+				recordedPlaces(facts, "legacy-search-group-wording-rekeyed"),
+		},
+		paths: [
+			"/translations/*/*",
+			"/modules/*/search_config/properties/*/group_key",
 		],
 	},
 	/** A search's filter kept as one with the case list's, recorded by `search/rows.ts`. */
@@ -1774,7 +1859,11 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 			kinds: ["app", "menu", "form", "form-node"],
 			places: (facts) => leftOutMediaPlaces(facts, true),
 		},
-		paths: [...MEDIA_REFERENCE_PATHS, "/multimedia_map/*"],
+		paths: [
+			// The reader refuses an unavailable lookup icon on Android.
+			...MEDIA_REFERENCE_PATHS.filter((path) => path !== LOOKUP_IMAGE_PATH),
+			"/multimedia_map/*",
+		],
 	},
 	"unshown-form-media-removed": {
 		touchesWorkers: false,
@@ -2691,7 +2780,7 @@ function mediaSubjects(
 		} else subjects.set(base, place);
 	};
 	for (const ref of facts.facts.unheldMedia)
-		add("unshown-form-media-removed", ref, ref.mediaKind);
+		add("unshown-form-media-removed", ref, ref.form);
 	for (const claim of facts.mediaClaims)
 		add(
 			claim.brokenPicture

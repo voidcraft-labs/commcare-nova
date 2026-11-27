@@ -134,7 +134,7 @@ def saved_page(published: Published, driver, page, target=None):
     return saved
 
 
-def saved_profile(published: Published, properties: dict):
+def saved_profile(published: Published, properties: dict | None = None, *, custom_properties: dict | None = None):
     """The profile settings ``properties`` saved through HQ's own settings view
     (``views/settings.py::edit_commcare_profile``, the request HQ's App Settings page posts with a person's
     changed values), decorators and all. Call it inside a fork of the unit, which puts the app back."""
@@ -144,14 +144,17 @@ def saved_profile(published: Published, properties: dict):
 
     unit = published.unit
     path = reverse("edit_commcare_profile", args=[unit.domain, published.app_id])
-    body = json.dumps({"properties": properties}).encode("utf-8")
+    settings = {"properties": properties or {}}
+    if custom_properties is not None:
+        settings["custom_properties"] = custom_properties
+    body = json.dumps(settings).encode("utf-8")
     with unit.operation("formplayer:settings-save", body):
         request = hq_requests.raw_post(unit, path, body, "application/json")
         match = resolve(path)
         response = match.func(request, *match.args, **match.kwargs)
     if response.status_code != 200 or json.loads(response.content).get("status") != "ok":
         raise SaveRefused(
-            f"HQ's edit_commcare_profile answered {response.status_code} {response.content[:400]!r} for {properties}."
+            f"HQ's edit_commcare_profile answered {response.status_code} {response.content[:400]!r} for {settings}."
         )
 
 
@@ -196,6 +199,21 @@ def with_a_starting_value(path, value):
     return write
 
 
+def with_initial_instance_text(path, value):
+    """A form rewrite that writes text directly in a node of the primary instance."""
+    def write(source):
+        from lxml import etree
+
+        tree = etree.fromstring(source.encode() if isinstance(source, str) else source)
+        node, = tree.xpath("//*[local-name()='model']/*[local-name()='instance' and not(@id)]")
+        for step in path.strip("/").split("/"):
+            node, = node.xpath("./*[local-name()=$name]", name=step)
+        node.text = value
+        return etree.tostring(tree, encoding="unicode")
+
+    return write
+
+
 # The forms Nova emitted before defect 16, by document id (``<id>.form.xml``).
 MEDIA_SLOTS = Path(__file__).parent / "media_slots"
 
@@ -220,6 +238,7 @@ MISSING_MEDIA_UNMAPPED = (
     "4aebda3a657a0d8f532d11ceacb1679081d7bdf7d7d301a53f1096af3580be91.wav",
 )
 MISSING_MEDIA_DELETED = "c5f74c6dda51d3941b4d17d05991f900debbf387ff748eda65d2f03dda227b2e.png"
+UNMAPPED_GENERATED_ICON = f"jr://file/commcare/image/data/{MISSING_MEDIA_UNMAPPED[0]}"
 
 
 def with_missing_media(holder, *, delete_file=True):
@@ -252,6 +271,62 @@ def with_missing_media(holder, *, delete_file=True):
         app.save()
         stored.clear()
         stored.update(operations.held_app(holder.unit, holder.app_id).to_json())
+
+    return change
+
+
+def override_navigation_badges(stored):
+    """HQ reads the generated badge wording beside each control's own text."""
+    menu = stored["modules"][0]
+    assert menu["custom_icons"][0]["text"]["en"] == "New"
+    assert menu["forms"][5]["custom_icons"][0]["text"]["en"] == "Équipe"
+    stored.setdefault("translations", {}).setdefault("en", {}).update({
+        "modules.m0.badge": "Urgent",
+        "forms.m0f5.badge": "Ready",
+    })
+
+
+def generated_menu_icon(holder, scenario):
+    """A released locale replaces the ordinary Visits icon with the Remarks image."""
+    from lxml import etree
+
+    from proof.hq import operations
+
+    image_name, icon_name, _ = MISSING_MEDIA_UNMAPPED
+    key = "modules.m0.icon"
+
+    def change(stored):
+        paths = {path.rsplit("/", 1)[-1]: path for path in stored["multimedia_map"]}
+        image = paths[image_name]
+        assert stored["modules"][0]["media_image"]["en"] == paths[icon_name]
+        if scenario == "ordinary":
+            return
+
+        def remove_original_carrier(source):
+            root = etree.fromstring(source.encode())
+            (carrier,) = root.xpath("//*[local-name()='value' and @form='image' and text()=$image]", image=image)
+            carrier.getparent().remove(carrier)
+            return etree.tostring(root, encoding="unicode")
+
+        form_written(holder, {"0.0": remove_original_carrier})(stored)
+        app = operations.held_app(holder.unit, holder.app_id)
+        assert image in app.multimedia_map
+        form_carrier_language = {"same-language": "en", "other-language": "fr"}.get(scenario)
+        if form_carrier_language:
+            app.langs = ["en", "fr"]
+            app.modules[0].forms[0].media_image = {form_carrier_language: image}
+        override = UNMAPPED_GENERATED_ICON if scenario == "unmapped" else image
+        if scenario == "unmapped":
+            del app.multimedia_map[image]
+        app.set_translations("en", {**app.translations.get("en", {}), key: override})
+        app.save()
+        app = operations.held_app(holder.unit, holder.app_id)
+        assert app.translations["en"][key] == override
+        assert (override in app.multimedia_map) == (scenario != "unmapped")
+        assert (override in app.all_media_paths()) == bool(form_carrier_language)
+        assert (override in app.all_media_paths(lang="en")) == (form_carrier_language == "en")
+        stored.clear()
+        stored.update(app.to_json())
 
     return change
 

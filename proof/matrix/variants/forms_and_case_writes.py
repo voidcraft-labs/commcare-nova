@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 
 from proof.matrix import ops
+from proof.matrix.bases import _pages
 from proof.matrix.bases.lookups import changes_lookup_data
 
 # The ends of a form HQ's form builder saves, which a question added last goes before.
@@ -139,6 +140,145 @@ def _open(tag, case_type, name_path, indices, repeat_context=""):
         "close_condition": _condition("never"),
         "doc_type": "AdvancedOpenCaseAction",
     }
+
+
+def _open_member_with_parent_index(authoring, app_id):
+    """Open another member under the existing household connection."""
+    ops.set_json(authoring, app_id, "/modules/1/forms/0/actions/open_cases", [
+        _open("open_member_0", "member", "/data/notes", [_index("load_household0")]),
+    ])
+
+
+def open_member_with_hyphenated_parent_index(authoring, app_id):
+    """Keep the original manual loads on parent while a writer adds another child link."""
+    _open_member_with_parent_index(authoring, app_id)
+    ops.set_json(
+        authoring, app_id, "/modules/1/forms/0/actions/open_cases/0/case_indices/0/reference_id", "my-parent",
+    )
+
+
+def _open_visitor_with_index(authoring, app_id, reference):
+    from proof.matrix.bases.hq_advanced import _source
+
+    _pages.new_case_module(authoring, app_id, name="Visitors", case_type="visitor")
+    ops.upload_form_source(
+        authoring, app_id, 3, 0, _source(("visitor_name", "Visitor name", "string")), "visit-registration-source",
+    )
+    _pages.save_case_actions(authoring, app_id, 3, 0, name_path="/data/visitor_name")
+    ops.set_json(authoring, app_id, "/modules/1/forms/0/actions/open_cases", [
+        _open(
+            "open_member_0", "visitor", "/data/notes",
+            [{**_index("load_household0"), "reference_id": reference}],
+        ),
+    ])
+
+def open_visitor_with_hyphenated_index(authoring, app_id):
+    """Use the distinct connection for a type whose menu has no existing child chain."""
+    _open_visitor_with_index(authoring, app_id, "my-parent")
+
+
+def open_visitor_with_dotted_index(authoring, app_id):
+    """Keep an exact dotted Advanced Case Management index."""
+    _open_visitor_with_index(authoring, app_id, "my.parent")
+
+
+def open_visitor_with_repeated_dot_index(authoring, app_id):
+    """Keep adjacent periods as part of one Advanced connection name."""
+    _open_visitor_with_index(authoring, app_id, "my..parent")
+
+
+def open_visitor_with_accented_index(authoring, app_id):
+    """Preserve the exact composed accent the worker's named index reads."""
+    _open_visitor_with_index(authoring, app_id, "métrique")
+
+
+def open_visitor_with_leading_accented_index(authoring, app_id):
+    """Preserve a capital accented initial letter on the Advanced connection."""
+    _open_visitor_with_index(authoring, app_id, "Équipe")
+
+
+def open_visitor_with_greek_index(authoring, app_id):
+    """A shared worker letter can start the exact index name."""
+    _open_visitor_with_index(authoring, app_id, "Ωprobe")
+
+
+def open_visitor_with_nko_digit_index(authoring, app_id):
+    """A shared worker digit can continue the exact index name."""
+    _open_visitor_with_index(authoring, app_id, "probe߀")
+
+
+def open_visitor_with_web_only_index(authoring, app_id):
+    """HQ saves a top-level child index which the Web Apps writer and Android lexer cannot carry."""
+    _open_visitor_with_index(authoring, app_id, "აprobe")
+
+
+def open_visitor_with_decomposed_index(authoring, app_id):
+    """Keep the adjacent valid XML name outside the verified XPath grammar."""
+    _open_visitor_with_index(authoring, app_id, "me\u0301trique")
+
+
+def write_through_typed_user_index(authoring, app_id):
+    """A declared user edge links an ordinary member to an ordinary household."""
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+
+    from proof.matrix.bases.hq_advanced import new_advanced_module
+
+    def registration(name):
+        form = XFormBuilder(name)
+        form.new_question("member_name", "Member name", "string")
+        return form.tostring(xml_declaration=True).decode("utf-8")
+
+    new_advanced_module(authoring, app_id, "Register linked members")
+    ops.upload_form_source(authoring, app_id, 2, 0, registration, "typed-user-index-registration")
+    ops.set_json(authoring, app_id, "/modules/2/case_type", "household")
+    ops.set_json(authoring, app_id, "/modules/2/forms/0/actions/load_update_cases", [
+        {
+            "case_type": "household",
+            "case_tag": "load_household0",
+            "details_module": {"$menu": 0},
+            "doc_type": "LoadUpdateAction",
+        },
+    ])
+    ops.set_json(authoring, app_id, "/modules/2/forms/0/actions/open_cases", [
+        _open("open_member_0", "member", "/data/member_name",
+              [{**_index("load_household0"), "reference_id": "user"}]),
+    ])
+    ops.set_json(
+        authoring, app_id, "/modules/1/forms/0/actions/update_case/update/user~1status_note",
+        _update("/data/status_note"),
+    )
+
+
+def write_through_typed_parent_user_index(authoring, app_id):
+    """A member's declared household owns a user index to an ordinary district."""
+    from proof.matrix.bases.hq_advanced import new_advanced_module
+    from proof.matrix.bases.hq_case_management import _source
+
+    _pages.new_case_module(authoring, app_id, name="Districts", case_type="district")
+    ops.upload_form_source(
+        authoring, app_id, 2, 0, _source(("district_name", "District", "string")),
+        "typed-parent-user-index-district",
+    )
+    _pages.save_case_actions(authoring, app_id, 2, 0, name_path="/data/district_name")
+    new_advanced_module(authoring, app_id, "Register households linked to districts")
+    ops.upload_form_source(
+        authoring, app_id, 3, 0, _source(("household_name", "Household", "string")),
+        "typed-parent-user-index-household",
+    )
+    ops.set_json(authoring, app_id, "/modules/3/case_type", "district")
+    ops.set_json(authoring, app_id, "/modules/3/forms/0/actions/load_update_cases", [
+        {
+            "case_type": "district",
+            "case_tag": "load_district0",
+            "details_module": {"$menu": 2},
+            "doc_type": "LoadUpdateAction",
+        },
+    ])
+    ops.set_json(authoring, app_id, "/modules/3/forms/0/actions/open_cases", [
+        _open("open_household_0", "household", "/data/household_name",
+              [{**_index("load_district0"), "reference_id": "user"}]),
+    ])
+    _pages.save_case_actions(authoring, app_id, 1, 0, updates={"parent/user/status_note": "/data/status_note"})
 
 
 # hq-advanced's Member visits form: its loads and open actions.
@@ -300,11 +440,53 @@ def child_case_in_a_shared_multi_select_menu(authoring, app_id):
 def load_writes_a_label(authoring, app_id):
     """``hq-advanced``'s member visit form given a label ``seen_label``, whose value the member's load saves to
     ``seen``."""
+    _load_writes_a_label(authoring, app_id, ' appearance="minimal"')
+
+
+def load_writes_an_interactive_label(authoring, app_id):
+    """The selected member's load writes a message with an interactive confirmation."""
+    _load_writes_a_label(authoring, app_id, "")
+
+
+def load_writes_a_banner(authoring, app_id):
+    """The selected member's load writes the value of a floating banner."""
+    _load_writes_a_label(authoring, app_id, ' appearance="floating-good"')
+
+
+def load_writes_a_preloaded_label(authoring, app_id):
+    """The selected member's ordinary passive label also starts from that record."""
+    load_writes_a_label(authoring, app_id)
+    ops.set_json(authoring, app_id, f"{_VISIT_LOADS}/1/preload/~1data~1seen_label", "notes")
+
+
+def load_writes_a_label_preloaded_from_an_earlier_case(authoring, app_id):
+    """The member saves a label whose starting answer comes from the earlier household."""
+    load_writes_a_label(authoring, app_id)
+    ops.set_json(authoring, app_id, f"{_VISIT_LOADS}/0/preload/~1data~1seen_label", "village")
+
+
+def load_writes_a_label_preloaded_from_two_cases(authoring, app_id):
+    load_writes_a_label_preloaded_from_an_earlier_case(authoring, app_id)
+    ops.set_json(authoring, app_id, f"{_VISIT_LOADS}/1/preload/~1data~1seen_label", "notes")
+
+
+def load_writes_a_label_preloaded_from_two_cases_and_closes(authoring, app_id):
+    load_writes_a_label_preloaded_from_two_cases(authoring, app_id)
+    ops.set_json(authoring, app_id, f"{_VISIT_LOADS}/1/close_condition", _condition("always"))
+
+
+def load_writes_a_label_and_closes(authoring, app_id):
+    """The chosen member's load saves a label and closes the member on that same arm."""
+    load_writes_a_label(authoring, app_id)
+    ops.set_json(authoring, app_id, f"{_VISIT_LOADS}/1/close_condition", _condition("always"))
+
+
+def _load_writes_a_label(authoring, app_id, appearance):
     _change(
         authoring,
         app_id,
         "seen-label",
-        *_question("seen_label", "The member was seen", "trigger", None, attributes=' appearance="minimal"'),
+        *_question("seen_label", "The member was seen", "trigger", None, attributes=appearance),
         menu=1,
         form=0,
     )
@@ -545,6 +727,31 @@ def seen_moment_through_the_join(authoring, app_id):
     )
 
 
+def hidden_clock_saved_as_a_day(authoring, app_id):
+    """The Member Followup keeps a timestamp and writes its day directly to the member."""
+    _change(
+        authoring, app_id, "hidden-day", *_hidden("recorded_at", "now()", "xsd:dateTime"),
+        menu=1, form=0,
+    )
+    ops.set_json(
+        authoring, app_id, "/modules/1/forms/0/actions/update_case/update/visit_day",
+        _update("/data/recorded_at"),
+    )
+
+
+def datetime_answer_saved_through_parent_as_a_day(authoring, app_id):
+    """The member follow-up writes the day of an answered timestamp to the household."""
+    _change(
+        authoring, app_id, "parent-day",
+        ('type="xsd:string"', 'type="xsd:dateTime"', 1),
+        menu=1, form=0,
+    )
+    ops.set_json(
+        authoring, app_id, "/modules/1/forms/0/actions/update_case/update/parent~1visit_day",
+        _update("/data/status_note"),
+    )
+
+
 def photo_link_saved_to_the_case(authoring, app_id):
     """``hq-case-management``'s member follow-up form given an image question ``photo`` and the node Nova writes beside
     it for the photo's address on CommCare HQ (the form's attachment, by its instance id and the file's name), which
@@ -646,6 +853,22 @@ def open_in_a_repeat(authoring, app_id):
         _VISIT_OPENS,
         [_open("open_member_0", "member", "/data/visits/visitor", [_index("load_household0")], "/data/visits")],
     )
+
+
+def conditional_open_with_web_only_index(authoring, app_id):
+    """Keep conditional creates separate from the always-run index writers."""
+    open_visitor_with_web_only_index(authoring, app_id)
+    _visit_outcome(authoring, app_id)
+    ops.set_json(
+        authoring, app_id, f"{_VISIT_OPENS}/0/open_condition",
+        _condition("if", "/data/visit_outcome", "new"),
+    )
+
+
+def open_in_repeat_with_web_only_index(authoring, app_id):
+    """Put the one-worker index inside the authored Visits repeat, outside the initial instance writer proof."""
+    open_in_a_repeat(authoring, app_id)
+    ops.set_json(authoring, app_id, f"{_VISIT_OPENS}/0/case_indices/0/reference_id", "აprobe")
 
 
 def member_registered_in_an_advanced_form(authoring, app_id):
@@ -809,3 +1032,64 @@ def two_entries_opening_the_visit(authoring, app_id):
             entry = operations.held_app(authoring.state, app_id).get_module(menu).get_form(1)
             body, content_type = ops.form_body(pairs)
             ops.post(authoring, "edit_advanced_form_actions", [app_id, entry.unique_id], body, content_type, name)
+
+
+def first_load_writes_through_declared_parent(authoring, app_id):
+    """A district follow-up establishes the household parent used by the existing first load."""
+    from corehq.apps.app_manager.models import ConditionalCaseUpdate, FormActionCondition, OpenSubCaseAction
+
+    from proof.matrix.bases.hq_advanced import HOUSEHOLD_VISIT, REGISTRATION
+
+    _pages.new_case_module(authoring, app_id, name="Districts", case_type="district")
+    ops.upload_form_source(authoring, app_id, 3, 0, REGISTRATION, "district registration source")
+    ops.upload_form_source(authoring, app_id, 3, 1, HOUSEHOLD_VISIT, "district follow-up source")
+    _pages.save_case_actions(authoring, app_id, 3, 0, name_path="/data/head_name")
+
+    def open_household(actions):
+        actions["subcases"] = [
+            OpenSubCaseAction(
+                case_type="household",
+                name_update=ConditionalCaseUpdate(question_path="/data/new_member"),
+                repeat_context="",
+                relationship="child",
+                condition=FormActionCondition(type="always"),
+            ).to_json()
+        ]
+
+    _pages.save_case_management(authoring, app_id, 3, 1, change=open_household, what="household district parent")
+
+    def update_district(app):
+        load = app.get_module(1).get_form(0).actions.load_update_cases[0]
+        load.case_properties = {
+            "parent/last_member_visit": ConditionalCaseUpdate(
+                question_path="/data/visited_on", update_mode="always"
+            )
+        }
+
+    _pages.change_app_model(authoring, app_id, "save-visit-to-household-district", update_district)
+
+
+def open_relationship_from_constrained_text(authoring, app_id):
+    """Exercise an editable Text answer that can carry only the two permitted relationships."""
+    from proof.matrix.registry import load_variants
+
+    change = next(row.change for row in load_variants() if row.id == "hq-advanced/open-relationship-by-question")
+    ops.set_json(authoring, app_id, change["pointer"], change["value"])
+
+    def constrain_notes(root, _form):
+        bind, = root.xpath("//*[local-name()='bind'][@nodeset='/data/notes']")
+        bind.set("constraint", ". = 'child' or . = 'extension'")
+        bind.set("required", "true()")
+
+    ops.set_form_source(authoring, app_id, 1, 0, constrain_notes, what="require a valid case relationship")
+
+
+def open_relationship_from_optional_constrained_text(authoring, app_id):
+    open_relationship_from_constrained_text(authoring, app_id)
+
+    def optional_notes(root, _form):
+        bind, = root.xpath("//*[local-name()='bind'][@nodeset='/data/notes']")
+        bind.attrib.pop("required")
+
+    ops.set_form_source(authoring, app_id, 1, 0, optional_notes, what="allow a blank case relationship answer")
+

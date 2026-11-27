@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { FlatClosePayloadTooLargeError } from "@/lib/case-store/flatCloseBudget";
 import { AppAccessError } from "@/lib/db/appAccess";
 import {
 	hydratePersistedBlueprint,
@@ -15,6 +16,7 @@ import {
 	formCaseSelections,
 	ownFormSelectionIndex,
 } from "@/lib/domain/advancedEntryDatums";
+import { authoredBoundedFlatSelection } from "@/lib/domain/boundedFlatClose";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import {
 	entrySelectionSettings,
@@ -26,6 +28,7 @@ import { getLookupDefinitions } from "@/lib/lookup/service";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { parentCaseConstraint } from "../caseSelectionNavigation";
+import { previewPlatformRules } from "../platform";
 import { workerListDocument } from "../workerModule";
 import { loadCasesAction } from "./caseDataBinding";
 import { readCaseDatabaseSnapshot } from "./caseDataBindingHelpers";
@@ -38,6 +41,7 @@ import {
 	entryWalksChoices,
 } from "./entrySessionData";
 import { appReadsPlaces } from "./expressionCaseReads";
+import { FormEvaluationInputError } from "./formEvaluationTypes";
 import {
 	type FormOpeningAudience,
 	type FormOpeningProjection,
@@ -59,8 +63,14 @@ import type { PreviewDevice } from "./previewDevice";
 import {
 	openingCarryScope,
 	signFormOpening,
+	signReceiptRunTransition,
 	verifyFormOpening,
 } from "./signedFormOpening";
+import {
+	evaluateFormOpeningActions,
+	InvalidWebActivityWindowError,
+	recordWebActivityOpening,
+} from "./webFormActivityOpening";
 import { workerLocationFixture, workerPlaceIds } from "./workerLocationFixture";
 
 const manualChoiceSchema = z.strictObject({
@@ -77,15 +87,21 @@ const requestSchema = z.strictObject({
 	blueprintDigest: z.string().regex(/^[0-9a-f]{64}$/),
 	persona: uuidSchema.optional(),
 	bound: z.array(z.string().min(1)).optional(),
+	boundedFlatClose: z.literal(true).optional(),
 	parentChoices: z.record(uuidSchema, z.array(z.string().min(1))).optional(),
 	previous: signedOpeningSchema.optional(),
 	restore: z.literal(true).optional(),
+	resumeInto: z.uuid().optional(),
 	choice: manualChoiceSchema.optional(),
 	carried: z.array(manualChoiceSchema).optional(),
 	/** The form entries the device submitted since it last synced, oldest
 	 * first: it holds each one's committed patch. */
 	afterSubmission: z.array(z.string().min(1)).max(32).optional(),
 });
+
+function validSelectionIds(ids: readonly string[], maximum: number): boolean {
+	return ids.length <= maximum && new Set(ids).size === ids.length;
+}
 
 function tablesForOpening(doc: BlueprintDoc, form: Uuid) {
 	const contentUuid = formContentUuid(doc, form);
@@ -116,6 +132,28 @@ function tablesForOpening(doc: BlueprintDoc, form: Uuid) {
 }
 
 export async function readFormOpeningAction(
+	input: Omit<z.input<typeof requestSchema>, "resumeInto">,
+	device: PreviewDevice,
+) {
+	const result = await readOpening(input, device);
+	if (result.kind === "receipt-run-ready")
+		return {
+			kind: "reopen",
+			message: "Open the form again to load its records.",
+		} as const;
+	return result;
+}
+
+export async function authorizeSavedFormReceiptRun(
+	input: z.input<typeof requestSchema> & { resumeInto: string; restore: true },
+	device: PreviewDevice,
+) {
+	// The return value deliberately carries no opening snapshot.
+	const result = await readOpening(input, device);
+	return result.kind === "receipt-run-ready" ? result.transition : undefined;
+}
+
+async function readOpening(
 	input: z.input<typeof requestSchema>,
 	device: PreviewDevice,
 ) {
@@ -138,6 +176,7 @@ export async function readFormOpeningAction(
 			loadBlueprint: true,
 		});
 		if (context.kind !== "ready") return context;
+		const platformRules = previewPlatformRules(context.device.platform);
 		if (
 			!context.sessionId ||
 			!context.blueprint ||
@@ -166,12 +205,83 @@ export async function readFormOpeningAction(
 			blueprintDigest: args.blueprintDigest,
 		};
 		const secret = process.env.BETTER_AUTH_SECRET ?? "";
+		const previous =
+			args.previous &&
+			(await verifyFormOpening(secret, audience, args.previous));
+		const profile = authoredBoundedFlatSelection(doc, args.module, args.form);
+		if (profile || args.boundedFlatClose || previous?.boundedFlatClose) {
+			if (
+				!profile ||
+				!platformRules.severalCaseSelection ||
+				args.choice ||
+				args.carried?.length ||
+				Object.keys(args.parentChoices ?? {}).length ||
+				args.afterSubmission?.length ||
+				(previous &&
+					(!previous.boundedFlatClose || !args.restore || args.bound)) ||
+				(!previous && (args.restore || args.resumeInto))
+			)
+				return reopen;
+			if (previous?.boundedFlatClose && args.resumeInto) {
+				if (!previous.complete || !platformRules.resumeDraftAcrossRuns)
+					return reopen;
+				return {
+					kind: "receipt-run-ready",
+					transition: signReceiptRunTransition(secret, audience, {
+						from: args.run,
+						to: args.resumeInto,
+						entry: args.entry,
+					}),
+				} as const;
+			}
+			const caseIds = previous?.primaryCaseIds ?? args.bound ?? [];
+			const expiresAt =
+				previous?.boundedFlatClose?.expiresAt ??
+				Date.now() + 24 * 60 * 60 * 1000;
+			if (
+				!caseIds.length ||
+				!validSelectionIds(caseIds, profile.selection.maximum) ||
+				expiresAt <= Date.now()
+			)
+				return unavailable;
+			const cases = await context.store.readFlatCloseSelection({
+				appId: args.app,
+				caseIds,
+				caseType: profile.caseType,
+				restoreScope: context.restoreScope,
+				...(!previous &&
+					profile.selection.autoSelect && {
+						automaticMaximum: profile.selection.maximum,
+					}),
+			});
+			if (!cases) return unavailable;
+			const projection: FormOpeningProjection = previous ?? {
+				cases: openingCaseData(cases),
+				lookup: { projectRevision: "0", definitions: [], rowsByTable: {} },
+				choices: [],
+				primaryCaseIds: caseIds,
+				datums: {},
+				resolvedEntries: {},
+				sessionData: {},
+				complete: true,
+				boundedFlatClose: { expiresAt },
+			};
+			return {
+				kind: "opening",
+				projection,
+				evidence:
+					args.previous ??
+					(await signFormOpening(secret, audience, projection)),
+				next: undefined,
+				activityNotice: undefined,
+			} as const;
+		}
 		let prior: FormOpeningProjection;
 		/* The cases the submission that opened this entry left on the device,
 		 * which its list no longer need show (a case it closed). */
 		let submittedCaseIds = new Set<string>();
-		if (args.previous) {
-			prior = await verifyFormOpening(secret, audience, args.previous);
+		if (previous) {
+			prior = previous;
 			if (
 				args.bound ||
 				args.parentChoices ||
@@ -179,6 +289,22 @@ export async function readFormOpeningAction(
 				(args.restore ? args.choice : prior.complete || !args.choice)
 			)
 				return reopen;
+			if (args.resumeInto) {
+				if (
+					!args.restore ||
+					!prior.complete ||
+					!platformRules.resumeDraftAcrossRuns
+				)
+					return reopen;
+				return {
+					kind: "receipt-run-ready",
+					transition: signReceiptRunTransition(secret, audience, {
+						from: args.run,
+						to: args.resumeInto,
+						entry: args.entry,
+					}),
+				} as const;
+			}
 			submittedCaseIds = new Set(prior.submittedCaseIds ?? []);
 			if (
 				!(await context.store.holdsDeviceCases({
@@ -209,7 +335,27 @@ export async function readFormOpeningAction(
 					return reopen;
 			}
 		} else {
-			if (args.choice || args.restore) return reopen;
+			if (args.choice || args.restore || args.resumeInto) return reopen;
+			// Reject an oversized or duplicate selection before reading tables or
+			// building the worker's full device snapshot. The ordinary availability
+			// checks below still prove scope, list membership, and linked parents.
+			const owner = doc.forms[args.form];
+			const isCaseForm = owner.type === "followup" || owner.type === "close";
+			if (
+				owner.caseSelections === undefined &&
+				isCaseForm &&
+				args.bound &&
+				!validSelectionIds(
+					args.bound,
+					caseSelectionMaximum(doc.modules[args.module]),
+				)
+			)
+				return unavailable;
+			for (const [menu, ids] of Object.entries(args.parentChoices ?? {})) {
+				const list = doc.modules[menu as Uuid];
+				if (!list || !validSelectionIds(ids, caseSelectionMaximum(list)))
+					return reopen;
+			}
 			const tableIds = tablesForOpening(doc, args.form);
 			const lookup = await loadLookupFixtureDataAction(
 				args.app,
@@ -223,6 +369,11 @@ export async function readFormOpeningAction(
 				)
 			)
 				return reopen;
+			const webActivityRestoreStartedAt =
+				platformRules.recentFormActivity &&
+				doc.forms[formContentUuid(doc, args.form)]?.activityKeyText
+					? Date.now()
+					: undefined;
 			const restore = await readCaseDatabaseSnapshot(context.store, {
 				appId: args.app,
 				restoreScope: context.restoreScope,
@@ -254,6 +405,9 @@ export async function readFormOpeningAction(
 					}
 				: restored;
 			prior = {
+				...(webActivityRestoreStartedAt !== undefined && {
+					webActivityRestoreStartedAt,
+				}),
 				cases: openingCaseData(cases),
 				lookup: lookup.data,
 				choices: [],
@@ -278,16 +432,14 @@ export async function readFormOpeningAction(
 			boundAfterSubmit = false,
 		) {
 			if (ids.length === 0) return true;
-			if (new Set(ids).size !== ids.length || ids.some((id) => !rows.has(id)))
-				return false;
 			const listed = explicit
 				? workerListDocument(doc, module, "form-selection")
 				: doc;
 			const list = listed.modules[module];
 			if (
 				!list?.caseType ||
-				ids.some((id) => rows.get(id)?.case_type !== list.caseType) ||
-				ids.length > (explicit ? 1 : caseSelectionMaximum(list))
+				!validSelectionIds(ids, explicit ? 1 : caseSelectionMaximum(list)) ||
+				ids.some((id) => rows.get(id)?.case_type !== list.caseType)
 			)
 				return false;
 			const carried = boundAfterSubmit
@@ -479,12 +631,29 @@ export async function readFormOpeningAction(
 			bound.length === 0
 		)
 			return reopen;
+		const primaryCaseIds = ownCaseId ? [ownCaseId] : bound;
+		const actions =
+			!reached.nextSelection && !args.restore
+				? await evaluateFormOpeningActions({
+						secret,
+						doc,
+						audience,
+						identity: context.identity,
+						reached,
+						caseIds: primaryCaseIds,
+						cases: snapshot,
+						lookup: lookupData,
+					})
+				: undefined;
+		const activity = actions?.activity;
 		const projection: FormOpeningProjection = {
 			...prior,
 			choices,
 			carried: [...carried.values()],
 			...(Object.keys(parentChoices).length && { parentChoices }),
-			primaryCaseIds: ownCaseId ? [ownCaseId] : bound,
+			primaryCaseIds,
+			...(activity && { webActivity: activity }),
+			...(actions?.caseCreateIds && { caseCreateIds: actions.caseCreateIds }),
 			...(submittedCaseIds.size > 0 && {
 				submittedCaseIds: [...submittedCaseIds],
 			}),
@@ -505,13 +674,28 @@ export async function readFormOpeningAction(
 			projection,
 			args.previous,
 		);
+		const activityNotice = activity
+			? await recordWebActivityOpening(
+					audience,
+					activity,
+					snapshot,
+					prior.webActivityRestoreStartedAt ?? Date.now(),
+				)
+			: undefined;
 		return {
 			kind: "opening",
 			evidence,
 			projection,
 			next,
+			activityNotice,
 		} as const;
 	} catch (error) {
+		if (
+			error instanceof InvalidWebActivityWindowError ||
+			error instanceof FormEvaluationInputError ||
+			error instanceof FlatClosePayloadTooLargeError
+		)
+			return { kind: "error", message: error.message } as const;
 		if (error instanceof AppAccessError)
 			return { kind: "error", message: "App not found." } as const;
 		const refusal = previewDataRefusalOf(error);

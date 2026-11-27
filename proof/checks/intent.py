@@ -1737,17 +1737,20 @@ def value_differences(document, records) -> list:
     """Each expectation of a targeted document's ``expected.json``, as Core's evaluate gave it where its export is.
 
     A form check ran in the form's own bytes (Nova's local export's, or the
-    one HQ built for A or B); a case list ran in the installed local archive.
+    one HQ built for A or B); a case list ran in the installed suite of that
+    same export.
     """
     blobs = records.blobs
     found = []
     for entry in expectations(document):
         name = form_file(*_form_position(document, entry["form"]))
         artifact = f"evaluate:{entry['id']}@{entry['export']}"
+        opens_list = "caseList" in entry["request"]
         if entry["export"] == "local":
             observed = local_observation(document, records)
             forms = (observed["archives"].get("local.ccz") or {}).get("forms", {})
-            if "caseList" in entry["request"]:
+            admission = observations.local_reports(records).get("local.ccz") or {}
+            if opens_list:
                 ran_in = "the case list of the installed local.ccz"
             elif name not in forms:
                 raise CorpusLayoutError(f"{document.local_ccz} holds no {name}, the form {entry['form']}.")
@@ -1770,7 +1773,8 @@ def value_differences(document, records) -> list:
             held = _configuration_records(document, records, configuration)
             record = held.part("a" if entry["export"] == "A" else "b") or {}
             state = record.get("state")
-            files = outcome_from_record(state["build"], blobs, entry["export"]).files if state else None
+            build = outcome_from_record(state["build"], blobs, entry["export"]) if state else None
+            files = build.files if build is not None else None
             if files is None:
                 # HQ refused the publish or its build failed: the bar reports why (``import@`` or ``<step>@``).
                 continue
@@ -1782,16 +1786,19 @@ def value_differences(document, records) -> list:
                 continue
             observed = (record.get("hooks") or {}).get("intent") or {}
             forms = observed.get("forms") or {}
-            ran_in = f"{name} of HQ's build of {entry['export']} under {configuration}"
-        if "caseList" not in entry["request"] and "refused" in (forms.get(name) or {}):
+            admission = build.admission or {}
+            if opens_list and build.admission_error is not None:
+                continue
+            subject = "the installed case list" if opens_list else name
+            ran_in = f"{subject} of HQ's build of {entry['export']} under {configuration}"
+        if not opens_list and "refused" in (forms.get(name) or {}):
             # Core's parser refused the form the request runs in, as Core's evaluate parses it: the bar reports it
             # (``admission@<state>``, ``admission@local.ccz``), as for every structural check.
             continue
         outcome = _evaluated(document, observed, entry, artifact, ran_in)
         if "refused" in outcome:
-            if not (observations.local_reports(records).get("local.ccz") or {}).get("admitted"):
-                # Core did not admit the local archive the case list runs in: the bar reports its problems
-                # (``admission@local.ccz``).
+            if not admission.get("admitted"):
+                # The bar reports the actual export's install refusal.
                 continue
             found.append(
                 _difference(

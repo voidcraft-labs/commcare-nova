@@ -561,7 +561,11 @@ def hq_restore(unit, database, tables, label, operation=None):
     with unit.fork(), operation(label, tables.digest() if authored else _workbook_digest(tables)):
         try:
             if authored:
-                served = casedata.served_fixtures(unit) if tables.path.is_file() else []
+                served = (
+                    casedata.served_fixtures(unit, database.user_id, username=database.username)
+                    if tables.path.is_file()
+                    else []
+                )
             else:
                 served = casedata.lookup_fixtures(unit, tables) if tables is not None else []
         except casedata.LookupTablesNotServed as refused:

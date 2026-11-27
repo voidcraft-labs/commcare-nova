@@ -2,6 +2,10 @@ package nova.proof.android;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Rect;
+import android.graphics.RectF;
 import android.net.Uri;
 import android.view.MotionEvent;
 import android.view.View;
@@ -9,6 +13,9 @@ import android.widget.Button;
 
 import org.commcare.activities.DrawActivity;
 import org.commcare.activities.FormEntryActivity;
+import org.commcare.activities.camera.MicroImageActivity;
+import org.commcare.views.FaceCaptureView;
+import org.commcare.views.widgets.FaceCaptureWidget;
 import org.commcare.activities.components.FormEntryConstants;
 import org.commcare.dalvik.R;
 import org.commcare.utils.RobolectricUtil;
@@ -190,7 +197,39 @@ final class Captures {
         String name = file(kind);
         File media = new File(System.getProperty(DIRECTORY), name);
         Intent result = new Intent();
-        if ("image".equals(kind)) {
+        if (widget instanceof FaceCaptureWidget) {
+            if (opened.getComponent() == null || !MicroImageActivity.class.getName().equals(opened.getComponent().getClassName())) {
+                throw new AssertionError("The face camera opened " + opened);
+            }
+            entry.put("faceLens", opened.getIntExtra(MicroImageActivity.CAMERA_LENS_FACING_EXTRA, -1));
+            entry.put("switchLens", opened.getBooleanExtra(MicroImageActivity.ALLOW_CAMERA_LENS_SWITCH_EXTRA, false));
+            // The deterministic sensor supplies pixels. The released camera activity supplies the guide
+            // and crop, writes its own image file and finishes through its ordinary TEMP_FILE result.
+            org.robolectric.android.controller.ActivityController<MicroImageActivity> controller =
+                    Opened.build(MicroImageActivity.class, opened);
+            try {
+                MicroImageActivity camera = controller.create().get();
+                Bitmap frame = Bitmap.createBitmap(800, 600, Bitmap.Config.ARGB_8888);
+                frame.eraseColor(android.graphics.Color.BLUE);
+                java.lang.reflect.Field input = MicroImageActivity.class.getDeclaredField("inputImage");
+                input.setAccessible(true);
+                input.set(camera, frame);
+                RectF guide = new FaceCaptureView(camera, null).calcCaptureArea(800, 600);
+                camera.onImageStabilizedListener(new Rect((int)guide.left, (int)guide.top, (int)guide.right, (int)guide.bottom));
+                ShadowActivity finished = Shadows.shadowOf((Activity)camera);
+                if (!camera.isFinishing() || finished.getResultCode() != Activity.RESULT_OK) {
+                    throw new AssertionError("The face camera did not return the cropped file");
+                }
+                BitmapFactory.Options bounds = new BitmapFactory.Options();
+                bounds.inJustDecodeBounds = true;
+                BitmapFactory.decodeFile(ImageWidget.getTempFileForImageCapture().getAbsolutePath(), bounds);
+                entry.put("croppedWidth", bounds.outWidth);
+                entry.put("croppedHeight", bounds.outHeight);
+                result = finished.getResultIntent();
+            } finally {
+                Opened.close(controller);
+            }
+        } else if ("image".equals(kind)) {
             Uri output = opened.getParcelableExtra(android.provider.MediaStore.EXTRA_OUTPUT);
             if (output == null) {
                 output = opened.getParcelableExtra(
@@ -206,7 +245,7 @@ final class Captures {
         }
         form.receiveResult(opened, Activity.RESULT_OK, result);
         settle(activity);
-        return took(widget, name, entry);
+        return took(widget, widget instanceof FaceCaptureWidget ? "face-camera.jpg" : name, entry);
     }
 
     /**

@@ -70,6 +70,8 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 		"Nova writes each form's case settings in its own way, so some of them can look different on CommCare HQ's case management page. Where a form loads a value from its case, that page stops listing it, and the question holds it as its default value. What each form saves and loads stays the same.",
 	"sort-rule-kept-as-hidden-column":
 		"A sort rule over a property the list doesn't show is kept as a hidden column. Lists sort the same way.",
+	"legacy-related-case-text-rekeyed":
+		"Older translated text about related cases is stored as a calculated column. The list keeps its wording and order.",
 	"search-filter-joined-to-list":
 		"Where a menu's forms read its search, Nova keeps the search's filter and the case list's filter as one. The search finds the same cases.",
 	"search-restates-list-filter":
@@ -82,6 +84,8 @@ export const FIRST_PUBLISH_SENTENCES: Readonly<
 		"A date and time that a form saves to a case is now written the way CommCare HQ stores it. Before, a phone wrote it in its own time zone for the cases it saved, so a list sorted by that date and time could show those cases out of place.",
 	"connect-app-captures-location":
 		"Nova turns on Auto Capture Location for this CommCare Connect app in CommCare HQ. On Android, each submitted form includes the worker's location when the app has location permission and the device gets a GPS fix. When a delivery form reaches CommCare Connect, its visit records that location. If the opportunity checks for missing GPS, the visit passes that check.",
+	"legacy-search-group-wording-rekeyed":
+		"Search group headings keep the wording workers see. If an unused key already holds other wording, the live heading's text replaces it.",
 	"unused-translation-keys-removed":
 		"Nova removes some wordings saved in CommCare HQ's app translations that change nothing: each is blank, names nothing in this app, or matches the text CommCare HQ writes there anyway. Workers read the same words.",
 	"location-list-setting-reset":

@@ -75,6 +75,69 @@ async function withPaging(
 	}
 }
 
+it.each([
+	{ dependency: "shown", calculated: "a!" },
+	{ dependency: "hidden", calculated: "D" },
+	{ dependency: "invalid", calculated: "D" },
+] as const)(
+	"commits the starting answer only when its dependency is $dependency on the Android screen",
+	async ({ dependency, calculated }) => {
+		await withPaging(
+			[
+				{
+					kind: "repeat",
+					id: "rows",
+					repeat_mode: "user_controlled",
+					children: [
+						{
+							kind: dependency === "hidden" ? "hidden" : "text",
+							id: "note",
+							default_value: "'a'",
+							...(dependency === "invalid" && { validate: ". != 'a'" }),
+						},
+						{
+							kind: "hidden",
+							id: "value",
+							default_value: "'D'",
+							calculate: "concat(../note, '!')",
+						},
+						{ kind: "text", id: "seen", default_value: "../value" },
+					],
+				},
+				{ kind: "text", id: "after" },
+			],
+			"screens",
+			async ({ controller, result, refuse }) => {
+				expect(result.current.prompt?.point.repeatPath).toBe("/data/rows");
+				await act(async () => {
+					await result.current.addRepeatEntry();
+					await controller.awaitSettled();
+				});
+				const prefix = "/data/rows[0]";
+				expect(result.current.current?.path).toBe(
+					`${prefix}/${dependency === "hidden" ? "seen" : "note"}`,
+				);
+				expect(controller.store.getState()[`${prefix}/value`]?.value).toBe("D");
+				expect(controller.store.getState()[`${prefix}/seen`]?.value).toBe("D");
+
+				await act(async () => {
+					await result.current.goNext();
+					await controller.awaitSettled();
+				});
+
+				if (dependency === "invalid") {
+					expect(refuse).toHaveBeenCalledOnce();
+					expect(result.current.current?.path).toBe(`${prefix}/note`);
+				}
+				expect(controller.store.getState()[`${prefix}/value`]?.value).toBe(
+					calculated,
+				);
+				expect(controller.store.getState()[`${prefix}/seen`]?.value).toBe("D");
+			},
+		);
+	},
+);
+
 it.each(["screens", "sections"] as const)(
 	"resolves Android %s navigation after the date answer reveals a required question",
 	async (mode) => {

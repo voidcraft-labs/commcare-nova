@@ -6,8 +6,7 @@
  * nested `if` it equals, an `or` of equalities, a pair of orderings or a
  * nested `if` not folded to the one card Nova has, a date literal left text
  * against a date, a filter holding a boolean identity left unrecognized
- * where the withheld print holds it, `#host` read as a relation Nova
- * cannot write, `current()` in a case list refused where it names the listed
+ * where the withheld print holds it, a non-equality host read held, `current()` in a case list refused where it names the listed
  * case, a `name` step read as the case's name, and a Search answer in a
  * menu's own slot left unbound. Read by the whole stage: a form's display
  * condition naming the case and the worker not held; a menu's display
@@ -410,7 +409,69 @@ describe("a record slot's text read as HQ's build interpolates it", () => {
 		});
 	});
 
-	it("leaves #host a query of cases, which no relation Nova writes prints", () => {
+	it("preserves the restored type presence condition on its own list", () => {
+		const doc = patientsDoc();
+		const ref = {
+			entity: "module",
+			uuid: moduleOf(doc),
+			slot: "case_list_filter",
+		} as const;
+		const source =
+			"count(instance('casedb')/casedb/case[@case_type = 'patient']) > 0";
+		expect(
+			held(readExpression(doc, registration(doc, ref, source), readEnv())),
+		).toMatchObject({
+			kind: "gt",
+			left: {
+				kind: "count",
+				via: {
+					kind: "cases",
+					source: "casedb",
+					where: [
+						{
+							kind: "eq",
+							right: {
+								kind: "term",
+								term: { kind: "case-type", caseType: "patient" },
+							},
+						},
+					],
+				},
+			},
+		});
+	});
+
+	it("reads the direct host's text equality as the reached record", () => {
+		const doc = patientsDoc();
+		const ref = {
+			entity: "module",
+			uuid: moduleOf(doc),
+			slot: "case_list_filter",
+		} as const;
+		const expression = held(
+			readExpression(
+				doc,
+				registration(doc, ref, "#host/village = 'north'"),
+				readEnv(),
+			),
+		);
+		expect(expression).toMatchObject({
+			kind: "eq",
+			left: {
+				kind: "term",
+				term: {
+					kind: "prop",
+					caseType: "patient",
+					property: "village",
+					readReached: true,
+					via: { kind: "ancestor", via: [{ identifier: "host" }] },
+				},
+			},
+			right: { kind: "term", term: { kind: "literal", value: "north" } },
+		});
+	});
+
+	it("keeps another comparison on the host outside the supported list filter", () => {
 		const doc = patientsDoc();
 		const ref = {
 			entity: "module",
@@ -419,7 +480,7 @@ describe("a record slot's text read as HQ's build interpolates it", () => {
 		} as const;
 		const judgment = readExpression(
 			doc,
-			registration(doc, ref, "#host/village = 'x'"),
+			registration(doc, ref, "#host/village != 'x'"),
 			readEnv(),
 		);
 		if (judgment.kind === "bound")
@@ -433,7 +494,7 @@ describe("a record slot's text read as HQ's build interpolates it", () => {
 		// entry, for the host relation.
 		const reading = readExpressions(
 			doc,
-			[registration(doc, ref, "#host/village = 'x'")],
+			[registration(doc, ref, "#host/village != 'x'")],
 			readEnv(),
 		);
 		expect(reading.bound[0]).toBeUndefined();

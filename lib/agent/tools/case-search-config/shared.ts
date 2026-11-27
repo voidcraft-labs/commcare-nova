@@ -68,6 +68,8 @@ export const DISPLAY_SLOT_NAMES = [
  */
 export const ADVANCED_SLOT_NAMES = [
 	"requestOrder",
+	"relatedRecordIdProperty",
+	"relatedRecords",
 	"excludedOwnerIds",
 	"searchWorkflow",
 	"formsReadSearch",
@@ -77,14 +79,19 @@ export const ADVANCED_SLOT_NAMES = [
 /** The stored `caseSearchConfig` keys the advanced cluster owns. */
 export const ADVANCED_CONFIG_KEYS = [
 	"requestOrder",
+	"relatedRecordIdProperty",
+	"relatedRecords",
 	"excludedOwnerIds",
 	"workflow",
 	"formsReadSearch",
 	"searchOnClear",
 ] as const;
 
-/** Nova-only provenance; intentionally absent from both SA-authored clusters. */
-export const INTERNAL_SLOT_NAMES = ["searchActionEnabled"] as const;
+/** Edited through their own operations, independently of display and worker settings. */
+export const INTERNAL_SLOT_NAMES = [
+	"searchActionEnabled",
+	"projectSearch",
+] as const;
 
 export type DisplaySlotName = (typeof DISPLAY_SLOT_NAMES)[number];
 export type AdvancedSlotName = (typeof ADVANCED_SLOT_NAMES)[number];
@@ -292,6 +299,21 @@ export const setCaseSearchAdvancedBodySchema = z.strictObject({
 		.optional()
 		.describe(
 			"The properties, comparisons and directions to use when the server selects the first matches. This dedicated setting needs advanced case search. Omit to keep it or use null to clear.",
+		),
+	relatedRecords: z
+		.enum(["hierarchy", "details"])
+		.nullable()
+		.optional()
+		.describe(
+			"Include the entire related hierarchy, or the related records used by details. Clearing follows the displayed information.",
+		),
+	relatedRecordIdProperty: z
+		.string()
+		.min(1)
+		.nullable()
+		.optional()
+		.describe(
+			"Property on each match holding the ID of another record its forms can read. Clearing removes the extra record.",
 		),
 	excludedOwnerIds: globallyResolvedOwnerExpressionSchema
 		.nullable()

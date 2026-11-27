@@ -91,11 +91,15 @@ export function useSearchInputRunState(args: {
 	readonly session: PreviewSearchSessionValues;
 	readonly environment: PreviewSearchEnvironment;
 	/** The platform Preview plays; defaults to an app's default platform. */
-	readonly rules?: Pick<PreviewPlatformRules, "hiddenSearchField">;
+	readonly rules?: Pick<
+		PreviewPlatformRules,
+		"hiddenSearchField" | "searchAddressPicker"
+	>;
 	/** The lookup data failed to load, so the screen opens over what the
 	 *  data it holds covers rather than waiting for data that will not
 	 *  arrive. */
 	readonly lookupLoadFailed?: boolean;
+	readonly waitsForRequiredCases?: boolean;
 }): SearchInputRunState {
 	/* The screen reads what Core's query manager reads as it opens (its
 	 * starting values, hidden values, choice lists, required conditions and
@@ -114,6 +118,7 @@ export function useSearchInputRunState(args: {
 	);
 	const pending =
 		waitingForWorker ||
+		args.waitsForRequiredCases === true ||
 		ranges.pending ||
 		ranges.retry !== undefined ||
 		(args.lookupLoadFailed !== true &&

@@ -615,6 +615,56 @@ function appSettingsPatch(
 	return Object.keys(patch).length > 0 ? patch : undefined;
 }
 
+/** Profiles follow the language edits that make their referenced languages available. */
+function diffInstallationProfiles(
+	prev: AppSettings,
+	next: AppSettings,
+): Mutation[] {
+	const mutations: Mutation[] = [];
+	const previousProfiles = prev.installationProfiles ?? {};
+	const nextProfiles = next.installationProfiles ?? {};
+	for (const profile of Object.values(previousProfiles)) {
+		if (!Object.hasOwn(nextProfiles, profile.uuid))
+			mutations.push({
+				kind: "setAppSettings",
+				settings: {
+					installationProfile: { operation: "remove", uuid: profile.uuid },
+				},
+			});
+	}
+	for (const profile of Object.values(nextProfiles)) {
+		const previous = previousProfiles[profile.uuid];
+		if (!previous) {
+			mutations.push({
+				kind: "setAppSettings",
+				settings: { installationProfile: { operation: "add", profile } },
+			});
+		} else if (!deepEqual(previous, profile)) {
+			const patch = {
+				...(previous.name !== profile.name && { name: profile.name }),
+				...(!deepEqual(previous.languages, profile.languages) && {
+					languages: profile.languages,
+				}),
+				...(previous.requiresPracticeWorker !==
+					profile.requiresPracticeWorker && {
+					requiresPracticeWorker: profile.requiresPracticeWorker,
+				}),
+			};
+			mutations.push({
+				kind: "setAppSettings",
+				settings: {
+					installationProfile: {
+						operation: "update",
+						uuid: profile.uuid,
+						patch,
+					},
+				},
+			});
+		}
+	}
+	return mutations;
+}
+
 // ── Parent reverse index ─────────────────────────────────────────────
 //
 // `BlueprintDoc.fieldParent` materializes child → parent, but the diff's
@@ -797,6 +847,30 @@ function* diffGranularSteps(
 	}
 	if (prev.logo !== next.logo) {
 		appLevel.push({ kind: "setAppLogo", logo: next.logo ?? null });
+	}
+	const oldSearches = prev.appSettings.projectSearches ?? {};
+	const searches = next.appSettings.projectSearches ?? {};
+	for (const [key, search] of Object.entries(searches)) {
+		const uuid = asUuid(key);
+		const old = oldSearches[uuid];
+		if (old?.name !== search.name)
+			appLevel.push({
+				kind: "setAppSettings",
+				settings: {
+					projectSearch: {
+						operation: old ? "rename" : "add",
+						uuid,
+						name: search.name,
+					},
+				},
+			});
+	}
+	for (const key of Object.keys(oldSearches)) {
+		if (!Object.hasOwn(searches, key))
+			appLevel.push({
+				kind: "setAppSettings",
+				settings: { projectSearch: { operation: "remove", uuid: asUuid(key) } },
+			});
 	}
 	const settingsPatch = appSettingsPatch(prev.appSettings, next.appSettings);
 	if (settingsPatch !== undefined) {
@@ -1456,8 +1530,23 @@ function* diffGranularSteps(
 			: produce(replayed, (draft) => {
 					applyMutations(draft, admitMutationBatch(residual));
 				});
-	structural.push(...diffLocalization(localizationBase, next));
-	structural.push(...awaitingLanguage);
+	const localization = diffLocalization(localizationBase, next);
+	structural.push(...localization, ...awaitingLanguage);
+	// A source relabel also remaps existing profiles. Diff their settings from
+	// those remapped values, then add or edit profiles after their languages exist.
+	const relabel = localization.find(
+		(mutation) => mutation.kind === "relabelSourceLanguage",
+	);
+	const profileBase =
+		relabel === undefined ||
+		localizationBase.appSettings.installationProfiles === undefined
+			? localizationBase
+			: produce(localizationBase, (draft) => {
+					applyMutations(draft, [relabel]);
+				});
+	structural.push(
+		...diffInstallationProfiles(profileBase.appSettings, next.appSettings),
+	);
 	// Held placements last: no other mutation writes a held slot, and
 	// localization writes none, so `localizationBase` holds what every
 	// mutation before this one leaves held.
@@ -2809,7 +2898,14 @@ function diffSearchInputs(
 			continue;
 		}
 		if (!contentEqualIgnoringOrder(p, input)) {
-			out.push(searchInputUpdateMutation(moduleUuid, p, cloneEntity(input)));
+			out.push(
+				searchInputUpdateMutation(
+					moduleUuid,
+					p,
+					cloneEntity(input),
+					"document-diff",
+				),
+			);
 		}
 	}
 	// `searchInputs` IS the sequence, so a reorder is whatever moves turn the
@@ -3129,7 +3225,9 @@ function diffCaseListMeta(
 ): Mutation[] {
 	const patch: {
 		filter?: CaseListConfig["filter"] | null;
+		additionalCaseTypes?: CaseListConfig["additionalCaseTypes"] | null;
 		listCondition?: CaseListConfig["filter"] | null;
+		searchInputGroups?: CaseListConfig["searchInputGroups"] | null;
 		searchCondition?: CaseListConfig["filter"] | null;
 		selection?: CaseListConfig["selection"] | null;
 		tile?: CaseListConfig["tile"] | null;
@@ -3139,7 +3237,14 @@ function diffCaseListMeta(
 		emptyText?: string | null;
 		selectButtonText?: string | null;
 		optimizations?: true | null;
+		deviceLookup?: CaseListConfig["deviceLookup"] | null;
 	} = {};
+	if (!deepEqual(prev.searchInputGroups, next.searchInputGroups))
+		patch.searchInputGroups = next.searchInputGroups
+			? cloneEntity(next.searchInputGroups)
+			: null;
+	if (!deepEqual(prev.deviceLookup, next.deviceLookup))
+		patch.deviceLookup = next.deviceLookup ?? null;
 	if (prev.optimizations !== next.optimizations)
 		patch.optimizations = next.optimizations ?? null;
 	for (const key of ["emptyText", "selectButtonText"] as const)
@@ -3174,24 +3279,13 @@ function diffCaseListMeta(
 			});
 			continue;
 		}
-		// An order row has no target or value: its terms change in place, and a
-		// row that changes between an order and a value filter is a new row.
-		if (!("target" in row) || !("target" in old)) {
-			if (!("target" in row) && !("target" in old)) {
-				if (!deepEqual(old.order, row.order))
-					addFilterEdit({
-						operation: "edit",
-						uuid: row.uuid,
-						patch: { order: cloneEntity(row.order) },
-					});
-			} else {
-				addFilterEdit({ operation: "remove", uuid: old.uuid });
+		if (!("target" in old) || !("target" in row)) {
+			if (!deepEqual(old, row))
 				addFilterEdit({
-					operation: "add",
+					operation: "replace",
+					uuid: row.uuid,
 					filter: cloneEntity(row),
-					after: predecessorIn(afterIds, row.uuid),
 				});
-			}
 			continue;
 		}
 		const changedTarget = !deepEqual(old.target, row.target);
@@ -3214,6 +3308,8 @@ function diffCaseListMeta(
 	for (const id of beforeIds)
 		if (!afterIds.includes(id))
 			addFilterEdit({ operation: "remove", uuid: id });
+	if (!deepEqual(prev.additionalCaseTypes, next.additionalCaseTypes))
+		patch.additionalCaseTypes = cloneEntity(next.additionalCaseTypes ?? null);
 	const listChanged = !deepEqual(prev.filter, next.filter);
 	const searchChanged = !deepEqual(
 		searchConditionOf(prev),

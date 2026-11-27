@@ -8,7 +8,11 @@ import type {
 } from "@/lib/domain";
 import { fieldProseTemplate } from "@/lib/domain/expressionSource";
 import { fieldHasWorkerControl } from "@/lib/domain/fieldForm";
+import type { Form } from "@/lib/domain/forms";
+import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
+import { effectivePreviewPlatform } from "../platform";
 import { runtimeMessage } from "../runtimeMessages";
+import { workerFieldProseSlot } from "../workerProse";
 import { controlValuePath, type FieldTreeNode } from "./fieldTree";
 import { repeatAddCaption } from "./repeatAddCaption";
 import { type FieldState, repeatRowRelevantInState } from "./types";
@@ -168,6 +172,8 @@ export function projectFormPresentation(
 	options: {
 		rootPath?: string;
 		language?: LanguageTag;
+		platform?: Platform;
+		textForm?: Pick<Form, "plainText">;
 		currentSectionUuid?: Uuid;
 		/** The current screen's path (`FormScreenPage.path`) where the form is
 		 *  not paged by section: `/data` for Web Apps' one screen, a group's or
@@ -184,6 +190,7 @@ export function projectFormPresentation(
 	nodes: FormPresentationNode[];
 } {
 	const rootPath = options.rootPath ?? "/data";
+	const platform = effectivePreviewPlatform(PLATFORMS, options.platform);
 	const fields: PresentedField[] = [];
 	const text = (
 		field: Field,
@@ -197,7 +204,12 @@ export function projectFormPresentation(
 					? state.resolvedHint
 					: state.resolvedHelp;
 		if (resolved !== undefined) return resolved;
-		const prose = fieldProseTemplate(field, slot);
+		const prose = fieldProseTemplate(
+			field,
+			slot === "label"
+				? slot
+				: workerFieldProseSlot(field, slot, options.textForm ?? {}, platform),
+		);
 		return prose === undefined ? undefined : options.text(prose);
 	};
 	function walk(

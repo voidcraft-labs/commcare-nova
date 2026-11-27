@@ -1,4 +1,5 @@
 import { workerLookupSchemas } from "@/lib/case-store/sql/compileLookup";
+import { dateRetypeOverwrite } from "@/lib/domain/caseRetype";
 import { connectActivitySites } from "@/lib/domain/connectActivitySites";
 import type { ConnectSubmissionProgram } from "@/lib/domain/connectSubmissionFacts";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
@@ -34,13 +35,24 @@ import "server-only";
 
 import { workerDistanceValueId } from "@/lib/domain";
 import {
+	caseWriteLabelSavesEmpty,
 	entryOperationCaseType,
 	formEntryRecord,
+	menuEmittedAdvanced,
 	sharedWorkerTarget,
 } from "@/lib/domain/advancedEntryDatums";
+import {
+	bareRead,
+	basicCaseSlots,
+	basicOwnExternalIdDayValue,
+	basicOwnNameCalendarDay,
+	caseSlotFacts,
+	externalIdCalendarDayField,
+} from "@/lib/domain/basicCaseSlots";
 import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { columnReadsDetailTabRow } from "@/lib/domain/detailTabs";
 import { formContentUuid } from "@/lib/domain/formEntryCases";
+import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import type { FormOpeningProjection } from "./formOpeningSnapshot";
 import {
 	restoreOpeningCases,
@@ -66,6 +78,8 @@ import type {
 	CaseStore,
 	SortKey as CaseStoreSortKey,
 	LookupTableSchemas,
+	OpeningReadSet,
+	OperationScopeIterations,
 	OrdinarySubmissionAction,
 	RelatedRead,
 	RestoreScope,
@@ -88,15 +102,19 @@ import {
 	type LookupWireNaming,
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
+import { basicOwnTextOverlap } from "@/lib/commcare/placement";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import type { AppDoc } from "@/lib/db/types";
 import {
+	caseEffectLayout,
 	caseOperationConditionalGuardUuids,
+	caseOperationDependencyUuids,
 	caseOperationExpressionSnapshotTypes,
-	caseOperationMultiplicityScopes,
+	caseOperationRepeatScopes,
 } from "@/lib/doc/caseOperationOrder";
+import { deepEqual } from "@/lib/doc/deepEqual";
 import { entryPointRequirements } from "@/lib/doc/entryPointProjection";
 import {
 	asUuid,
@@ -106,6 +124,7 @@ import {
 	type CaseListOrderPlan,
 	type CaseListSortKey,
 	type CaseOperation,
+	type CaseOperationWrite,
 	type CaseProperty,
 	type CaseTileGrouping,
 	type CaseType,
@@ -124,10 +143,14 @@ import {
 	type Form,
 	type FormType,
 	isCaptureFieldKind,
+	isParentUserWritePath,
+	isSearchAnswerInput,
 	type Module,
 	orderedCaseOperations,
 	organizationLevelsOf,
+	ownCaseOperationHasEffects,
 	type PersistableDoc,
+	parentUserWriteCaseTypes,
 	searchInputRuntimeValueType,
 	suppliedCreationIssue,
 	TIME_SINCE_UNIT_DAYS,
@@ -141,10 +164,7 @@ import {
 } from "@/lib/domain/captureFormats";
 import { entryNewCaseKeyNumbering } from "@/lib/domain/entryCaseIdentity";
 import type { Expression, Term } from "@/lib/domain/expression";
-import {
-	walkExpressionNodes,
-	walkExpressionTerms,
-} from "@/lib/domain/expression";
+import { walkExpressionTerms } from "@/lib/domain/expression";
 import {
 	ancestorPath,
 	concat,
@@ -193,6 +213,7 @@ import type {
 	PopulateSampleCasesResult,
 	SubmissionAnswerEntry,
 	SubmissionMutation,
+	SubmissionOperationAnswers,
 	SubmissionWireMutation,
 } from "./caseDataBindingTypes";
 import type { CaseListOrderLocale } from "./caseListOrder";
@@ -247,14 +268,18 @@ function caseCalculation(
 		},
 	});
 }
+type CaseListCalculationScope = "record" | "completed-search";
+
 function runtimeCalculatedColumns(
 	config: CaseListConfig | undefined,
 	locale?: CaseListOrderLocale,
+	scope: CaseListCalculationScope = "record",
 ) {
 	if (!config) return undefined;
 	const columns = config.columns.filter(
 		(column): column is Extract<Column, { kind: "calculated" }> =>
 			column.kind === "calculated" &&
+			(!column.inlineResultProperty || scope === "completed-search") &&
 			caseListColumnRuns(column, config) &&
 			!columnReadsDetailTabRow(config, column),
 	);
@@ -396,6 +421,7 @@ function caseReadCore(
 	return {
 		appId: args.appId,
 		caseType: args.caseType,
+		additionalCaseTypes: args.caseListConfig?.additionalCaseTypes,
 		reading: args.reading,
 		caseIds: args.caseIds,
 		parentCases: args.parentCase,
@@ -403,11 +429,13 @@ function caseReadCore(
 		bindings: args.bindings,
 		lookupTableSchemas: args.lookupTableSchemas,
 		predicate,
-		knownInputs: args.caseListConfig?.searchInputs.map((input) => ({
-			uuid: input.uuid,
-			name: input.name,
-			data_type: searchInputRuntimeValueType(input),
-		})),
+		knownInputs: args.caseListConfig?.searchInputs
+			.filter(isSearchAnswerInput)
+			.map((input) => ({
+				uuid: input.uuid,
+				name: input.name,
+				data_type: searchInputRuntimeValueType(input),
+			})),
 		restoreScope: args.restoreScope,
 		searchPopulation: args.searchPopulation,
 	};
@@ -434,7 +462,11 @@ export function runningCaseSelectionQuery(
 ) {
 	return {
 		...caseReadCore(args, runningCasePredicate(args).predicate),
-		sort: buildCaseStoreSortKeys(args.order, args.caseType),
+		sort: buildCaseStoreSortKeys(
+			args.order,
+			args.caseType,
+			args.searchPopulation?.request ? "completed-search" : "record",
+		),
 	};
 }
 
@@ -523,7 +555,7 @@ async function emptyCaseResult(
  */
 export async function readCases(
 	store: Pick<CaseStore, "query" | "count" | "queryGrouped"> &
-		Partial<Pick<CaseStore, "querySearchResults">>,
+		Partial<Pick<CaseStore, "querySearchResults" | "queryAutomaticSelection">>,
 	args: {
 		appId: string;
 		caseType: string;
@@ -561,10 +593,11 @@ export async function readCases(
 		excludedOwnerIds?: readonly string[];
 		authoredExcludedOwnerIds?: readonly string[];
 		page?: { offset: number; limit: number };
-		/** For an unpaged read, the most rows to return, in the read's order.
-		 * A read that reaches the cap also counts every match, as
-		 * `totalCount`. */
-		cap?: number;
+		/** Read in the device's datum order and skip screen-only calculations. */
+		datumOrder?: true;
+		/** The authored maximum for an automatic device selection. */
+		automaticMaximum?: number;
+		boundedFlatClose?: true;
 		/**
 		 * Read as this worker's device would. Passed by the RUNNING preview and
 		 * by nothing else — the case workspace and the sample-data surfaces read
@@ -579,6 +612,17 @@ export async function readCases(
 		 */
 		searchPopulation?: SearchPopulation;
 	},
+	retainSearchResult?:
+		| {
+				kind: "instance";
+				keep: (
+					instance: import("@/lib/case-store/store").SearchResultInstance,
+				) => Promise<string>;
+		  }
+		| {
+				kind: "detail";
+				keep: (offeredPrimaryIds: readonly string[]) => Promise<string>;
+		  },
 ): Promise<LoadCasesResult> {
 	const composedQuery = runningCasePredicate(args);
 	const page = normalizeCaseListPage(args.page);
@@ -608,20 +652,55 @@ export async function readCases(
 	if (args.searchPopulation?.request) {
 		if (!store.querySearchResults)
 			throw new Error("This case store has no completed-search reader.");
-		const found = await store.querySearchResults(
-			{
-				...caseReadCore(args, composedQuery.predicate),
-				sort: buildCaseStoreSortKeys(args.order, args.caseType),
-				calculated: runtimeCalculatedColumns(args.caseListConfig),
-				related: runtimeRelatedReads(args.caseListConfig, args.caseType),
-				offset: page?.offset,
-				limit: page?.limit ?? args.cap,
-			},
-			grouping?.identifier,
-		);
+		const query = {
+			...caseReadCore(args, composedQuery.predicate),
+			...(args.datumOrder
+				? { datumOrder: true as const }
+				: {
+						sort: buildCaseStoreSortKeys(
+							args.order,
+							args.caseType,
+							"completed-search",
+						),
+						calculated: runtimeCalculatedColumns(
+							args.caseListConfig,
+							undefined,
+							"completed-search",
+						),
+						related: runtimeRelatedReads(args.caseListConfig, args.caseType),
+					}),
+			offset: page?.offset,
+			limit:
+				page?.limit ??
+				(args.automaticMaximum === undefined
+					? undefined
+					: args.automaticMaximum + 1),
+		};
+		const found = retainSearchResult
+			? await store.querySearchResults(
+					query,
+					grouping?.identifier,
+					retainSearchResult.kind === "instance" ? true : "offered-primary-ids",
+				)
+			: await store.querySearchResults(query, grouping?.identifier);
+		let resultReceipt: string | undefined;
+		if (retainSearchResult?.kind === "instance") {
+			if (found.instance === undefined)
+				throw new Error("The bounded search did not capture its response.");
+			resultReceipt = await retainSearchResult.keep(found.instance);
+		}
+		if (retainSearchResult?.kind === "detail") {
+			if (found.offeredPrimaryIds === undefined)
+				throw new Error(
+					"The bounded search did not identify its offered cases.",
+				);
+			if (found.offeredPrimaryIds.length > 0)
+				resultReceipt = await retainSearchResult.keep(found.offeredPrimaryIds);
+		}
 		const common = {
 			constraintSource: composedQuery.constraintSource,
 			searchMatchCount: found.primaryCount,
+			...(resultReceipt !== undefined && { resultReceipt }),
 		};
 		if (!found.rows.length) {
 			// The empty state may explain what clearing a worker's answers
@@ -667,14 +746,27 @@ export async function readCases(
 		return readGroupedCases(store, args, composedQuery, page, grouping);
 	}
 	const countArgs = caseReadCore(args, composedQuery.predicate);
-	// The guard for the ROWS exit below; the two empty exits carry the same
-	// rule inside `emptyCaseResult`. Editing this one changes what a
-	// populated list reveals and nothing else.
-	//
-	// The rule either way: the reveal belongs to a BOUNDED running list. The
-	// unpaged caller is the form's auto-selection candidate read, which draws
-	// nothing and would pay for a whole-tenant count to fill a field no one
-	// reads.
+	if (args.automaticMaximum !== undefined) {
+		if (!store.queryAutomaticSelection || page !== undefined)
+			throw new Error(
+				"Automatic selection requires an unpaged device selection read.",
+			);
+		const { rows, totalCount } = await store.queryAutomaticSelection(
+			countArgs,
+			args.automaticMaximum,
+			...(args.boundedFlatClose ? [true as const] : []),
+		);
+		if (totalCount === 0)
+			return emptyCaseResult(store, args, composedQuery, undefined, 0);
+		return {
+			kind: "rows",
+			rows,
+			totalCount,
+			constraintSource: composedQuery.constraintSource,
+		};
+	}
+	// The reveal belongs to a bounded running list. The empty exits follow
+	// the same rule through `emptyCaseResult`.
 	const outsideRestoreCount = (restricted: number) =>
 		page === undefined
 			? undefined
@@ -691,26 +783,23 @@ export async function readCases(
 					page.offset,
 					Math.floor((totalCount - 1) / page.limit) * page.limit,
 				);
-	const cap =
-		page === undefined && args.cap !== undefined
-			? Math.max(1, Math.floor(args.cap))
-			: undefined;
 	const queryAtOffset = (offset: number) =>
 		store.query({
 			...caseReadCore(args, composedQuery.predicate),
-			sort: buildCaseStoreSortKeys(args.order, args.caseType),
-			calculated: runtimeCalculatedColumns(
-				args.caseListConfig,
-				args.order?.locale,
-			),
-			related: runtimeRelatedReads(args.caseListConfig, args.caseType),
-			limit: page?.limit ?? cap,
+			...(args.datumOrder
+				? { datumOrder: true as const }
+				: {
+						sort: buildCaseStoreSortKeys(args.order, args.caseType),
+						calculated: runtimeCalculatedColumns(
+							args.caseListConfig,
+							args.order?.locale,
+						),
+						related: runtimeRelatedReads(args.caseListConfig, args.caseType),
+					}),
+			limit: page?.limit,
 			offset: page === undefined ? undefined : offset,
 		});
 	let rows = await queryAtOffset(pageOffset);
-	if (cap !== undefined) {
-		totalCount = rows.length < cap ? rows.length : await store.count(countArgs);
-	}
 
 	// COUNT and SELECT are intentionally separate, so a delete can remove the
 	// last row from the counted page between them. Recount and reclamp exactly
@@ -745,7 +834,6 @@ export async function readCases(
 			pageOffset,
 			pageSize: page.limit,
 		}),
-		...(cap !== undefined && { totalCount: totalCount ?? rows.length }),
 		...(outside !== undefined && { outsideRestoreCount: outside }),
 	};
 }
@@ -991,7 +1079,9 @@ function composeQueryPredicate(
 		hasAuthoredConstraint = true;
 	}
 	const knownInputUuids = new Set(
-		caseListConfig?.searchInputs.map((input) => input.uuid) ?? [],
+		caseListConfig?.searchInputs
+			.filter(isSearchAnswerInput)
+			.map((input) => input.uuid) ?? [],
 	);
 	const emptyExpressionInputValues =
 		caseListConfig === undefined
@@ -1279,6 +1369,7 @@ export interface CaseStoreOrder {
 function buildCaseStoreSortKeys(
 	order: CaseStoreOrder | undefined,
 	caseType: string,
+	scope: CaseListCalculationScope = "record",
 ): CaseStoreSortKey[] {
 	const stablePageTieBreaker: CaseStoreSortKey = {
 		kind: "expression",
@@ -1288,6 +1379,18 @@ function buildCaseStoreSortKeys(
 		blanks: "first",
 	};
 	if (order === undefined) return [stablePageTieBreaker];
+	const unavailableIds = new Set<string>(
+		scope === "record"
+			? order.plan.fields.flatMap(({ column }) =>
+					column.kind === "calculated" && column.inlineResultProperty
+						? [column.uuid]
+						: [],
+				)
+			: [],
+	);
+	const available = order.plan.fields.filter(
+		({ column }) => !unavailableIds.has(column.uuid),
+	);
 	const rules = [
 		...order.plan.calculations.map((calc) => ({
 			rule: {
@@ -1298,7 +1401,7 @@ function buildCaseStoreSortKeys(
 			key: { kind: "independent-calculation", sort: calc.sort } as const,
 			comparator: calc.comparator,
 		})),
-		...order.plan.fields.flatMap((field) =>
+		...available.flatMap((field) =>
 			field.rule === undefined || field.key === undefined
 				? []
 				: [{ rule: field.rule, key: field.key, comparator: field.comparator }],
@@ -1310,7 +1413,7 @@ function buildCaseStoreSortKeys(
 		})),
 	].sort((a, b) => a.rule.order - b.rule.order);
 	const columns = new Map<string, Column>(
-		order.plan.fields.map((field) => [field.column.uuid, field.column]),
+		available.map(({ column }) => [column.uuid, column]),
 	);
 	const listOrder = rules.flatMap(({ rule, key, comparator }) =>
 		sortKeysForRule(
@@ -1324,6 +1427,7 @@ function buildCaseStoreSortKeys(
 		),
 	);
 	const picked = (order.choice?.picks ?? []).flatMap((pick) => {
+		if (unavailableIds.has(pick.column)) return [];
 		const alone = caseListSingleFieldOrder(
 			order.plan,
 			pick.column,
@@ -1969,6 +2073,205 @@ export function buildSubmissionReceiptIdentity(args: {
 	return { entryKey, formUuid, requestDigest };
 }
 
+/** Build the schedule from committed repeat nesting and paired concrete rows.
+ * Parent positions come with the submitted instance, and cannot supply a
+ * different enclosing answer or change the repeat-definition order. */
+function caseOperationAnswerScopes(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	answers: SubmissionOperationAnswers,
+	operations: readonly CaseOperation[],
+	appendedRoot?: readonly Uuid[],
+): Pick<CaseOperationProgram, "scopes" | "scopeOrder" | "effectOrder"> {
+	const bindings = (entries: readonly SubmissionAnswerEntry[]) => {
+		const formFields = new Map<Uuid, SubmissionAnswerEntry["value"]>();
+		const absentFields = new Set<Uuid>();
+		for (const { fieldUuid, value, absent } of entries) {
+			const field = asUuid(fieldUuid);
+			formFields.set(field, value);
+			if (absent) absentFields.add(field);
+		}
+		return { formFields, ...(absentFields.size > 0 && { absentFields }) };
+	};
+	const repeats = caseOperationRepeatScopes(doc, formUuid);
+	const supplied = new Map(
+		answers.repeats.map((scope) => [scope.repeat, scope]),
+	);
+	if (
+		repeats.length !== supplied.size ||
+		answers.repeats.length !== supplied.size ||
+		repeats.some((scope) => !supplied.has(scope.repeat))
+	)
+		throw new CaptureSubmissionRejectedError(
+			"The submitted form is missing answers for a repeat its committed case operations run over. Reload the form and submit again.",
+		);
+
+	for (const { repeat, parentRepeat } of repeats) {
+		if (
+			parentRepeat === undefined &&
+			supplied.get(repeat)?.parentIterations !== undefined
+		)
+			throw new CaptureSubmissionRejectedError(
+				"The submitted form could not match its nested repeat rows. Reload the form and submit again.",
+			);
+	}
+	const scopes: OperationScopeIterations[] = [
+		{ iterations: [bindings(answers.root)] },
+		...repeats.map(({ repeat }) => ({
+			repeat,
+			iterations: (supplied.get(repeat)?.iterations ?? []).map(bindings),
+		})),
+	];
+	const layout = caseEffectLayout(doc, formUuid, operations, appendedRoot);
+	if (!layout && !repeats.some((scope) => scope.parentRepeat !== undefined))
+		return { scopes };
+
+	const children = new Map<Uuid | undefined, Uuid[]>();
+	const rows = new Map<Uuid, Map<number, number[]>>();
+	const invalid = () =>
+		new CaptureSubmissionRejectedError(
+			"The submitted form could not match its nested repeat rows. Reload the form and submit again.",
+		);
+	for (const { repeat, parentRepeat } of repeats) {
+		const scope = supplied.get(repeat);
+		if (!scope) throw invalid();
+		const positions = scope.parentIterations;
+		const siblings = children.get(parentRepeat) ?? [];
+		siblings.push(repeat);
+		children.set(parentRepeat, siblings);
+		const count = scope.iterations.length;
+		const parents =
+			parentRepeat === undefined ? undefined : supplied.get(parentRepeat);
+		if (
+			parents &&
+			((positions !== undefined &&
+				(!Array.isArray(positions) || positions.length !== count)) ||
+				(count > 0 && positions === undefined))
+		)
+			throw invalid();
+		const byParent = new Map<number, number[]>();
+		const parentAnswers = parents?.iterations.map(
+			(entries) => new Map(entries.map((entry) => [entry.fieldUuid, entry])),
+		);
+		let previousParent = 0;
+		for (const [iteration, entries] of scope.iterations.entries()) {
+			const parent = positions?.[iteration] ?? 0;
+			if (!Number.isSafeInteger(parent) || parent < previousParent)
+				throw invalid();
+			previousParent = parent;
+			if (parentAnswers !== undefined) {
+				const inherited = parentAnswers[parent];
+				if (
+					inherited === undefined ||
+					!sameEnclosingOperationAnswers(inherited, entries)
+				)
+					throw invalid();
+			}
+			const siblings = byParent.get(parent) ?? [];
+			siblings.push(iteration);
+			byParent.set(parent, siblings);
+		}
+		rows.set(repeat, byParent);
+	}
+
+	if (layout)
+		return {
+			scopes,
+			effectOrder: authoredCaseEffectOrder(
+				layout,
+				rows,
+				answers.root,
+				supplied,
+			),
+		};
+
+	const scopeOrder: NonNullable<CaseOperationProgram["scopeOrder"]>[number][] =
+		[{ iteration: 0 }];
+	const appendChildren = (
+		enclosing: Uuid | undefined,
+		parent: number,
+	): void => {
+		for (const repeat of children.get(enclosing) ?? []) {
+			for (const iteration of rows.get(repeat)?.get(parent) ?? []) {
+				appendChildren(repeat, iteration);
+				scopeOrder.push({ repeat, iteration });
+			}
+		}
+	};
+	appendChildren(undefined, 0);
+	return { scopes, scopeOrder };
+}
+
+/** Expand the committed case placements over the submission's concrete rows. */
+function authoredCaseEffectOrder(
+	layout: NonNullable<ReturnType<typeof caseEffectLayout>>,
+	rows: ReadonlyMap<Uuid, ReadonlyMap<number, readonly number[]>>,
+	rootAnswers: readonly SubmissionAnswerEntry[],
+	supplied: ReadonlyMap<string, SubmissionOperationAnswers["repeats"][number]>,
+): NonNullable<CaseOperationProgram["effectOrder"]> {
+	const effects: NonNullable<CaseOperationProgram["effectOrder"]>[number][] =
+		[];
+	const walk = (
+		nodes: typeof layout,
+		repeat: Uuid | undefined,
+		iteration: number,
+		answers: ReadonlyMap<string, SubmissionAnswerEntry>,
+	) => {
+		for (const node of nodes) {
+			switch (node.kind) {
+				case "generated":
+					effects.push({
+						repeat,
+						iteration,
+						operationUuids: node.operations.map((operation) => operation.uuid),
+					});
+					break;
+				case "positioned": {
+					const entry = answers.get(node.fieldUuid);
+					if (entry === undefined || entry.value !== "")
+						throw new CaptureSubmissionRejectedError(
+							"The submitted form is missing the position of a case change. Reload the form and submit again.",
+						);
+					effects.push({
+						repeat,
+						iteration,
+						operationUuids: [node.operation.uuid],
+						...(entry.absent && { absent: true }),
+					});
+					break;
+				}
+				case "repeat":
+					for (const row of rows.get(node.repeat)?.get(iteration) ?? []) {
+						const entries = supplied.get(node.repeat)?.iterations[row] ?? [];
+						walk(
+							node.children,
+							node.repeat,
+							row,
+							new Map(entries.map((entry) => [entry.fieldUuid, entry])),
+						);
+					}
+			}
+		}
+	};
+	walk(
+		layout,
+		undefined,
+		0,
+		new Map(rootAnswers.map((entry) => [entry.fieldUuid, entry])),
+	);
+	return effects;
+}
+
+function sameEnclosingOperationAnswers(
+	inherited: ReadonlyMap<string, SubmissionAnswerEntry>,
+	entries: readonly SubmissionAnswerEntry[],
+): boolean {
+	const answers = new Map(entries.map((entry) => [entry.fieldUuid, entry]));
+	return [...inherited].every(([field, value]) =>
+		deepEqual(value, answers.get(field)),
+	);
+}
+
 /**
  * Build the storage executor's `CaseOperationProgram` from the
  * COMMITTED doc — the server is the structural authority, consuming
@@ -1994,11 +2297,17 @@ export function buildSubmissionReceiptIdentity(args: {
  * A carrier-free program takes the loader's empty-id fast path and performs no
  * lookup read.
  */
+interface AppTestCaseOpening {
+	readonly reads: OpeningReadSet;
+	readonly createIds?: Readonly<Record<string, string>>;
+}
+
 export async function buildSubmissionOperationProgram(args: {
 	readonly appId: string;
 	readonly committedApp: Pick<AppDoc, "blueprint" | "mutation_seq">;
 	readonly blueprintDigest: string;
 	readonly opening?: FormOpeningProjection;
+	readonly testOpening?: AppTestCaseOpening;
 	readonly identity: ResolvedPreviewIdentity;
 	/** The device the form ran on, whose session context values a case
 	 *  operation writing one writes. */
@@ -2061,6 +2370,7 @@ export async function buildSubmissionOperationProgram(args: {
 		identity: args.identity,
 		device: args.device,
 		opening: args.opening,
+		testOpening: args.testOpening,
 		...(args.opening && { currentOwnerIds: workerScope?.ownerIds }),
 		...(movesOwnerToPlace && {
 			workerPlaceIds:
@@ -2237,11 +2547,16 @@ function operationFormFieldRefs(
 		if (operation.target?.kind === "new" && operation.target.idFrom) {
 			refs.add(operation.target.idFrom);
 		}
+		for (const link of operation.links ?? [])
+			if (link.relationshipQuestion !== undefined)
+				refs.add(link.relationshipQuestion);
 		for (const expression of [
 			operation.name,
 			operation.owner,
+			operation.ownerAfterCreate?.value,
 			operation.rename,
-			...(operation.target?.kind === "expression"
+			...(operation.target?.kind === "expression" ||
+			(operation.target?.kind === "new" && operation.target.expr !== undefined)
 				? [operation.target.expr]
 				: []),
 			...(operation.links ?? []).flatMap((link) =>
@@ -2253,6 +2568,12 @@ function operationFormFieldRefs(
 		}
 		for (const predicate of [
 			operation.condition,
+			operation.closeCondition,
+			operation.action === "create"
+				? operation.typeChoice?.condition
+				: undefined,
+			operation.ownerCondition,
+			operation.ownerAfterCreate?.condition,
 			...(operation.writes ?? []).flatMap((write) =>
 				write.condition === undefined ? [] : [write.condition],
 			),
@@ -2349,6 +2670,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 	readonly currentOwnerIds?: readonly string[];
 	readonly blueprint: PersistableDoc;
 	readonly opening?: FormOpeningProjection;
+	readonly testOpening?: AppTestCaseOpening;
 	readonly mutation: SubmissionMutation;
 	readonly projection: CaptureSubmissionProjection;
 	readonly identity: ResolvedPreviewIdentity;
@@ -2399,19 +2721,28 @@ export function buildCaseOperationProgramFromDoc(args: {
 		ordinaryFormType: form.type,
 	};
 	const committed = committedProgramForm(doc, formUuid);
-	// An unused own load may be omitted from a shared entry. Its empty
-	// follow-up arm has no case to touch. The other operations still run.
+	const entryMenu = moduleUuidOfForm(doc, entryUuid);
+	const noOwnSelection =
+		!!doc.forms[entryUuid]?.shadowOf && !record.requiresCase;
+	const readsWorkerAlongsideRepeat =
+		record.caseType === USERCASE_CASE_TYPE &&
+		entryMenu !== undefined &&
+		menuEmittedAdvanced(doc, entryMenu) &&
+		committed.operations.some(
+			(op) =>
+				op.action === "update" &&
+				op.target.kind === "worker-record" &&
+				op.forEach !== undefined,
+		);
+	// An omitted own load or an input-only advanced worker load has no
+	// submitted case block. The ordinary entry selection stays authorized.
 	const operations =
-		doc.forms[entryUuid]?.shadowOf &&
-		!record.requiresCase &&
-		form.type === "followup"
+		form.type === "followup" && (noOwnSelection || readsWorkerAlongsideRepeat)
 			? committed.operations.filter(
 					(op) =>
 						op.action !== "own" ||
-						op.name ||
-						op.owner ||
-						op.writes?.length ||
-						op.links?.length,
+						ownCaseOperationHasEffects(op) ||
+						(!noOwnSelection && op.placement?.kind === "save-to-case"),
 				)
 			: committed.operations;
 	if (operations.length === 0 && mutation.entrySupplies === undefined)
@@ -2486,6 +2817,8 @@ export function buildCaseOperationProgramFromDoc(args: {
 	 * operation that names the case it creates inherits that condition, as a
 	 * consumer of any conditional create inherits its producer's. */
 	const ownOpenCondition = ownCase?.openCondition;
+	const overlap =
+		entryUuid === formUuid ? basicOwnTextOverlap(doc, formUuid) : undefined;
 	/* A question's answer saved as it is to the own case of a form that
 	 * updates it, or to the worker's record, saves nothing while the question
 	 * takes no part in the submission, as the wire's `count(path) > 0`
@@ -2502,6 +2835,29 @@ export function buildCaseOperationProgramFromDoc(args: {
 			(operation.action === "update" &&
 				operation.target.kind === "worker-record")
 		);
+	const facts =
+		externalIdCalendarDayField(own) !== undefined ||
+		own?.name?.kind === "format-date"
+			? caseSlotFacts(doc, formUuid)
+			: undefined;
+	const basicOwnDaySlot =
+		entryUuid === formUuid &&
+		form.type === "followup" &&
+		facts?.moduleUuid !== undefined &&
+		!menuEmittedAdvanced(doc, facts.moduleUuid) &&
+		basicCaseSlots(doc, formUuid).ownBasic;
+	const externalIdDayValue = (
+		operation: CaseOperation,
+		write: CaseOperationWrite,
+	) =>
+		basicOwnDaySlot && facts !== undefined && operation.action === "own"
+			? basicOwnExternalIdDayValue(facts, write)
+			: undefined;
+	const nameDayField = (operation: CaseOperation) => {
+		if (!basicOwnDaySlot || facts === undefined) return;
+		const answer = basicOwnNameCalendarDay(facts, operation);
+		return answer === undefined ? undefined : bareRead(answer);
+	};
 	const withoutAbsentAnswerWrites = (
 		operation: CaseOperation,
 	): CaseOperation => {
@@ -2512,8 +2868,12 @@ export function buildCaseOperationProgramFromDoc(args: {
 		)
 			return operation;
 		const writes = operation.writes.filter((write) => {
+			const day = externalIdDayValue(operation, write);
+			if (day !== undefined) return !absentRootFields.has(day.field);
 			const answer = caseWriteValueField(write.value);
 			return (
+				(overlap?.own === operation.uuid &&
+					overlap.property === write.property) ||
 				answer === undefined ||
 				answer.link ||
 				!absentRootFields.has(answer.field as string)
@@ -2557,7 +2917,47 @@ export function buildCaseOperationProgramFromDoc(args: {
 						committedOperation.caseType !== actualType
 					? { ...committedOperation, caseType: actualType }
 					: committedOperation;
-		const operation = withoutAbsentAnswerWrites(boundOperation);
+		const route = boundOperation.writes?.find((write) =>
+			isParentUserWritePath(write.via),
+		);
+		const parentUserCaseTypes =
+			route &&
+			actualType &&
+			parentUserWriteCaseTypes(route.via, actualType, [
+				...caseTypeSchemas.values(),
+			]);
+		if (route && !parentUserCaseTypes)
+			throw new CaptureSubmissionRejectedError(
+				"The linked cases no longer match this form. Reopen it to load the current case types.",
+			);
+		let operation = withoutAbsentAnswerWrites(boundOperation);
+		const calendarName = nameDayField(boundOperation);
+		if (
+			operation.action === "own" &&
+			calendarName !== undefined &&
+			absentRootFields.has(calendarName)
+		) {
+			const { name: _name, ...otherEffects } = operation;
+			operation = otherEffects;
+		}
+		const emptyTextWrites = new Set<number>();
+		if (operation.action === "own" && form.type === "followup") {
+			for (const [index, write] of (operation.writes ?? []).entries()) {
+				const answer = caseWriteValueField(write.value);
+				const field =
+					answer === undefined ? undefined : doc.fields[answer.field];
+				if (
+					(overlap?.own === operation.uuid &&
+						overlap.property === write.property) ||
+					(write.via === undefined &&
+						answer?.link === false &&
+						field?.kind === "label" &&
+						caseWriteLabelSavesEmpty(field.askForConfirmation, field.banner))
+				) {
+					emptyTextWrites.add(index);
+				}
+			}
+		}
 		const guardConditions = [...(guards.get(operation.uuid) ?? [])]
 			.map((uuid) => operationsByUuid.get(uuid)?.condition)
 			.filter((condition): condition is Expression => condition !== undefined);
@@ -2565,11 +2965,21 @@ export function buildCaseOperationProgramFromDoc(args: {
 			ownOpenCondition !== undefined &&
 			own !== undefined &&
 			operation.uuid !== own.uuid &&
-			operationNamesCase(operation, own.uuid)
+			caseOperationDependencyUuids(operation).has(own.uuid)
 		) {
 			guardConditions.push(ownOpenCondition);
 		}
 		const snapshot = snapshotTypes.get(operation.uuid);
+		const producer =
+			operation.action === "update" && operation.target.kind === "op"
+				? operationsByUuid.get(operation.target.opUuid)
+				: undefined;
+		const dateOverwrite = dateRetypeOverwrite(
+			doc,
+			formUuid,
+			operation,
+			producer,
+		);
 		const viaCaseTypes = viaDestinationTypes(
 			operation,
 			actualType,
@@ -2583,55 +2993,29 @@ export function buildCaseOperationProgramFromDoc(args: {
 				links: snapshot?.links ?? new Map<number, string>(),
 			},
 			...(viaCaseTypes.size > 0 && { viaCaseTypes }),
+			...(emptyTextWrites.size > 0 && { emptyTextWrites }),
+			...(calendarName !== undefined && { basicOwnNameDay: true as const }),
+			...(dateOverwrite !== undefined &&
+				(dateOverwrite.mayBeEmpty
+					? { optionalDateRetypeProperty: dateOverwrite.property }
+					: { requiredDateRetypeProperty: dateOverwrite.property })),
+			...(parentUserCaseTypes && { parentUserCaseTypes }),
+			...(operation.writes?.some(
+				(write) => externalIdDayValue(operation, write) !== undefined,
+			) && {
+				basicExternalIdDay: true as const,
+			}),
 		};
 	});
 
 	const answers = mutation.operationAnswers ?? { root: [], repeats: [] };
-	const answerMap = (
-		entries: ReadonlyArray<SubmissionAnswerEntry> | undefined,
-	): ReadonlyMap<Uuid, string | readonly string[]> =>
-		new Map(
-			(entries ?? []).map((entry) => [asUuid(entry.fieldUuid), entry.value]),
-		);
-	/* A repeat the COMMITTED doc scopes an operation over, with no scope in
-	 * the payload, is provable staleness rather than an empty repeat.
-	 * `FormEngine.computeOperationAnswers` registers a scope for every repeat
-	 * in the client's OWN doc before counting its instances, so a worker who
-	 * simply added no rows still sends that repeat with an empty iteration
-	 * list. Absent means the client never knew the repeat existed — a
-	 * co-editor added it, and this snapshot predates the commit.
-	 *
-	 * Distinguishing the two is the whole point: `?? []` reads an absent
-	 * scope as zero iterations, so the operation runs zero times and the
-	 * submission reports success while committed case effects never
-	 * happened. That is the same silent skip the guard above refuses, one
-	 * level deeper. */
-	const requiredScopes = caseOperationMultiplicityScopes(doc, formUuid);
-	const suppliedRepeats = new Set(answers.repeats.map((scope) => scope.repeat));
-	const missingRepeats = requiredScopes.filter(
-		(repeatUuid): repeatUuid is Uuid =>
-			repeatUuid !== undefined && !suppliedRepeats.has(repeatUuid as string),
+	const { scopes, scopeOrder, effectOrder } = caseOperationAnswerScopes(
+		doc,
+		formUuid,
+		answers,
+		envelopeOperations.map(({ operation }) => operation),
+		overlap?.appended,
 	);
-	if (missingRepeats.length > 0) {
-		throw new CaptureSubmissionRejectedError(
-			"The submitted form is missing answers for a repeat its committed case operations run over. Reload the form and submit again.",
-		);
-	}
-
-	const scopes = requiredScopes.map((repeatUuid) => {
-		if (repeatUuid === undefined) {
-			return { iterations: [{ formFields: answerMap(answers.root) }] };
-		}
-		const clientScope = answers.repeats.find(
-			(scope) => scope.repeat === (repeatUuid as string),
-		);
-		return {
-			repeat: repeatUuid,
-			iterations: (clientScope?.iterations ?? []).map((bag) => ({
-				formFields: answerMap(bag),
-			})),
-		};
-	});
 
 	/* The same staleness one level finer. A peer can add a FIELD an operation
 	 * reads without adding a repeat, so the scope arrives and its iterations
@@ -2675,6 +3059,8 @@ export function buildCaseOperationProgramFromDoc(args: {
 		throw new CaptureSubmissionRejectedError(
 			"This form needs one group to own its new cases. You can check this worker's groups and places, then open it again.",
 		);
+	const openingCreateIds =
+		args.opening?.caseCreateIds ?? args.testOpening?.createIds;
 	return {
 		...ordinaryStructure,
 		program: {
@@ -2690,8 +3076,18 @@ export function buildCaseOperationProgramFromDoc(args: {
 						revisions: args.workerScopeRevision,
 					},
 				}),
+			...(openingCreateIds && {
+				openingCreateIds: new Map(
+					Object.entries(openingCreateIds).map(([uuid, id]) => [
+						asUuid(uuid),
+						id,
+					]),
+				),
+			}),
 			...(suppliedCaseIds.size > 0 && { suppliedCaseIds }),
 			scopes,
+			...(scopeOrder && { scopeOrder }),
+			...(effectOrder && { effectOrder }),
 			...(mutation.kind === "followup" || mutation.kind === "close"
 				? { sessionCaseIds: mutation.caseIds }
 				: {}),
@@ -2705,6 +3101,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 					([uuid, field]) => [uuid, field.type],
 				),
 			),
+			dayNumberEpoch: previewPlatformRules(args.device.platform).dayNumberEpoch,
 			formFieldHeld: new Map(
 				[...(formExpressionFacts(doc, formUuid)?.fields ?? [])].flatMap(
 					([uuid, field]) =>
@@ -2724,6 +3121,8 @@ export function buildCaseOperationProgramFromDoc(args: {
 					locations: args.opening.cases.locations ?? [],
 				},
 			}),
+			...(!args.opening &&
+				args.testOpening && { openingReads: args.testOpening.reads }),
 			sessionUser: new Map(Object.entries(session.user)),
 			sessionUserAbsent: { readsBlank: PREVIEW_UNKNOWN_WORKER_KEYS },
 			userPropertySlugs: new Map(Object.entries(session.userPropertySlugs)),
@@ -2767,6 +3166,7 @@ function committedSelection(
 		kind: form.type,
 		caseIds: mutation.caseIds,
 		caseType,
+		additionalCaseTypes: menu?.caseListConfig?.additionalCaseTypes,
 		selection:
 			caseSelectionCardinality(menu ?? {}) === "multiple"
 				? {
@@ -2775,38 +3175,6 @@ function committedSelection(
 					}
 				: { kind: "single", maximum: 1 },
 	};
-}
-
-/** Whether `operation` names the case operation `opUuid` creates: as its
- * target, a link's target, or an `id-of` read. */
-function operationNamesCase(operation: CaseOperation, opUuid: Uuid): boolean {
-	if (operation.target?.kind === "op" && operation.target.opUuid === opUuid)
-		return true;
-	let named = false;
-	const note = (expression: Expression) => {
-		if (expression.kind === "id-of" && expression.opUuid === opUuid)
-			named = true;
-	};
-	for (const link of operation.links ?? []) {
-		if (link.target?.kind === "op" && link.target.opUuid === opUuid)
-			return true;
-		if (link.target?.kind === "expression")
-			walkExpressionNodes(link.target.expr, note);
-	}
-	for (const expression of [
-		operation.name,
-		operation.owner,
-		operation.rename,
-		operation.condition,
-		...(operation.target?.kind === "expression" ? [operation.target.expr] : []),
-		...(operation.writes ?? []).flatMap((write) => [
-			write.value,
-			...(write.condition === undefined ? [] : [write.condition]),
-		]),
-	]) {
-		if (expression !== undefined) walkExpressionNodes(expression, note);
-	}
-	return named;
 }
 
 /** For each write with a `via`, by its index, the case type the catalog
@@ -3161,6 +3529,9 @@ export function schemaHealingCaseStore(
 		withSchemaHeal(args, run);
 	return {
 		query: (a) => heal(() => store.query(a)),
+		readFlatCloseSelection: (a) => heal(() => store.readFlatCloseSelection(a)),
+		queryAutomaticSelection: (...args) =>
+			heal(() => store.queryAutomaticSelection(...args)),
 		// Un-healed: this raw restore read does not consult a case-type schema,
 		// compile typed properties, or write. It therefore cannot raise the
 		// missing/stale-schema signals the wrapper remedies.
@@ -3169,7 +3540,8 @@ export function schemaHealingCaseStore(
 		readCaseDatabasePatch: (a) => store.readCaseDatabasePatch(a),
 		readSearchResultInstance: (a) =>
 			heal(() => store.readSearchResultInstance(a)),
-		querySearchResults: (a, g) => heal(() => store.querySearchResults(a, g)),
+		querySearchResults: (...args) =>
+			heal(() => store.querySearchResults(...args)),
 		readSubmittedCaseDatabasePatch: (a) =>
 			store.readSubmittedCaseDatabasePatch(a),
 		queryGrouped: (a) => heal(() => store.queryGrouped(a)),

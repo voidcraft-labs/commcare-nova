@@ -118,7 +118,7 @@ export async function readBody(
 	doc: BlueprintDoc,
 	recordDialect: RecordDialectJudge,
 	tables?: ReadTables,
-	told: Pick<ReaderInput, "saveOnlyEditedApplied"> = {},
+	told: Partial<Pick<ReaderInput, "saveOnlyEditedApplied" | "appStrings">> = {},
 ): Promise<EmissionReading> {
 	const input = await inputFor(body, {
 		resolver: matchingResolver(

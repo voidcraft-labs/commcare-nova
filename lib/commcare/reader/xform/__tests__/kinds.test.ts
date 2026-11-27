@@ -16,8 +16,10 @@ import {
 	type FieldSpec,
 	f,
 } from "@/lib/__tests__/docHelpers";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
 	type BlueprintDoc,
+	blueprintDocSchema,
 	type LookupColumnId,
 	type LookupTableId,
 	proseText,
@@ -25,6 +27,7 @@ import {
 import { type FieldKind, fieldKinds } from "@/lib/domain/fields";
 import { lookupMemberIdSchema } from "@/lib/domain/lookupIds";
 import type { LookupRead } from "@/lib/domain/lookupRead";
+import { positionedCaseCreate } from "@/proof/targeted/documents/positionedCaseCreate";
 import { lookupWireNaming } from "../../../lookup/naming";
 import { buildXForm } from "../../../xform/builder";
 import { exportedBody, inputFor } from "../../__tests__/novaExport";
@@ -94,7 +97,7 @@ const CASES: readonly RowCase[] = [
 	{ entry: Q("long-xsd-long"), facts: facts({ bindType: "long" }) },
 	{
 		entry: Q("android-app-callout-input-appearance-intent-id-bind-type-intent"),
-		facts: facts({ bindType: "intent" }),
+		facts: facts({ bindType: "intent", appearance: "intent:q" }),
 	},
 	{
 		entry: Q("input-whose-bind-type-vellum-does-not-write-xsd-decimal-xsd"),
@@ -345,6 +348,9 @@ function sourceOf(one: FieldKindFacts): string {
 			? ""
 			: `<${one.control} ref="${at}"${appearance}${mediatype}>${choices}</${one.control}>`;
 	return xformSource({
+		...(one.bindType === "intent" && {
+			head: '<odkx:intent id="q" class="org.example.MEASURE"/>',
+		}),
 		data: one.inRepeat ? `<r jr:template=""><q/></r>` : "<q/>",
 		model: `${one.inRepeat ? `<bind nodeset="/data/r"/>` : ""}<bind nodeset="${at}"${type}${calculate}/>${
 			one.hasDefault
@@ -361,7 +367,7 @@ describe("a row read from a source written for it", () => {
 	for (const { entry, facts: one } of CASES) {
 		const row = fieldKindOf(one);
 		it(`${entry.slice("questions/".length)} (${JSON.stringify(one)})`, async () => {
-			const reading = await readForm(sourceOf(one));
+			const reading = await readForm(sourceOf(one), { mint: true });
 			const xform = reading.xform;
 			expect(xform).not.toBeNull();
 			const field = readFields(xform ?? ({} as never)).find(
@@ -537,6 +543,21 @@ describe("text on a question's data node", () => {
 		expect(codesAt(reading, "b")).not.toContain(
 			Q("default-data-value-datavalue-instance-text"),
 		);
+	});
+
+	it("names an attachment's nonempty data value as a runtime refusal", async () => {
+		const reading = await readForm(
+			xformSource({
+				data: "<photo>carry-forward.jpg</photo><report> \t\n </report>",
+				model:
+					'<bind nodeset="/data/photo" type="binary"/><bind nodeset="/data/report" type="binary"/>',
+				body: '<upload ref="/data/photo" mediatype="image/*"/><upload ref="/data/report" mediatype="application/*,text/*"/>',
+			}),
+		);
+		expect(codesAt(reading, "photo")).toEqual([
+			Q("default-other-than-blank-on-a-capture-question"),
+		]);
+		expect(codesAt(reading, "report")).toEqual([]);
 	});
 });
 
@@ -746,6 +767,88 @@ describe("a select's choices", () => {
 				);
 				expect(result.kind).toBe(holds ? "read" : "account");
 				expect(result.defects).toEqual([]);
+			},
+		);
+
+		const rowPredicate = (predicate: string) => (xml: string) =>
+			xml.replace(
+				'/hq_districts_list/hq_districts"',
+				`/hq_districts_list/hq_districts${predicate}"`,
+			);
+
+		it.each([
+			["[2]", 2],
+			["[2.0]", 2],
+			["[2.5]", 2],
+			["[(2)]", 2],
+			["[((2.5))]", 2],
+			["[(1 + 1)]", 2],
+			["[((4 - 1) * 1)]", 3],
+			["[2.99]", 2],
+			["[0]", 0],
+			["[0.5]", 0],
+			["[2147483648]", 2147483647],
+			["[4294967297]", 2147483647],
+		])(
+			"reads and republishes fixture row %s as its exact position",
+			async (predicate, ordinal) => {
+				const outcome = await read(rowPredicate(predicate));
+				expect(outcome.kind).toBe("read");
+				expect(outcome.defects).toEqual([]);
+				if (outcome.kind !== "read")
+					throw new Error("The fixture ordinal did not read");
+				const question = Object.values(outcome.draft.doc.fields).find(
+					(field) => field.kind === "single_select",
+				);
+				expect(question).toMatchObject({
+					optionsSource: {
+						filter: {
+							kind: "eq",
+							left: { kind: "call", fn: "position", args: [] },
+							right: {
+								kind: "term",
+								term: { kind: "literal", value: ordinal },
+							},
+						},
+					},
+				});
+				const authored = JSON.stringify(
+					exportedBody(outcome.draft.doc, { expand: { lookupNaming: naming } }),
+				);
+				expect(authored).toContain(
+					`/hq_districts_list/hq_districts[position() = ${ordinal}]`,
+				);
+			},
+		);
+
+		it("does not read a numeric ordinal from an implicitly supplied fixture", async () => {
+			const outcome = await read((xml) =>
+				rowPredicate("[2]")(xml)
+					.replace(
+						/<instance\b[^>]*\bsrc="jr:\/\/fixture\/item-list:hq_districts"[^>]*\/>/,
+						"",
+					)
+					.replace(
+						"instance(&apos;hq_districts&apos;)",
+						"instance(&apos;item-list:hq_districts&apos;)",
+					),
+			);
+			expect(outcome.kind).toBe("account");
+			expect(outcome.defects).toEqual([]);
+		});
+
+		it.each([
+			"[-1]",
+			"[number(&apos;2&apos;)]",
+			"[(-2)]",
+			"[last() - 1]",
+			"[district_name != &apos;&apos;][2]",
+		])(
+			"keeps the different numeric filter %s outside the held shape",
+			async (predicate) => {
+				const outcome = await read(rowPredicate(predicate));
+				expect(outcome.kind).toBe("account");
+				expect(outcome.defects).toEqual([]);
 			},
 		);
 
@@ -966,7 +1069,10 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 	async function questionFindings(
 		filter: string | undefined,
 		options: {
+			readonly allCases?: true;
+			readonly status?: "open" | "closed";
 			readonly labelProperty?: string;
+			readonly sortProperty?: string;
 			readonly xml?: (xml: string) => string;
 		} = {},
 	) {
@@ -995,12 +1101,22 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 								f({
 									kind: "single_select",
 									id: "clinic",
-									optionsSource: {
-										kind: "cases",
-										caseType: "clinic",
-										labelProperty: options.labelProperty ?? "case_name",
-										...(filter === undefined ? {} : { filter }),
-									},
+									optionsSource: options.allCases
+										? {
+												kind: "available-cases",
+												...(options.status !== undefined && {
+													status: options.status,
+												}),
+											}
+										: {
+												kind: "cases",
+												caseType: "clinic",
+												labelProperty: options.labelProperty ?? "case_name",
+												...(options.sortProperty !== undefined && {
+													sortProperty: options.sortProperty,
+												}),
+												...(filter === undefined ? {} : { filter }),
+											},
 								} as FieldSpec),
 							],
 						},
@@ -1034,6 +1150,112 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 		).toBeGreaterThan(0);
 	});
 
+	it("keeps all available cases as an unfiltered source with exact name and ID", async () => {
+		const { atQuestion, outcome } = await questionFindings(undefined, {
+			allCases: true,
+			xml: (xml) => {
+				expect(xml).toContain(
+					`nodeset="instance(&apos;casedb&apos;)/casedb/case"`,
+				);
+				expect(xml).toContain('<label ref="case_name"/>');
+				expect(xml).toContain('<value ref="@case_id"/>');
+				return xml;
+			},
+		});
+		expect(atQuestion).toEqual([]);
+		expect(outcome.kind).toBe("read");
+		if (outcome.kind !== "read") throw new Error("Expected a read form.");
+		const field = Object.values(outcome.draft.doc.fields).find(
+			(one) => one.id === "clinic",
+		);
+		expect(field).toMatchObject({ optionsSource: { kind: "available-cases" } });
+	});
+
+	it.each(["open", "closed"] as const)(
+		"keeps the exact %s filter over all restored case types",
+		async (status) => {
+			const { atQuestion, outcome } = await questionFindings(undefined, {
+				allCases: true,
+				status,
+				xml: (xml) => {
+					expect(xml).toContain(
+						`nodeset="instance(&apos;casedb&apos;)/casedb/case[@status = &apos;${status}&apos;]"`,
+					);
+					return xml;
+				},
+			});
+			expect(atQuestion).toEqual([]);
+			expect(outcome.kind).toBe("read");
+			if (outcome.kind !== "read") throw new Error("Expected a read form.");
+			expect(
+				Object.values(outcome.draft.doc.fields).find(
+					(field) => field.id === "clinic",
+				),
+			).toMatchObject({
+				optionsSource: { kind: "available-cases", status },
+			});
+		},
+	);
+
+	it("holds an exact text filter across all restored case types", async () => {
+		const { atQuestion, outcome } = await questionFindings(undefined, {
+			allCases: true,
+			xml: (xml) =>
+				xml.replace(
+					'/casedb/case"',
+					'/casedb/case[survey_ready = &apos;yes&apos;]"',
+				),
+		});
+		expect(atQuestion).toEqual([]);
+		if (outcome.kind !== "read") throw new Error("Expected a read form.");
+		const field = Object.values(outcome.draft.doc.fields).find(
+			(one) => one.id === "clinic",
+		);
+		expect(field).toMatchObject({
+			optionsSource: {
+				kind: "available-cases",
+				propertyMatch: { property: "survey_ready", text: "yes" },
+			},
+		});
+	});
+
+	it("retains the placed finding for an unknown status filter", async () => {
+		const { atQuestion } = await questionFindings(undefined, {
+			allCases: true,
+			status: "open",
+			xml: (xml) =>
+				xml.replace(
+					"@status = &apos;open&apos;",
+					"@status = &apos;pending&apos;",
+				),
+		});
+		expect(atQuestion).toEqual([
+			`${Q("itemset-over-casedb-or-another-instance-advanced-data-source")} `,
+		]);
+	});
+
+	it("refuses a custom label over untyped cases", async () => {
+		const { atQuestion } = await questionFindings(undefined, {
+			allCases: true,
+			xml: (xml) =>
+				xml.replace('<label ref="case_name"/>', '<label ref="region"/>'),
+		});
+		expect(atQuestion).toEqual([
+			`${Q("itemset-over-casedb-or-another-instance-advanced-data-source")} `,
+		]);
+	});
+
+	it("refuses the raw unfiltered source when the control saves several values", async () => {
+		const { atQuestion } = await questionFindings(undefined, {
+			allCases: true,
+			xml: (xml) =>
+				xml.replace("<select1 ", "<select ").replace("</select1>", "</select>"),
+		});
+		expect(atQuestion).toEqual([
+			`${Q("itemset-over-casedb-or-another-instance-advanced-data-source")} `,
+		]);
+	});
+
 	it("holds the itemset Nova writes with a filter", async () => {
 		const { atQuestion, outcome } = await questionFindings("region = 'north'");
 		expect(atQuestion).toEqual([]);
@@ -1064,6 +1286,28 @@ describe("a select whose choices are the worker's cases, read whole", () => {
 	// (`XFormParser.parseItemset`, `ItemSetParsingUtils.setLabel` and `setValue`), so a held
 	// itemset claims the two its reading read and no other: the case's `dob` shown and its
 	// `external_id` stored would otherwise read as its name shown and its id stored.
+	it("holds a typed case sort and refuses a different kind of node with the same name", async () => {
+		const sort = '<sort ref="region"/>';
+		const held = await questionFindings("region = 'north'", {
+			sortProperty: "region",
+			xml: (xml) => {
+				expect(xml).toContain(sort);
+				return xml;
+			},
+		});
+		expect(held.outcome.kind).toBe("read");
+		expect(held.outcome.claims.counts[Q("itemset-sort-ref")]).toBeGreaterThan(
+			0,
+		);
+		const refused = await questionFindings(undefined, {
+			sortProperty: "region",
+			xml: (xml) => xml.replace(sort, '<sort ref="@region"/>'),
+		});
+		expect(refused.atQuestion).toEqual([
+			`${Q("itemset-over-casedb-or-another-instance-advanced-data-source")} `,
+		]);
+	});
+
 	it("leaves a second label and value of a case choices itemset unclaimed", async () => {
 		const value = '<value ref="@case_id"/>';
 		const { atQuestion, outcome } = await questionFindings(undefined, {
@@ -1109,7 +1353,10 @@ const option = (key: string) => ({
  * the count and query modes of a repeat and both placements of a query repeat. A section is a
  * form's root of sections, so it is read from a form of its own.
  */
-const EMITTED: { readonly [K in FieldKind]: readonly KindFixture[] } = {
+const formReaderKinds = fieldKinds.filter((kind) => kind !== "case_change");
+const EMITTED: {
+	readonly [K in Exclude<FieldKind, "case_change">]: readonly KindFixture[];
+} = {
 	text: [
 		{
 			fields: [f({ kind: "text", id: "text" })],
@@ -1424,8 +1671,8 @@ async function emittedAndRead(
 }
 
 describe("every kind Nova writes, emitted and read back", () => {
-	it("has a document for every kind of fieldKinds, each read as that kind", () => {
-		for (const kind of fieldKinds) {
+	it("exhibits every kind the form reader binds before case management", () => {
+		for (const kind of formReaderKinds) {
 			const fixtures = (
 				EMITTED as Partial<Record<string, readonly KindFixture[]>>
 			)[kind];
@@ -1439,7 +1686,7 @@ describe("every kind Nova writes, emitted and read back", () => {
 	});
 
 	it("reads each field's kind, id, keypad, container shape, repeat mode and placement", async () => {
-		const together = fieldKinds
+		const together = formReaderKinds
 			.filter((kind) => kind !== "section")
 			.flatMap((kind) => EMITTED[kind]);
 		const { shapes, standIns } = await emittedAndRead(
@@ -1447,6 +1694,28 @@ describe("every kind Nova writes, emitted and read back", () => {
 		);
 		expect(shapes).toEqual(together.flatMap((fixture) => fixture.read));
 		expect(standIns).toEqual([]);
+	});
+
+	it("attaches the positioned case-change field to its own case operation", async () => {
+		const doc = hydratePersistedBlueprint(
+			blueprintDocSchema.parse(positionedCaseCreate().doc),
+		);
+		const read = readHqApp(await inputFor(exportedBody(doc)));
+		expect(read.defects).toEqual([]);
+		if (read.kind !== "read") throw new Error(JSON.stringify(read.findings));
+		const { forms, fields, fieldOrder } = read.draft.doc;
+		const [form] = Object.values(forms);
+		const ordered = fieldOrder[form.uuid].map((uuid) => fields[uuid]);
+		expect(ordered.map((field) => field.id)).toEqual([
+			"visit_name",
+			"save_visit",
+			"notes",
+		]);
+		expect(ordered[1]).toMatchObject({
+			kind: "case_change",
+			operationUuid: form.caseOperations?.[0].uuid,
+		});
+		expect(form.caseOperations?.[0].action).toBe("create");
 	});
 
 	it("reads a form of root Question Lists as sections", async () => {

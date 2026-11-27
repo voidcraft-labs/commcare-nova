@@ -12,10 +12,12 @@
  * is inside is registered for the expression stage once, so no text is ever
  * wrapped twice.
  */
+
 import type { Element } from "domhandler";
 import { isTag } from "domhandler";
 import { caseOperationConditionalGuardUuids } from "@/lib/doc/caseOperationOrder";
 import {
+	AUTHORED_CASE_ID_VERSION,
 	type BlueprintDoc,
 	type CaseOperation,
 	type CaseOperationLink,
@@ -27,6 +29,7 @@ import {
 	formFieldCanKeyCreate,
 	isAuthoredCaseIdPrefix,
 	isCaseOperationIdentifier,
+	isCaseOperationLinkIdentifier,
 	isCaseOperationProperty,
 	isCaseScalarTextProperty,
 	MAX_AUTHORED_CASE_KEY_LENGTH,
@@ -34,6 +37,7 @@ import {
 	prepareCaseScalarTextValue,
 	type Uuid,
 } from "@/lib/domain";
+import { dateRetypeOverwrite, planCaseRetype } from "@/lib/domain/caseRetype";
 import {
 	actingUser,
 	and,
@@ -41,6 +45,12 @@ import {
 	unowned,
 } from "@/lib/domain/expression/builders";
 import type { SlotContextRef } from "@/lib/domain/expression/types";
+import {
+	type CaseTypeCalculation,
+	fixedCaseTypeOf,
+	hasUpdateOnlyCaseFacets,
+	RESERVED_CASE_OPERATION_TYPES,
+} from "@/lib/domain/forms";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import {
 	caseOperationLinkNameProblem,
@@ -155,6 +165,7 @@ import {
 const Q = "questions";
 const F = "forms-and-case-writes";
 const MUG = "mug:SaveToCase";
+const ROLE = "vellum-markup:model/instance//*@vellum:role";
 
 /** A Save to Case expression outside the typed vocabulary of its slot, the
  *  expression stage's entry. */
@@ -168,10 +179,15 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		`${Q}/savetocase-block-outside-nova-s-own-block-shape`,
 		MUG,
 	),
-	linkName: refuse(
+	linkUnicodeName: refuse(
 		`${Q}/savetocase-link-name-outside-nova-s-identifier-grammar`,
-		MUG,
+		ROLE,
 	),
+	linkActionOnSave: refuse(
+		`${Q}/savetocase-link-name-changes-actions-on-save`,
+		ROLE,
+	),
+	linkBindLost: refuse(`${Q}/savetocase-link-bind-lost-on-save`, ROLE),
 	caseTypeXPath: refuse(`${Q}/savetocase-case-type-given-as-an-xpath`, MUG),
 	authoredCreateId: refuse(
 		`${Q}/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside`,
@@ -187,14 +203,13 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		`${Q}/create-case-id-live-calculate-outside-a-repeat`,
 		"xform:model/bind@calculate",
 	),
-	ownerCondition: refuse(`${Q}/savetocase-owner-id-condition`, MUG),
-	closeOnlyCondition: refuse(
-		`${Q}/a-close-only-savetocase-block-with-a-close-condition`,
-		MUG,
+	aliasedOwnerCondition: refuse(
+		`${Q}/savetocase-owner-condition-on-an-aliased-create`,
+		"xform:model/bind@relevant",
 	),
-	writeAndClose: refuse(
-		`${Q}/a-savetocase-block-that-creates-or-updates-and-also-closes-under`,
-		MUG,
+	updateOwnerCondition: refuse(
+		`${Q}/savetocase-update-owner-condition`,
+		"xform:model/bind@relevant",
 	),
 	blockRelevance: refuse(
 		`${Q}/relevance-bound-on-the-savetocase-node-itself`,
@@ -264,6 +279,15 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 		`${Q}/a-savetocase-change-whose-case-type-is-not-the-type-of-the-case-it-reaches`,
 		MUG,
 	),
+	dateRetype: take(`${Q}/a-savetocase-retype-that-keeps-a-date-as-text`, MUG),
+	requiredDateRetype: take(
+		`${Q}/a-fresh-case-retype-that-overwrites-text-with-a-required-date`,
+		MUG,
+	),
+	optionalDateRetype: take(
+		`${Q}/a-fresh-case-retype-that-overwrites-text-with-an-optional-date`,
+		MUG,
+	),
 	/** A `case_type` row that gives a case a type holding one of the earlier
 	 *  type's properties as another type (`index.ts::settleCaseChanges`). */
 	retypeConverts: refuse(
@@ -280,6 +304,10 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 	/** A form whose Save to Case block writes a property of the form's own
 	 *  case the form's own change also writes, or closes that case beside it
 	 *  (`index.ts::settleCaseChanges`). */
+	basicOwnTextOverlap: take(
+		`${Q}/a-basic-own-text-write-after-an-authored-update`,
+		MUG,
+	),
 	ownCaseBeside: refuse(
 		`${Q}/a-savetocase-change-of-the-form-s-own-case-beside-the-form-s-own-change-of-it`,
 		MUG,
@@ -634,6 +662,29 @@ function literalOf(text: string | undefined): string | undefined {
 	return node?.kind === "string" ? node.value : undefined;
 }
 
+function readFixedCaseType(
+	text: string | undefined,
+): CaseTypeCalculation | undefined {
+	const node = parse(text);
+	if (node?.kind !== "call" || node.name !== "concat") return undefined;
+	const terms = node.args.flatMap((argument) =>
+		argument.kind === "string"
+			? [
+					{
+						kind: "term",
+						term: { kind: "literal", value: argument.value },
+					} as const,
+				]
+			: [],
+	);
+	const [first, second, ...rest] = terms;
+	return first === undefined ||
+		second === undefined ||
+		terms.length !== node.args.length
+		? undefined
+		: { kind: "concat", parts: [first, second, ...rest] };
+}
+
 function isCall(text: string | undefined, name: string): boolean {
 	let node = parse(text);
 	while (node?.kind === "group") node = node.value;
@@ -686,6 +737,8 @@ type ProposedTarget =
 	| {
 			readonly kind: "new";
 			readonly idFrom?: DraftField;
+			readonly shareKeyAcrossRows?: true;
+			readonly authoredId?: { readonly text: string; readonly site: ClaimSite };
 			/** The prefix a keyed create's id stands under in the source. */
 			readonly idPrefix?: string;
 	  }
@@ -754,6 +807,7 @@ export interface ProposedBlock {
 	readonly id: string;
 	readonly action: "own" | "create" | "update" | "close";
 	readonly caseType: string;
+	readonly editorCaseType?: string;
 	readonly block: ReadSaveToCaseBlock;
 	/** The segments its path's wrappers say, then `block`. */
 	readonly segments: readonly SaveToCaseBlockSegment[];
@@ -767,6 +821,7 @@ export interface ProposedBlock {
 		readonly answer?: DraftField;
 		/** The question whose answer the name is, read as a path alone. */
 		readonly readsField?: DraftField;
+		readonly keepNameText?: true;
 	};
 	readonly owner?: ProposedOwner;
 	readonly rename?: {
@@ -778,11 +833,24 @@ export interface ProposedBlock {
 		readonly answer?: DraftField;
 	};
 	readonly retype?: string;
+	readonly typeCalculation?: CaseTypeCalculation;
+	readonly typeChoice?: {
+		readonly text: string;
+		readonly site: ClaimSite;
+		readonly otherwise: string;
+		readonly reapplyPrimaryAtEnd?: true;
+	};
 	readonly writes: readonly ProposedRow[];
 	readonly links: readonly ProposedLink[];
 	readonly condition?: { readonly text: string; readonly site: ClaimSite };
 	/** A close in the block: an operation's own close, or the own close's condition. */
 	readonly closes: boolean;
+	readonly ownerCondition?: { readonly text: string; readonly site: ClaimSite };
+	readonly ownerAfterCreate?: {
+		readonly owner: ProposedOwner;
+		readonly condition: { readonly text: string; readonly site: ClaimSite };
+		readonly keepOwnerTextAfterWrites?: true;
+	};
 	readonly closeCondition?: { readonly text: string; readonly site: ClaimSite };
 	readonly place: HqPlace;
 	/**
@@ -894,7 +962,21 @@ function localName(element: Element): string {
 /** The scope a block stands in: the form root, or its repeat's node or row. */
 function scopeOk(xform: ReadXForm, block: ReadSaveToCaseBlock): boolean {
 	const first = block.wrappers[0];
-	if (first === undefined) return false;
+	if (first === undefined) {
+		const parent = xform.nodes.get(block.path.join("/"))?.parent;
+		const role =
+			parent === null || parent === undefined
+				? undefined
+				: xform.roles.get(parent);
+		return (
+			parent === null ||
+			role?.kind === "query-row" ||
+			(role?.kind === "field" &&
+				(role.field.kind === "group" ||
+					role.field.kind === "section" ||
+					role.field.kind === "repeat"))
+		);
+	}
 	const parent = first.parent;
 	if (parent === null) return block.repeat === null;
 	const role = xform.roles.get(parent);
@@ -944,6 +1026,20 @@ function bindsUnder(
 		if (!out.has(key)) out.set(key, element);
 	}
 	return out;
+}
+
+/** Binds of an exact XML index leaf, even when its name cannot be parsed as
+ * a portable XPath. A refusal never uses this path as a new expression. */
+function sourceIndexBinds(
+	xform: ReadXForm,
+	block: ReadSaveToCaseBlock,
+	identifier: string,
+): readonly Element[] {
+	const root = xform.parsed.dataRoot.name;
+	const path = `/${[root, ...block.path, "case", "index", identifier].join("/")}`;
+	return xform.parsed.binds.filter(
+		({ attribs }) => attribs.nodeset?.trim() === path,
+	);
 }
 
 /** Each bind under `prefix` after the first on its node (`bindsUnder` holds
@@ -1438,6 +1534,75 @@ function enclosingRepeat(
 	return walk(null, null);
 }
 
+/** A later owner needs its own scalar check in the generated guard. */
+function laterOwnerGuardIsHeld(
+	xform: ReadXForm,
+	block: ReadSaveToCaseBlock,
+	condition: string,
+): boolean {
+	const name = block.path.at(-1);
+	if (name === undefined) return false;
+	const guard = xform.saveToCaseBlocks.find(
+		(candidate) =>
+			candidate.element.parent === block.element.parent &&
+			isAllocatedName(
+				candidate.path.at(-1) ?? "",
+				generatedBaseName("guard", name, "text"),
+			),
+	);
+	if (guard === undefined) return false;
+	const calculation = bindsUnder(xform, guard.path).get("case/@case_id")
+		?.attribs.calculate;
+	const root = parse(calculation);
+	if (
+		calculation === undefined ||
+		root?.kind !== "call" ||
+		root.name !== "if" ||
+		root.args.length !== 3 ||
+		root.args[0] === undefined
+	)
+		return false;
+	const [first] = conjuncts(root.args[0]);
+	if (first === undefined) return false;
+	const ownerPath = `current()/../../../${name}/case/update/owner_id`;
+	return sameXPathText(
+		calculation.slice(first.from, first.to),
+		`not(${condition}) or string-length(${ownerPath}) > 0 and string-length(${ownerPath}) <= 255`,
+		{ ruleSet: "form" },
+	);
+}
+
+/** A following text guard may explicitly apply the primary type to the
+ * newly created case. The full form boundary still compares all its binds. */
+function guardReappliesPrimaryType(
+	xform: ReadXForm,
+	block: ReadSaveToCaseBlock,
+	primary: string,
+): boolean {
+	if (block.repeat !== null) return false;
+	const name = block.path.at(-1);
+	if (name === undefined) return false;
+	const parent = block.element.parent;
+	if (parent === null || !isTag(parent)) return false;
+	const siblings = children(parent);
+	const next = siblings[siblings.indexOf(block.element) + 1];
+	const guard = xform.saveToCaseBlocks.find(
+		(candidate) => candidate.element === next,
+	);
+	return (
+		guard !== undefined &&
+		isAllocatedName(
+			guard.path.at(-1) ?? "",
+			generatedBaseName("guard", name, "text"),
+		) &&
+		guard.element.attribs["vellum:case_type"] === primary &&
+		literalOf(
+			bindsUnder(xform, guard.path).get("case/update/case_type")?.attribs
+				.calculate,
+		) === primary
+	);
+}
+
 /** Reads one block's content into its proposal, or the finding it is. */
 function readBlock(
 	ctx: ReadContext,
@@ -1468,16 +1633,102 @@ function readBlock(
 		(element) => stopsFormBuilder(localName(element)),
 	);
 	if (unopenable !== undefined)
-		return fail(X.questionIdGrammar, { name: localName(unopenable) });
+		return fail(
+			X.questionIdGrammar,
+			{ name: localName(unopenable) },
+			unopenable,
+		);
 	const caseElement = children(block.element).find(
 		(child) => localName(child) === "case",
 	);
 	if (caseElement === undefined) return { ok: false };
-	const caseType = block.element.attribs["vellum:case_type"];
-	if (caseType === undefined || caseType === "") return { ok: false };
 	const parts = new Map(
 		children(caseElement).map((child) => [localName(child), child]),
 	);
+	const binds = bindsUnder(xform, block.path);
+	const bindAt = (key: string) => binds.get(key);
+	const calc = (key: string) => bindAt(key)?.attribs.calculate;
+	const creates = parts.has("create");
+	const createTypeText = creates ? calc("case/create/case_type") : undefined;
+	const literalType = literalOf(createTypeText);
+	const declaredType = block.element.attribs["vellum:case_type"];
+	const syntax = parse(createTypeText);
+	const branches =
+		syntax?.kind === "call" && syntax.name === "if" && syntax.args.length === 3
+			? syntax.args
+			: [];
+	const [caseCondition, primaryType, alternateType] = branches;
+	const isDeclared = (type: string) =>
+		ctx.input.knownCaseTypes?.hasType?.(type) === true ||
+		ctx.draft.modules.some((module) => module.module.caseType === type);
+	let choiceType:
+		| (NonNullable<ProposedBlock["typeChoice"]> & { type: string })
+		| undefined;
+	const typeBind = bindAt("case/create/case_type");
+	if (
+		declaredType === "" &&
+		typeBind !== undefined &&
+		createTypeText !== undefined &&
+		caseCondition !== undefined &&
+		primaryType?.kind === "string" &&
+		alternateType?.kind === "string" &&
+		primaryType.value !== alternateType.value
+	) {
+		const names = [primaryType.value, alternateType.value];
+		const reserved = names.find((type) =>
+			RESERVED_CASE_OPERATION_TYPES.has(type),
+		);
+		if (reserved !== undefined)
+			return fail(
+				SAVE_TO_CASE_CLAIMS.caseTypeXPath,
+				{ name: reserved, reason: "platform-owned-output" },
+				typeBind,
+			);
+		const reapplyPrimaryAtEnd = guardReappliesPrimaryType(
+			xform,
+			block,
+			primaryType.value,
+		);
+		const undeclared = names.find(
+			(type) =>
+				caseOperationCaseTypeNameProblem(type) !== undefined ||
+				(!reapplyPrimaryAtEnd && !isDeclared(type)),
+		);
+		if (undeclared !== undefined)
+			return fail(
+				SAVE_TO_CASE_CLAIMS.caseTypeXPath,
+				{ name: undeclared, reason: "undeclared-output" },
+				typeBind,
+			);
+		choiceType = {
+			type: primaryType.value,
+			otherwise: alternateType.value,
+			...(reapplyPrimaryAtEnd && { reapplyPrimaryAtEnd: true as const }),
+			text: createTypeText.slice(caseCondition.from, caseCondition.to),
+			site: { element: typeBind, attribute: "calculate" },
+		};
+	}
+
+	// Vellum removes the declared type when the create's type is an XPath.
+	// Keep the literal-only calculation itself, and resolve the fixed type
+	// before asking for that static metadata.
+	const typeCalculation =
+		declaredType === "" ? readFixedCaseType(createTypeText) : undefined;
+	if (
+		createTypeText !== undefined &&
+		literalType === undefined &&
+		typeCalculation === undefined &&
+		choiceType === undefined &&
+		syntax !== undefined
+	)
+		return fail(SAVE_TO_CASE_CLAIMS.caseTypeXPath);
+	const fixedType =
+		typeCalculation === undefined
+			? undefined
+			: fixedCaseTypeOf(typeCalculation);
+	const caseType = choiceType?.type ?? fixedType ?? declaredType;
+	if (caseType === undefined || (caseType === "" && fixedType === undefined))
+		return { ok: false };
 	// The worker's record is a case a block only updates: a create, a close or
 	// a link of it, and any block of HQ's owner mapping, is the reserved entry.
 	if (
@@ -1491,9 +1742,6 @@ function readBlock(
 	// row's and a link's.
 	if (caseOperationCaseTypeNameProblem(caseType) !== undefined)
 		return fail(SAVE_TO_CASE_CLAIMS.caseTypeName);
-	const binds = bindsUnder(xform, block.path);
-	const bindAt = (key: string) => binds.get(key);
-	const calc = (key: string) => bindAt(key)?.attribs.calculate;
 	// A bind on the block's own node, and a constraint or a type on a leaf.
 	if (bindAt("")?.attribs.relevant !== undefined)
 		return fail(SAVE_TO_CASE_CLAIMS.blockRelevance);
@@ -1516,7 +1764,8 @@ function readBlock(
 	};
 	const casePath = [...block.path, "case"];
 	const idPath = [...casePath, "@case_id"];
-	const creates = parts.has("create");
+	if (block.authoredScopeLength !== undefined && caseType === "commcare-user")
+		return { ok: false };
 	const segments: SaveToCaseBlockSegment[] = [];
 	for (const wrapper of block.wrappers) {
 		const role = xform.roles.get(wrapper);
@@ -1543,7 +1792,7 @@ function readBlock(
 	// The target.
 	let target: ProposedTarget;
 	if (creates) {
-		const createType = literalOf(calc("case/create/case_type"));
+		const createType = choiceType?.type ?? fixedType ?? literalType;
 		if (createType === undefined)
 			return fail(SAVE_TO_CASE_CLAIMS.caseTypeXPath);
 		if (createType !== caseType) return { ok: false };
@@ -1562,10 +1811,14 @@ function readBlock(
 			const path =
 				node === undefined ? undefined : resolveContextPath(node, idPath, root);
 			const field = path === undefined ? undefined : fieldAt(xform, path);
-			// An answer keys a create only where the gate takes it as a key: one
-			// string (`formFieldCanKeyCreate`: not a multi-select answer, which Nova
-			// holds as a list) from the create's own repeat, or the root for a
-			// create at the root (`formFieldCorrelatesWithCreate`).
+			const keyRepeat =
+				field === undefined ? undefined : enclosingRepeat(xform, field);
+			// A root Text key explicitly preserved on a repeated create refers
+			// to the same namespaced case in every row of this submission.
+			const shareKeyAcrossRows =
+				keyRepeat === null &&
+				block.repeat !== null &&
+				field?.field.kind === "text";
 			if (
 				field === undefined ||
 				keyedId === undefined ||
@@ -1573,26 +1826,43 @@ function readBlock(
 					kind: field.kind,
 					dataType: caseDataTypeForFieldKind(field.kind),
 				}) ||
-				enclosingRepeat(xform, field) !== block.repeat
+				(keyRepeat !== block.repeat && !shareKeyAcrossRows)
 			)
 				return fail(SAVE_TO_CASE_CLAIMS.authoredCreateId);
-			target = { kind: "new", idFrom: field, idPrefix: keyedId.prefix };
+			target = {
+				kind: "new",
+				idFrom: field,
+				idPrefix: keyedId.prefix,
+				...(shareKeyAcrossRows && { shareKeyAcrossRows: true as const }),
+			};
 		} else if (
 			rootSetvalue === undefined &&
 			idCalculate !== undefined &&
 			!standsInRepeat(xform, block)
 		)
 			return fail(SAVE_TO_CASE_CLAIMS.liveCreateId);
-		else if (rootSetvalue !== undefined) {
-			if (!isCall(rootSetvalue.value, "uuid"))
-				return fail(
-					blankOnOpening(xform, rootSetvalue, idPath)
-						? SAVE_TO_CASE_CLAIMS.blankCreateId
-						: SAVE_TO_CASE_CLAIMS.authoredCreateId,
-				);
-			target = { kind: "new" };
-		} else if (idCalculate !== undefined && isCall(idCalculate, "uuid"))
-			target = { kind: "new" };
+		else if (rootSetvalue !== undefined && rootSetvalue.value !== undefined) {
+			if (blankOnOpening(xform, rootSetvalue, idPath))
+				return fail(SAVE_TO_CASE_CLAIMS.blankCreateId);
+			target = isCall(rootSetvalue.value, "uuid")
+				? { kind: "new" }
+				: {
+						kind: "new",
+						authoredId: {
+							text: rootSetvalue.value,
+							site: { element: rootSetvalue.element, attribute: "value" },
+						},
+					};
+		} else if (idCalculate !== undefined)
+			target = isCall(idCalculate, "uuid")
+				? { kind: "new" }
+				: {
+						kind: "new",
+						authoredId: {
+							text: idCalculate,
+							site: site("case/@case_id", "calculate"),
+						},
+					};
 		else return fail(SAVE_TO_CASE_CLAIMS.authoredCreateId);
 	} else {
 		const idText = calc("case/@case_id");
@@ -1619,19 +1889,18 @@ function readBlock(
 		// The worker's record is read only where an update of `commcare-user` names it.
 		if ((target.kind === "worker-record") !== (caseType === "commcare-user"))
 			return { ok: false };
-		// Nova keeps a form's every write of the worker's record in one update
-		// that runs whenever the form is submitted, once, as HQ's `usercase_update`
-		// does (`validator/rules/caseOperations.ts::workerRecordFindings`, reason
-		// `worker-record-facet`): a block under its condition group, or one in a
-		// repeat that runs for each row, is an update Nova cannot hold.
+		// One top-level repeat can update the same worker's record in row order.
 		if (
 			target.kind === "worker-record" &&
-			(conditionWrapper !== undefined || block.repeat !== null)
+			block.repeat !== null &&
+			enclosingRepeat(xform, block.repeat) !== null
 		)
 			return fail(SAVE_TO_CASE_CLAIMS.workerFacet);
 	}
 
 	// The name and the owner of a create.
+	let ownerCondition: ProposedBlock["ownerCondition"];
+	let ownerAfterCreate: ProposedBlock["ownerAfterCreate"];
 	let name: ProposedBlock["name"];
 	let owner: ProposedOwner | undefined;
 	if (creates) {
@@ -1661,15 +1930,65 @@ function readBlock(
 					);
 		const nameField =
 			namePath === undefined ? undefined : fieldAt(xform, namePath);
+		// The bare case name may append literal text to a root Text answer.
+		// Keeping the calculation preserves HQ's submitted text byte for byte.
+		const bareNameAnswer =
+			nameNode?.kind === "call" &&
+			nameNode.name === "concat" &&
+			nameNode.args.length === 2 &&
+			nameNode.args[1].kind === "string"
+				? nameNode.args[0]
+				: nameNode;
+		const bareNamePath =
+			bareNameAnswer === undefined
+				? undefined
+				: resolveContextPath(
+						bareNameAnswer,
+						[...casePath, "create", "case_name"],
+						root,
+					);
+		const bareNameIsRootText =
+			bareNamePath?.length === 1 &&
+			fieldAt(xform, bareNamePath)?.field.kind === "text" &&
+			bareNameAnswer !== undefined &&
+			unwrapped.text.slice(bareNameAnswer.from, bareNameAnswer.to) ===
+				`/${root}/${bareNamePath[0]}`;
 		name = {
 			text: unwrapped.text,
 			site: site("case/create/case_name", "calculate"),
 			...(trimmed !== undefined && { answer: trimmed }),
 			...(nameField !== undefined && { readsField: nameField }),
+			...(!unwrapped.trimmed &&
+				trimmed === undefined &&
+				block.repeat === null &&
+				bareNameIsRootText &&
+				form.form.type === "survey" &&
+				ctx.draft.modules[form.menu]?.docType === "Module" &&
+				!ctx.draft.modules[form.menu]?.module.caseType &&
+				typeof declaredType === "string" &&
+				declaredType !== "" &&
+				target.kind === "new" &&
+				target.idFrom === undefined &&
+				target.authoredId === undefined && { keepNameText: true as const }),
 		};
 		const ownerBind = bindAt("case/create/owner_id");
-		if (ownerBind?.attribs.relevant !== undefined)
-			return fail(SAVE_TO_CASE_CLAIMS.ownerCondition);
+		if (ownerBind?.attribs.relevant !== undefined) {
+			if (
+				!isCall(ownerBind.attribs.relevant, "true") &&
+				(target.kind !== "new" ||
+					target.idFrom !== undefined ||
+					target.authoredId !== undefined)
+			)
+				return {
+					ok: false,
+					claim: SAVE_TO_CASE_CLAIMS.aliasedOwnerCondition,
+					at: { element: ownerBind, attribute: "relevant" },
+				};
+			ownerCondition = {
+				text: ownerBind.attribs.relevant,
+				site: site("case/create/owner_id", "relevant"),
+			};
+		}
 		const ownerText = ownerBind?.attribs.calculate;
 		if (ownerText === undefined) return { ok: false };
 		owner = readOwner(
@@ -1758,9 +2077,70 @@ function readBlock(
 				continue;
 			}
 			if (property === "owner_id") {
+				if (creates && bind.attribs.relevant !== undefined) {
+					const guardedOwner =
+						rows[0] === row &&
+						untrimmed(text).trimmed &&
+						laterOwnerGuardIsHeld(xform, block, bind.attribs.relevant);
+					const sharedName = name?.readsField;
+					// The existing create-name guard checks the same answer after the
+					// device's trim. Keep the text submitted by HQ and the row order.
+					const keepOwnerTextAfterWrites =
+						rows.length > 1 &&
+						rows.at(-1) === row &&
+						sharedName?.field.kind === "text" &&
+						name !== undefined &&
+						name.keepNameText !== true &&
+						fieldIdsOf(sharedName).length === 1 &&
+						text === `/${root}/${fieldIdsOf(sharedName)[0]}` &&
+						calc("case/create/case_name") !== undefined &&
+						untrimmed(calc("case/create/case_name") as string).trimmed &&
+						!laterOwnerGuardIsHeld(xform, block, bind.attribs.relevant);
+					if (
+						(!guardedOwner && !keepOwnerTextAfterWrites) ||
+						target.kind !== "new" ||
+						target.idFrom !== undefined ||
+						target.authoredId !== undefined ||
+						block.repeat !== null ||
+						segments.join("/") !== "operations/block" ||
+						conditionWrapper !== undefined ||
+						ownerCondition !== undefined ||
+						form.form.type !== "survey"
+					)
+						return {
+							ok: false,
+							claim: SAVE_TO_CASE_CLAIMS.updateOwnerCondition,
+							at: { element: bind, attribute: "relevant" },
+						};
+					ownerAfterCreate = {
+						...(keepOwnerTextAfterWrites && {
+							keepOwnerTextAfterWrites: true as const,
+						}),
+						owner: readOwner(untrimmed(text).text, root, {
+							element: bind,
+							attribute: "calculate",
+						}),
+						condition: {
+							text: bind.attribs.relevant,
+							site: { element: bind, attribute: "relevant" },
+						},
+					};
+					continue;
+				}
 				if (bind.attribs.relevant !== undefined) {
-					if (!sharedShape) return fail(SAVE_TO_CASE_CLAIMS.ownerCondition);
-					ownerLed = true;
+					if (sharedShape) ownerLed = true;
+					else {
+						if (target.kind === "worker-record")
+							return {
+								ok: false,
+								claim: SAVE_TO_CASE_CLAIMS.updateOwnerCondition,
+								at: { element: bind, attribute: "relevant" },
+							};
+						ownerCondition = {
+							text: bind.attribs.relevant,
+							site: { element: bind, attribute: "relevant" },
+						};
+					}
 				}
 				owner = readOwner(untrimmed(text).text, root, {
 					element: bind,
@@ -1890,15 +2270,31 @@ function readBlock(
 	if (index !== undefined)
 		for (const link of children(index)) {
 			const identifier = link.name;
-			// A name Nova's link identifier cannot spell, or one CommCare HQ's form
-			// builder reads as the block's own action
-			// (`questionId.ts::caseOperationLinkNameProblem`), as the gate refuses it.
-			// A name it cannot open a form with was refused above.
+			const linkPath = [...casePath, "index", identifier];
+			const nameProblem = caseOperationLinkNameProblem(identifier, (action) =>
+				parts.has(action),
+			);
+			if (nameProblem === "reads_as_case_action")
+				return fail(SAVE_TO_CASE_CLAIMS.linkActionOnSave, { name: identifier });
+			if (identifier.includes("."))
+				return fail(SAVE_TO_CASE_CLAIMS.linkBindLost, { name: identifier });
+			// Vellum only recognizes ASCII case index bind names. The Unicode
+			// XML element is valid on the wire and is already a key of case data.
 			if (
-				!isCaseOperationIdentifier(identifier) ||
-				caseOperationLinkNameProblem(identifier) !== undefined
+				!identifier.includes(":") &&
+				/[^ -~]/u.test(identifier) &&
+				elementNamespace(link, xform.parsed.scope(link)) ===
+					CASE_TRANSACTION_NS &&
+				sourceIndexBinds(xform, block, identifier).some(({ attribs }) =>
+					attribs.calculate?.trim(),
+				)
 			)
-				return fail(SAVE_TO_CASE_CLAIMS.linkName, { name: identifier });
+				return fail(SAVE_TO_CASE_CLAIMS.linkUnicodeName, { name: identifier });
+			if (
+				!isCaseOperationLinkIdentifier(identifier) ||
+				nameProblem !== undefined
+			)
+				return { ok: false };
 			// A name longer than CommCare HQ's index column holds
 			// (`CommCareCaseIndex.identifier`, 255 characters), which the gate refuses
 			// (`CASE_OPERATION_LINK_INVALID`, reason `too-long`).
@@ -1917,7 +2313,6 @@ function readBlock(
 				return fail(SAVE_TO_CASE_CLAIMS.caseTypeName);
 			const key = `case/index/${identifier}`;
 			const text = calc(key);
-			const linkPath = [...casePath, "index", identifier];
 			let linkTarget: ProposedLink["target"] = null;
 			// A link whose value is the block's own case id links the case to itself,
 			// which Core refuses on every submission (`CaseXmlParser.indexCase`, "cannot
@@ -1973,7 +2368,6 @@ function readBlock(
 			text: closeRelevant,
 			site: site("case/close", "relevant"),
 		};
-	if (closes && creates) return fail(SAVE_TO_CASE_CLAIMS.writeAndClose);
 
 	// The shared update's group is present while some row is, or always
 	// where the block links.
@@ -1994,12 +2388,33 @@ function readBlock(
 						),
 					);
 	} else sharedHolds = false;
-	if (ownerLed && !sharedHolds) return fail(SAVE_TO_CASE_CLAIMS.ownerCondition);
+	if (
+		(ownerLed && !sharedHolds) ||
+		(ownerAfterCreate !== undefined &&
+			(closes ||
+				links.length > 0 ||
+				typeCalculation !== undefined ||
+				choiceType !== undefined ||
+				retype !== undefined))
+	) {
+		const ownerBind = bindAt("case/update/owner_id");
+		return {
+			ok: false,
+			claim: SAVE_TO_CASE_CLAIMS.updateOwnerCondition,
+			...(ownerBind !== undefined && {
+				at: { element: ownerBind, attribute: "relevant" },
+			}),
+		};
+	}
 
 	return {
 		ok: true,
 		proposal: {
-			kind: creates ? "create" : closes ? "close" : "update",
+			kind: creates
+				? "create"
+				: closes && !hasUpdateOnlyCaseFacets({ rename, retype, owner, links })
+					? "close"
+					: "update",
 			caseType,
 			block,
 			segments,
@@ -2008,10 +2423,14 @@ function readBlock(
 			...(owner !== undefined && { owner }),
 			...(rename !== undefined && { rename }),
 			...(retype !== undefined && { retype }),
+			...(typeCalculation !== undefined && { typeCalculation }),
+			...(choiceType !== undefined && { typeChoice: choiceType }),
 			writes,
 			links,
 			...(condition !== undefined && { condition }),
 			closes,
+			...(ownerCondition !== undefined && { ownerCondition }),
+			...(ownerAfterCreate !== undefined && { ownerAfterCreate }),
 			...(closeCondition !== undefined && { closeCondition }),
 			place,
 			...(sharedHolds && { shared: sharedRows }),
@@ -2368,6 +2787,66 @@ function updateShape(read: NonNullable<BlockRead["proposal"]>): CaseOperation {
 	} as unknown as CaseOperation;
 }
 
+/** A guard beside a direct retype of a keyed create produces no case ID
+ * on any submission. A nonempty key always has Nova's prefix and an empty
+ * key leaves the retype target empty already. Keep the case block present
+ * in this proof, since Core treats an omitted block differently. */
+function keyedRetypeWithoutGuardTarget(
+	xform: ReadXForm,
+	read: NonNullable<BlockRead["proposal"]>,
+	guards: readonly ReadSaveToCaseBlock[],
+	proposals: readonly { read: NonNullable<BlockRead["proposal"]> }[],
+): boolean {
+	const [scope, blockName] = read.block.path;
+	if (
+		scope === undefined ||
+		blockName === undefined ||
+		read.retype === undefined ||
+		read.retype === read.caseType ||
+		read.target.kind !== "op" ||
+		read.condition !== undefined ||
+		read.block.path.length !== 2 ||
+		read.segments.join("/") !== "operations/block" ||
+		bindsUnder(xform, [scope]).get("")?.attribs.relevant !== undefined
+	)
+		return false;
+	const targetPath = read.target.path;
+	const root = xform.parsed.dataRoot.name;
+	const producer = proposals.find(
+		({ read: earlier }) =>
+			earlier.kind === "create" &&
+			earlier.target.kind === "new" &&
+			earlier.target.idFrom !== undefined &&
+			earlier.target.idPrefix?.startsWith(`${AUTHORED_CASE_ID_VERSION}:`) &&
+			`/${root}/${[...earlier.block.path, "case", "@case_id"].join("/")}` ===
+				targetPath,
+	);
+	if (producer === undefined) return false;
+	const target = `current()/../../../${blockName}/case/@case_id`;
+	const blankId = `if(not(starts-with(${target}, '${AUTHORED_CASE_ID_VERSION}:')), ${target}, '')`;
+	return guards.some((guard) => {
+		if (
+			guard.path.length !== 2 ||
+			guard.path[0] !== scope ||
+			guard.path[1] === undefined ||
+			setvaluesUnder(xform, guard.path).length > 0 ||
+			!isAllocatedName(
+				guard.path[1],
+				generatedBaseName("guard", blockName, "retype"),
+			)
+		)
+			return false;
+		const binds = bindsUnder(xform, guard.path);
+		const id = binds.get("case/@case_id")?.attribs.calculate;
+		return (
+			id !== undefined &&
+			binds.get("")?.attribs.relevant === undefined &&
+			binds.get("case")?.attribs.relevant === undefined &&
+			sameXPathText(id, blankId, { ruleSet: "form" })
+		);
+	});
+}
+
 /**
  * Pass 1: reads every Save to Case block of `form` by the four tests, the
  * last of which waits for the bound document. Each block that passes the
@@ -2457,13 +2936,64 @@ export function readSaveToCaseBlocks(
 			});
 			continue;
 		}
-		if (read.proposal.kind === "create")
+		const proposal = read.proposal;
+		if (proposal.kind === "create")
 			earlierCreates.set(
 				`/${root}/${[...block.path, "case", "@case_id"].join("/")}`,
 				true,
 			);
-		proposed.push({ read: read.proposal });
+		// The selected case ID decides where an update-only block lands.
+		// Vellum's type label remains in the editor. The write uses the type
+		// of the case chosen by the basic entry.
+		const selectedType = module.module.caseType;
+		const selectedDirectUpdate =
+			selectedType !== undefined &&
+			selectedType !== proposal.caseType &&
+			!RESERVED_CASE_OPERATION_TYPES.has(selectedType) &&
+			!RESERVED_CASE_OPERATION_TYPES.has(proposal.caseType) &&
+			module.json.peek("doc_type") === "Module" &&
+			form.form.type === "followup" &&
+			!isMultiSelectMenu({
+				case_details: module.json.peek("case_details"),
+				search_config: module.json.peek("search_config"),
+			}) &&
+			proposal.kind === "update" &&
+			proposal.target.kind === "session" &&
+			sameXPathText(
+				proposal.target.text,
+				serializeForm(sessionDataRef("case_id")),
+				{ ruleSet: "form" },
+			) &&
+			block.repeat === null &&
+			block.authoredScopeLength === undefined &&
+			proposal.condition === undefined &&
+			proposal.retype === undefined &&
+			proposal.owner === undefined &&
+			proposal.rename === undefined &&
+			!proposal.closes &&
+			proposal.links.length === 0 &&
+			proposal.writes.length > 0;
+		proposed.push({
+			read: selectedDirectUpdate
+				? {
+						...proposal,
+						caseType: selectedType,
+						editorCaseType: proposal.caseType,
+					}
+				: proposal,
+		});
 	}
+	for (const proposal of [...proposed]) {
+		const { read } = proposal;
+		if (!keyedRetypeWithoutGuardTarget(xform, read, guards, proposed)) continue;
+		reading.failed.push({
+			block: read.block,
+			place: read.place,
+			claim: SAVE_TO_CASE_CLAIMS.deviceRefuses,
+		});
+		proposed.splice(proposed.indexOf(proposal), 1);
+	}
+
 	// Guards: each belongs to an operation proposed in its scope; the guard of
 	// a block that is a finding is covered by that finding, at its place.
 	const ids = new Set(
@@ -2553,11 +3083,13 @@ export function readSaveToCaseBlocks(
 			? proposed.find(({ read }) => {
 					if (
 						read.kind === "create" ||
+						read.editorCaseType !== undefined ||
 						read.caseType !== menuType ||
 						read.target.kind !== "session" ||
 						read.block.repeat !== null ||
 						read.segments.join("/") !== "operations/block" ||
-						read.retype !== undefined
+						read.retype !== undefined ||
+						read.ownerCondition !== undefined
 					)
 						return false;
 					const present = guardKindsBeside(read.block, guards);
@@ -2613,6 +3145,11 @@ export function readSaveToCaseBlocks(
 		firstBlock.caseType === menuType &&
 		firstBlock.target.kind === "new" &&
 		firstBlock.target.idFrom === undefined &&
+		firstBlock.target.authoredId === undefined &&
+		firstBlock.ownerCondition === undefined &&
+		firstBlock.ownerAfterCreate === undefined &&
+		firstBlock.typeCalculation === undefined &&
+		firstBlock.typeChoice === undefined &&
 		firstBlock.block.repeat === null &&
 		firstBlock.segments.join("/") === "operations/block" &&
 		firstBlock.name?.answer === undefined &&
@@ -2627,16 +3164,19 @@ export function readSaveToCaseBlocks(
 	// Any other block whose owner row carries a condition is that entry.
 	for (const one of [...proposed]) {
 		const { read } = one;
+		const ownerBind = bindsUnder(xform, read.block.path).get(
+			"case/update/owner_id",
+		);
 		if (
 			read !== sharedCandidate?.read &&
 			read.shared !== undefined &&
-			bindsUnder(xform, read.block.path).get("case/update/owner_id")?.attribs
-				.relevant !== undefined
+			ownerBind?.attribs.relevant !== undefined
 		) {
 			reading.failed.push({
 				block: read.block,
 				place: read.place,
-				claim: SAVE_TO_CASE_CLAIMS.ownerCondition,
+				claim: SAVE_TO_CASE_CLAIMS.updateOwnerCondition,
+				at: { element: ownerBind, attribute: "relevant" },
 			});
 			proposed.splice(proposed.indexOf(one), 1);
 		}
@@ -2661,26 +3201,29 @@ export function readSaveToCaseBlocks(
 	// Mint, register and record each proposal.
 	// Free among the form's ids: its root questions' and the operations its
 	// actions already gave.
-	const takenIds = new Set<string>(questionIds);
-	for (const one of basicCaseReading(form)?.operations ?? [])
-		takenIds.add(one.id);
-	for (const one of advancedCaseReading(form)?.operations ?? [])
-		takenIds.add(one.id);
+	const knownIds = ctx.input.knownPositionedCaseOperationIds?.get(form.uuid);
+	const operationIds = new Set(
+		[
+			...(basicCaseReading(form)?.operations ?? []),
+			...(advancedCaseReading(form)?.operations ?? []),
+		].map((operation) => operation.id),
+	);
+	const takenIds = new Set([
+		...questionIds,
+		...operationIds,
+		...(knownIds?.values() ?? []),
+	]);
 	const counts = new Map<string, number>();
 	for (const { read } of proposed) {
 		const shared = read === sharedCandidate?.read;
 		const own =
 			read === ownCandidate?.read || shared || read === registrationCandidate;
 		const action: ProposedBlock["action"] = own ? "own" : read.kind;
-		const name = carriedName(xform, read, guards, shared);
-		const id =
-			name !== undefined && !takenIds.has(name)
-				? name
-				: ownCaseOperationId(read.caseType, takenIds);
-		takenIds.add(id);
 		const repeatPath =
 			read.block.repeat === null ? [] : fieldIdsOf(read.block.repeat);
-		const scopeLength = read.block.path.length - read.segments.length;
+		const scopeLength =
+			read.block.authoredScopeLength ??
+			read.block.path.length - read.segments.length;
 		const path = read.block.path.slice(scopeLength);
 		const key = JSON.stringify([repeatPath, path, action]);
 		const n = counts.get(key) ?? 0;
@@ -2699,24 +3242,19 @@ export function readSaveToCaseBlocks(
 			MUG,
 		);
 		if (uuid === undefined) continue;
-		// Only the own arm's block carries a condition on its `case/close`;
-		// every other close condition Nova writes is a group's relevance, the
-		// own close's in a block of its own included.
-		if (!own && read.closeCondition !== undefined) {
-			const closeOnly =
-				read.writes.length === 0 &&
-				read.rename === undefined &&
-				read.owner === undefined &&
-				read.links.length === 0;
-			reading.failed.push({
-				block: read.block,
-				place: read.place,
-				claim: closeOnly
-					? SAVE_TO_CASE_CLAIMS.closeOnlyCondition
-					: SAVE_TO_CASE_CLAIMS.writeAndClose,
-			});
-			continue;
-		}
+		const knownId =
+			read.block.authoredScopeLength === undefined
+				? undefined
+				: knownIds?.get(uuid);
+		const wireName = carriedName(xform, read, guards, shared);
+		const id =
+			knownId !== undefined && !operationIds.has(knownId)
+				? knownId
+				: wireName !== undefined && !takenIds.has(wireName)
+					? wireName
+					: ownCaseOperationId(read.caseType, takenIds);
+		operationIds.add(id);
+		takenIds.add(id);
 		// The own arm's rows of an answer as it is lead with its presence.
 		const writes = own
 			? read.writes.map(({ answerAsIs, condition, ...row }) =>
@@ -2740,12 +3278,18 @@ export function readSaveToCaseBlocks(
 			continue;
 		}
 		reading.proposals.push({ ...read, writes, uuid, id, action });
+		if (read.block.authoredScopeLength !== undefined) {
+			const node = xform.nodes.get(read.block.path.join("/"));
+			if (node !== undefined) xform.attachCaseChange(node, uuid);
+		}
 	}
 	// The own close in a block of its own: a close-only block of the own case
 	// in a condition group, its condition the group's, under the root
 	// operations container, or, in a form whose menu selects several cases,
 	// in each selected case's row (`OWN_CLOSE_SHAPES`). A close-only block
-	// whose `case/close` carries the condition was refused above. A block whose
+	// whose `case/close` carries the condition cannot use this own arm: an
+	// omitted close still submits its case block and modifies its timestamp.
+	// A block whose
 	// `update` holds a row is a close operation's, never the own close's: the
 	// emitter writes the own close's block with no `update`, and a close
 	// operation's with its idempotent `case_type` row (`xform/caseOps.ts`),
@@ -2885,6 +3429,12 @@ function refuseBlock(
 				)
 					reachNode(xform, { element: bind, attribute }, claim);
 	}
+	if (
+		claim === SAVE_TO_CASE_CLAIMS.linkUnicodeName &&
+		typeof detail?.name === "string"
+	)
+		for (const bind of sourceIndexBinds(xform, block, detail.name))
+			reachElement(xform, bind, claim);
 	for (const bind of laterBindsUnder(xform, block.path))
 		reachElement(xform, bind, claim);
 	for (const setvalue of setvaluesUnder(xform, block.path))
@@ -2946,10 +3496,16 @@ function claimAccepted(
 	for (const one of reading.proposals) {
 		if (one.name?.answer === undefined) note(one.name?.site);
 		if (one.owner?.kind === "text") note(one.owner.site);
+		if (one.ownerAfterCreate?.owner.kind === "text")
+			note(one.ownerAfterCreate.owner.site);
+		note(one.ownerAfterCreate?.condition.site);
 		if (one.rename?.answer === undefined) note(one.rename?.site);
 		note(one.condition?.site);
 		note(one.closeCondition?.site);
+		note(one.ownerCondition?.site);
+		note(one.typeChoice?.site);
 		if (one.target.kind === "expression") note(one.target.site);
+		if (one.target.kind === "new") note(one.target.authoredId?.site);
 		for (const write of one.writes) {
 			if (write.value.kind === "text") note(write.value.site);
 			note(write.condition?.site);
@@ -3024,8 +3580,9 @@ function claimAccepted(
 		fallback: Claim<"derived">,
 	) => {
 		claimRegionNode(xform, { element }, claims, fallback);
+		const held = registeredAttributes.get(element);
 		for (const attribute of ["event", "ref", "value"])
-			if (Object.hasOwn(element.attribs, attribute))
+			if (Object.hasOwn(element.attribs, attribute) && !held?.has(attribute))
 				claimRegionNode(xform, { element, attribute }, claims, fallback);
 		if (element.attribs.event === "jr-insert")
 			xform.cursor.within(
@@ -3144,7 +3701,9 @@ function claimAccepted(
 				for (const one of iterationSetvalues(xform, node))
 					reachElement(xform, one.element, claim);
 			}
-			reachNode(xform, { element: node.element }, claim);
+			if (claim === X.questionIdGrammar && failedIn.at !== undefined)
+				xform.cursor.partOf({ element: node.element }, claim);
+			else reachNode(xform, { element: node.element }, claim);
 			for (const attribute of Object.keys(node.element.attribs))
 				if (!attribute.startsWith("xmlns"))
 					reachNode(xform, { element: node.element, attribute }, claim);
@@ -3361,8 +3920,13 @@ function caseSlot(
 	slot:
 		| "case_operation_name"
 		| "case_operation_owner"
+		| "case_operation_type_condition"
+		| "case_operation_owner_condition"
+		| "case_operation_later_owner"
+		| "case_operation_later_owner_condition"
 		| "case_operation_rename"
 		| "case_operation_condition"
+		| "case_operation_close_condition"
 		| "case_operation_target_expression",
 	operationUuid: Uuid,
 ): SlotContextRef {
@@ -3432,6 +3996,44 @@ function registerTexts(
 				one.place,
 				CALC,
 			);
+		if (one.typeChoice !== undefined)
+			register(
+				`${op} type condition`,
+				caseSlot(form.uuid, "case_operation_type_condition", op),
+				one.typeChoice.text,
+				one.typeChoice.site,
+				one.place,
+				CALC,
+			);
+		if (one.ownerCondition !== undefined)
+			register(
+				`${op} owner condition`,
+				caseSlot(form.uuid, "case_operation_owner_condition", op),
+				one.ownerCondition.text,
+				one.ownerCondition.site,
+				one.place,
+				RELEVANT,
+			);
+		if (one.ownerAfterCreate !== undefined) {
+			const { owner, condition } = one.ownerAfterCreate;
+			if (owner.kind === "text")
+				register(
+					`${op} owner after creation`,
+					caseSlot(form.uuid, "case_operation_later_owner", op),
+					owner.text,
+					owner.site,
+					one.place,
+					CALC,
+				);
+			register(
+				`${op} condition to change the owner after creation`,
+				caseSlot(form.uuid, "case_operation_later_owner_condition", op),
+				condition.text,
+				condition.site,
+				one.place,
+				RELEVANT,
+			);
+		}
 		// A registration's own case opens under the form's open condition.
 		if (one.condition !== undefined)
 			register(
@@ -3457,14 +4059,29 @@ function registerTexts(
 				one.place,
 				CALC,
 			);
-		if (one.action === "own" && one.closeCondition !== undefined)
+		if (one.target.kind === "new" && one.target.authoredId !== undefined) {
+			const { text, site } = one.target.authoredId;
+			register(
+				`${op} target`,
+				caseSlot(form.uuid, "case_operation_target_expression", op),
+				text,
+				site,
+				one.place,
+				"attribute" in site && site.attribute === "value"
+					? "xform:setvalue@value"
+					: CALC,
+			);
+		}
+		if (one.closeCondition !== undefined)
 			register(
 				`${op} close`,
-				{
-					entity: "form",
-					uuid: form.uuid,
-					slot: "form_close_condition",
-				} as SlotContextRef,
+				one.action === "own"
+					? ({
+							entity: "form",
+							uuid: form.uuid,
+							slot: "form_close_condition",
+						} as SlotContextRef)
+					: caseSlot(form.uuid, "case_operation_close_condition", op),
 				one.closeCondition.text,
 				one.closeCondition.site,
 				one.place,
@@ -3599,7 +4216,9 @@ function operationOf(
 	ownerChoice: "absent" | "acting-user",
 ): CaseOperation | undefined {
 	const repeat = one.block.repeat?.uuid;
-	const scopeLength = one.block.path.length - one.segments.length;
+	const scopeLength =
+		one.block.authoredScopeLength ??
+		one.block.path.length - one.segments.length;
 	const path = one.block.path.slice(scopeLength) as unknown as [
 		string,
 		...string[],
@@ -3608,6 +4227,9 @@ function operationOf(
 		kind: "save-to-case" as const,
 		...(repeat !== undefined && { repeat }),
 		path,
+		...(one.editorCaseType !== undefined && {
+			editorCaseType: one.editorCaseType,
+		}),
 	};
 	const writes: CaseOperationWrite[] = [];
 	for (const write of one.writes) {
@@ -3670,6 +4292,12 @@ function operationOf(
 		id: one.id,
 		...(writes.length > 0 && { writes }),
 		...(one.name?.answer === undefined && { placement }),
+		...(one.action !== "own" &&
+			one.closeCondition !== undefined && {
+				closeCondition: placeholder("condition"),
+			}),
+		...((one.action === "create" || one.action === "update") &&
+			one.closes && { closeAfter: true as const }),
 	};
 	if (one.action === "own") {
 		// A registration's own arm names the case it creates; any other renames it.
@@ -3698,9 +4326,50 @@ function operationOf(
 		return {
 			...common,
 			action: "create",
+			...(one.ownerCondition !== undefined && {
+				ownerCondition: placeholder("condition"),
+			}),
+			...(one.ownerAfterCreate !== undefined && {
+				ownerAfterCreate: {
+					...(one.ownerAfterCreate.keepOwnerTextAfterWrites && {
+						keepOwnerTextAfterWrites: true as const,
+					}),
+					value:
+						one.ownerAfterCreate.owner.kind === "unowned"
+							? unowned()
+							: one.ownerAfterCreate.owner.kind === "meta-user"
+								? actingUser()
+								: placeholder("value"),
+					condition: placeholder("condition"),
+				},
+			}),
 			caseType: one.caseType,
-			target: { kind: "new", ...(idFrom !== undefined && { idFrom }) },
+			...(one.typeCalculation !== undefined && {
+				typeCalculation: one.typeCalculation,
+			}),
+			...(one.typeChoice !== undefined && {
+				typeChoice: {
+					...(one.typeChoice.reapplyPrimaryAtEnd && {
+						reapplyPrimaryAtEnd: true as const,
+					}),
+					otherwise: one.typeChoice.otherwise,
+					condition: placeholder("condition"),
+				},
+			}),
+			target: {
+				kind: "new",
+				...(idFrom !== undefined && { idFrom }),
+				...(one.target.kind === "new" &&
+					one.target.shareKeyAcrossRows && {
+						shareKeyAcrossRows: true as const,
+					}),
+				...(one.target.kind === "new" &&
+					one.target.authoredId !== undefined && {
+						expr: placeholder("value"),
+					}),
+			},
 			name,
+			...(one.name?.keepNameText && { keepNameText: true as const }),
 			...(owner !== undefined && { owner }),
 			...(links.length > 0 && { links }),
 			...(one.condition !== undefined && {
@@ -3728,6 +4397,10 @@ function operationOf(
 		caseType: one.caseType,
 		target,
 		...(one.action === "update" && owner !== undefined && { owner }),
+		...(one.action === "update" &&
+			one.ownerCondition !== undefined && {
+				ownerCondition: placeholder("condition"),
+			}),
 		...(one.action === "update" &&
 			one.rename !== undefined && { rename: placeholder("value") }),
 		...(one.action === "update" &&
@@ -4065,10 +4738,13 @@ function blocksHold(
 	for (const one of reading.proposals) {
 		let shape: readonly SaveToCaseBlockSegment[] | undefined;
 		try {
-			shape = saveToCaseBlockShape(doc, form.uuid, {
-				kind: "operation",
-				operationUuid: one.uuid,
-			});
+			shape =
+				one.block.authoredScopeLength !== undefined
+					? ["block"]
+					: saveToCaseBlockShape(doc, form.uuid, {
+							kind: "operation",
+							operationUuid: one.uuid,
+						});
 		} catch (error) {
 			rethrowWorkStop(error);
 			shape = undefined;
@@ -4392,24 +5068,25 @@ export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 	// A block a finding already stands at (a slot of it the expression stage
 	// could not hold, which the emitter then prints otherwise) is that one
 	// finding: the source's one cause.
+	const failedClaim = (one: ProposedBlock) =>
+		one.ownerAfterCreate !== undefined
+			? SAVE_TO_CASE_CLAIMS.updateOwnerCondition
+			: SAVE_TO_CASE_CLAIMS.outsideShape;
 	for (const one of failing) {
 		if (ctx.accounting.hasFindingAt(one.place)) continue;
-		ctx.accounting.finding(SAVE_TO_CASE_CLAIMS.outsideShape, one.place);
+		const claim = failedClaim(one);
+		ctx.accounting.finding(claim, one.place);
 		const xform = form.xform;
 		if (xform !== null)
 			for (const bind of laterBindsUnder(xform, one.block.path))
-				xform.cursor.refuseSubtree(
-					bind,
-					SAVE_TO_CASE_CLAIMS.outsideShape,
-					one.place,
-				);
+				xform.cursor.refuseSubtree(bind, claim, one.place);
 	}
 	const failed = [
 		...reading.failed,
 		...failing.map((one) => ({
 			block: one.block,
 			place: one.place,
-			claim: SAVE_TO_CASE_CLAIMS.outsideShape,
+			claim: failedClaim(one),
 		})),
 	];
 	// The own close, over the document the blocks settled on. One whose
@@ -4433,6 +5110,50 @@ export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 			place: refused === undefined ? ownClose.place : form.place,
 			claim: refused ?? SAVE_TO_CASE_CLAIMS.outsideShape,
 		});
+	}
+	const xform = form.xform;
+	const settled = ctx.doc ?? doc;
+	if (xform !== null) {
+		const operations = settled.forms[form.uuid]?.caseOperations ?? [];
+		for (const operation of operations) {
+			if (operation.action !== "update" || operation.retype === undefined)
+				continue;
+			const block = reading.proposals.find(
+				(one) => one.uuid === operation.uuid,
+			)?.block;
+			if (block === undefined || failed.some((one) => one.block === block))
+				continue;
+			const plan = planCaseRetype(
+				settled,
+				operation.caseType,
+				operation.retype,
+			);
+			if (plan.wirePortable && plan.datesKeptAsText.length > 0)
+				xform.cursor.within(
+					{ element: block.element },
+					SAVE_TO_CASE_CLAIMS.dateRetype,
+					[MUG],
+				);
+			else if (operation.target.kind === "op") {
+				const producerUuid = operation.target.opUuid;
+				const producer = operations.find((one) => one.uuid === producerUuid);
+				const overwrite = dateRetypeOverwrite(
+					settled,
+					form.uuid,
+					operation,
+					producer,
+					plan,
+				);
+				if (overwrite !== undefined)
+					xform.cursor.within(
+						{ element: block.element },
+						overwrite.mayBeEmpty
+							? SAVE_TO_CASE_CLAIMS.optionalDateRetype
+							: SAVE_TO_CASE_CLAIMS.requiredDateRetype,
+						[MUG],
+					);
+			}
+		}
 	}
 	REFUSED_BLOCKS.set(
 		form,
@@ -4611,6 +5332,7 @@ export function updateBesideBareOwnAsOwnArm(doc: BlueprintDoc): BlueprintDoc {
 					one.target.kind !== "session" ||
 					one.caseType !== caseType ||
 					one.condition !== undefined ||
+					one.ownerCondition !== undefined ||
 					one.forEach !== undefined ||
 					one.retype !== undefined ||
 					(one.writes ?? []).some(writesAnswerAsIs)

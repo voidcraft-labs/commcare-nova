@@ -59,6 +59,8 @@ import type {
 	SqlBool,
 } from "kysely";
 import { expressionBuilder, sql } from "kysely";
+import { reachedPropertyType } from "@/lib/domain/columnRelation";
+import { directHostTextEquality } from "@/lib/domain/expression/directHostTextEquality";
 import {
 	DISTANCE_UNITS,
 	distanceToMeters,
@@ -74,10 +76,12 @@ import {
 	normalizeRelationEvaluationScopes,
 } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
+import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
 import {
 	canonicalIntegerText,
 	coercedEquality,
 	type EqualityOperand,
+	sameTypeRestoredThreshold,
 	typesCompatible,
 } from "@/lib/domain/expression/ruleSets";
 import {
@@ -115,7 +119,7 @@ import {
 	compileTemporalValues,
 	type ExpressionCompileContext,
 } from "./compileExpression";
-import { compileRelationPath } from "./compileRelationPath";
+import { compileRelationPath, restoredTypeRows } from "./compileRelationPath";
 import {
 	boundComparandValue,
 	compileStoredText,
@@ -199,6 +203,20 @@ export function compilePredicate(
 	pred: DomainExpression,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
+	const restoredThreshold = sameTypeRestoredThreshold(
+		pred,
+		ctx.currentCaseType,
+	);
+	// A candidate already witnesses its own type. The worker’s restore can
+	// stop scanning once it finds a case past the threshold, independent of pagination.
+	if (restoredThreshold === 0) return eb.lit(true) as Expression<SqlBool>;
+	if (restoredThreshold !== undefined && ctx.currentCaseType !== undefined)
+		return eb.exists(
+			restoredTypeRows(ctx, ctx.currentCaseType)
+				.select(eb.lit(1).as("present"))
+				.offset(restoredThreshold)
+				.limit(1),
+		);
 	if (pred.kind === "term") return compileBareRead(pred.term, ctx);
 	// `boolean(...)` of one answer, the one call a record condition holds
 	// (`typeChecker.ts::effectiveBooleanOfAnswer`): Core's `boolean` reads its
@@ -224,7 +242,7 @@ export function compilePredicate(
 	if (normalizedSubject !== pred) {
 		return compilePredicate(normalizedSubject, ctx);
 	}
-	assertNoUnnormalizedRelationPropertyRefs(pred);
+	assertNoUnnormalizedRelationPropertyRefs(pred, ctx);
 	switch (pred.kind) {
 		case "match-all":
 			// `eb.lit(true)` emits the SQL `true` keyword; binding
@@ -403,18 +421,44 @@ function heldTruth(
  * one-row `exists(via, where: ...)` scope before SQL emission. Keeping this
  * defense at the compiler boundary prevents a future normalizer regression
  * from falling back to an arbitrary scalar subquery row or inventing
- * cross-product semantics that CommCare Core does not implement.
+ * cross-product semantics that CommCare Core does not implement. The one
+ * device equality on its directly indexed host has scalar text semantics
+ * and a unique link per record; its exact left operand may keep that read.
  */
 function assertNoUnnormalizedRelationPropertyRefs(
 	pred: DomainExpression,
+	ctx: PredicateCompileContext,
 ): void {
+	let hostReads: Set<string> | undefined;
+	function allowedHostReads(): Set<string> {
+		const reads = new Set<string>();
+		walkExpressionNodes(pred, (node, path) => {
+			const host = directHostTextEquality(node);
+			const origin = host?.caseType ?? ctx.currentCaseType;
+			if (
+				host?.via?.kind === "ancestor" &&
+				origin !== undefined &&
+				reachedPropertyType(
+					{ field: host.property, via: host.via.via },
+					origin,
+					[...ctx.caseTypeSchemas.values()],
+				) === "text"
+			)
+				reads.add(JSON.stringify([...path, "left"]));
+		});
+		return reads;
+	}
 	let survivingProperty: PropertyRef | undefined;
-	walkPropertyRefs(pred, (property) => {
+	walkPropertyRefs(pred, (property, path) => {
 		if (
 			survivingProperty === undefined &&
 			property.via !== undefined &&
 			property.via.kind !== "self"
 		) {
+			if (ctx.reading === "casedb" && property.readReached) {
+				hostReads ??= allowedHostReads();
+				if (hostReads.has(JSON.stringify(path))) return;
+			}
 			survivingProperty = property;
 		}
 	});
@@ -869,7 +913,13 @@ function compileValueListEquality(
 		];
 		if (spelled.length > 0) matches.push(eb(stored, "in", spelled));
 	}
-	if (texts.has("")) matches.push(blankText(stored));
+	if (texts.has("")) {
+		matches.push(
+			dataType === "date" && ctx.reading === "search"
+				? eb(stored, "=", eb.val(""))
+				: blankText(stored),
+		);
+	}
 	if (matches.length === 0) return eb.lit(false) as Expression<SqlBool>;
 	return matches.length === 1
 		? (matches[0] as Expression<SqlBool>)
@@ -957,6 +1007,22 @@ function compileOrderedComparison(
 			});
 		if (mode) {
 			const raw = compileStoredText(left.term, ctx);
+			if (
+				mode === "exact-text" &&
+				leftType === "date" &&
+				right.kind === "term" &&
+				right.term.kind === "literal" &&
+				typeof right.term.value === "number" &&
+				!Number.isInteger(right.term.value)
+			) {
+				// HQ sends a numeric term. Elasticsearch parses it as a double
+				// and matches its JVM string against the keyword field.
+				return eb(
+					raw,
+					operator,
+					eb.val(openJdk17DoubleToString(right.term.value)),
+				);
+			}
 			const bound = compileExpression(right, expressionContextFor(ctx));
 			if (mode === "exact-text")
 				return eb(raw, operator, sql`(${bound})::text`);

@@ -31,6 +31,7 @@ import {
 	inPlatform,
 	PLATFORM_LABELS,
 	type Platform,
+	platformBehavior,
 	platformDeclarationPhrase,
 } from "@/lib/domain/platforms";
 
@@ -48,6 +49,21 @@ export function effectivePreviewPlatform(
 }
 
 export interface PreviewPlatformRules {
+	/** Formplayer records activity at entry and submission. Android ignores
+	 * the activity keys (proof/formplayer/test_form_activity.py). */
+	readonly recentFormActivity: boolean;
+	/** Reopening an incomplete Android form from Home carries its existing
+	 * entry and answers into the new run (proof/android/test_case_blocks.py).
+	 * Web Apps restores its own current session instead. */
+	readonly resumeDraftAcrossRuns: boolean;
+	/** Core's extended text is the default. Android's help dialog and
+	 * eligible choice widgets ask for their Markdown form first
+	 * (proof/android/test_form_reads.py). */
+	readonly questionProseForms: "extended-first" | "markdown-first";
+	/** The companion-app action on a case list (case-list-android-lookup). */
+	readonly caseListDeviceLookup: boolean;
+	/** The native several-case datum, including the bounded flat close. */
+	readonly severalCaseSelection: boolean;
 	/** Core Selection.attachChoice; Formplayer PromptToJson.parseQuestionAnswer;
 	 * Android FormHierarchyBuilder.getQuestionDisplayText and instance restore. */
 	readonly unavailableInlineChoice: "display" | "summary-or-restore";
@@ -126,6 +142,9 @@ export interface PreviewPlatformRules {
 	 *  as it opens, skips its sync, or rechecks only changed answers. CommCare
 	 *  Android reads none of these texts. */
 	readonly webAppsFormPragmas: boolean;
+	/** Formplayer's case-list field exposes the link target. CommCare Android
+	 *  shows the stored media path as plain text. */
+	readonly caseListIconActions: boolean;
 	/** Android's markdown arm is on the case detail only
 	 *  (`views/EntityDetailView.java`, `FORM_MARKDOWN`). */
 	readonly linkColumnInList: "link" | "raw-text";
@@ -134,6 +153,9 @@ export interface PreviewPlatformRules {
 	 *  `case-layout.js` reads its grid area); Android draws a long detail's
 	 *  fields as ordinary labeled rows (`views/EntityDetailView.java`). */
 	readonly detailTile: "laid-out" | "rows";
+	/** The signed standalone Search page can supply its submitted text to
+	 *  Details in Formplayer (`proof/editors/test_search_result_detail.py`). */
+	readonly searchResultDetailText: boolean;
 	/** A Search Only field placed on a custom tile. Web Apps hides a field
 	 *  whose header width is zero; Android draws every placed cell of its
 	 *  list tile unless the cell's coordinate is negative
@@ -143,6 +165,8 @@ export interface PreviewPlatformRules {
 	 *  `case-search/title-label-lang-non-empty`, `description-lang-markdown`,
 	 *  `hint-lang`, which Android ignores). */
 	readonly searchScreenText: boolean;
+	readonly searchAddressPicker: boolean;
+	readonly searchFieldGroups: boolean;
 	/** The pinned case tile above the search screen. Formplayer sets it on
 	 *  every response, a search's included
 	 *  (`MenuSessionRunnerService.getNextMenu`, `setPersistentCaseTile`);
@@ -336,6 +360,9 @@ export interface PreviewPlatformRules {
 	 *  (only `gregorian-with-clear` and the Ethiopian and Nepali widgets can be
 	 *  empty, `workerCalendar.ts::androidCalendarCanBeEmpty`). */
 	readonly datePicker: "clearable" | "shows-a-day";
+	/** Android commits an unchanged visible text starting answer when the worker
+	 *  leaves its single-question screen (`proof/android/test_form_behavior_pragmas.py`). */
+	readonly commitStartingTextOnScreenExit: boolean;
 	/** Which calendars a date question draws. Web Apps builds
 	 *  `EthiopianDateEntry` for `ethiopian` alone (`form_entry/entries.js::getEntry`);
 	 *  Android's `views/widgets/WidgetFactory.java` builds the Ethiopian,
@@ -421,6 +448,9 @@ export interface PreviewPlatformRules {
 	/** Web Apps `entries.js::getEntry` (a barcode question falls through to
 	 *  `FreeTextEntry`); manifest `questions/barcode-barcode`. */
 	readonly barcodeQuestion: "text" | "scan-or-text";
+	/** Android WidgetFactory opens an intent in place of the input. Web Apps
+	 *  keeps the ordinary auxiliary input and cannot open the owner. */
+	readonly androidAppAnswers: boolean;
 	/** A Text question with a number keypad. Web Apps `form_entry/entries.js::PhoneEntry` stores an
 	 *  answer only where it matches its pattern; Android `views/widgets/StringNumberWidget.java` limits
 	 *  the keys and stores what its key listener leaves in the box: a + or - only as its first
@@ -584,6 +614,14 @@ export interface PreviewPlatformRules {
  *  missing on either platform a type error. */
 export const PREVIEW_PLATFORM_RULES = {
 	"web-apps": Object.freeze({
+		recentFormActivity: true,
+		resumeDraftAcrossRuns: false,
+		questionProseForms: "extended-first",
+		caseListDeviceLookup:
+			platformBehavior("case-list-android-lookup", "web-apps").reading ===
+			"runs",
+		severalCaseSelection:
+			platformBehavior("several-cases", "web-apps").reading === "runs",
 		unavailableInlineChoice: "display",
 		appHome: "root-menu",
 		postSubmitAppHome: "root-menu",
@@ -600,10 +638,16 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileBorderShading: true,
 		tileVerticalAlign: "as-authored",
 		webAppsFormPragmas: true,
+		caseListIconActions: true,
 		linkColumnInList: "link",
 		detailTile: "laid-out",
+		searchResultDetailText:
+			platformBehavior("search-result-detail-text", "web-apps").reading ===
+			"runs",
 		searchOnlyTileCell: "hidden",
 		searchScreenText: true,
+		searchAddressPicker: true,
+		searchFieldGroups: true,
 		searchScreenCaseTile: true,
 		caseDetailsCaseTile: false,
 		searchFieldChecks: true,
@@ -642,6 +686,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		hintPlacement: "as-authored",
 		choiceSearch: "combobox",
 		datePicker: "clearable",
+		commitStartingTextOnScreenExit: false,
 		alternateCalendar: "ethiopian",
 		timeClock: "as-authored",
 		groupFrame: "as-authored",
@@ -661,6 +706,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		labelSpeech: "ignored",
 		locationQuestion: "map",
 		barcodeQuestion: "text",
+		androidAppAnswers: false,
 		numberKeypad: "pattern",
 		capture: "attach",
 		submitLabel: "submit",
@@ -687,6 +733,14 @@ export const PREVIEW_PLATFORM_RULES = {
 		caseMap: "switched-first-address",
 	}),
 	android: Object.freeze({
+		recentFormActivity: false,
+		resumeDraftAcrossRuns: true,
+		questionProseForms: "markdown-first",
+		caseListDeviceLookup:
+			platformBehavior("case-list-android-lookup", "android").reading ===
+			"runs",
+		severalCaseSelection:
+			platformBehavior("several-cases", "android").reading === "runs",
 		unavailableInlineChoice: "summary-or-restore",
 		appHome: "device-home",
 		postSubmitAppHome: "device-home",
@@ -703,10 +757,16 @@ export const PREVIEW_PLATFORM_RULES = {
 		tileBorderShading: false,
 		tileVerticalAlign: "middle-only",
 		webAppsFormPragmas: false,
+		caseListIconActions: false,
 		linkColumnInList: "raw-text",
 		detailTile: "rows",
+		searchResultDetailText:
+			platformBehavior("search-result-detail-text", "android").reading ===
+			"runs",
 		searchOnlyTileCell: "drawn",
 		searchScreenText: false,
+		searchAddressPicker: false,
+		searchFieldGroups: false,
 		searchScreenCaseTile: false,
 		caseDetailsCaseTile: true,
 		searchFieldChecks: false,
@@ -745,6 +805,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		hintPlacement: "below-question",
 		choiceSearch: "filter-rule",
 		datePicker: "shows-a-day",
+		commitStartingTextOnScreenExit: true,
 		alternateCalendar: "authored",
 		timeClock: "device",
 		groupFrame: "plain",
@@ -764,6 +825,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		labelSpeech: "button",
 		locationQuestion: "record-location",
 		barcodeQuestion: "scan-or-text",
+		androidAppAnswers: true,
 		numberKeypad: "keys",
 		capture: "device",
 		submitLabel: "finish",

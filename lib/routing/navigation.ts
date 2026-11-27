@@ -4,6 +4,7 @@ import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type { PreviewHeldCaseListMenu } from "@/lib/preview/menuProjection";
 import { buildUrl, parsePathToLocation } from "./location";
+import type { RecordedSearchResultDetail } from "./previewEntryRecords";
 import {
 	type AppSetupSection,
 	DEFAULT_APP_SETUP_SECTION,
@@ -16,7 +17,15 @@ export interface NavigateActions {
 	goHome: () => void;
 	openModule: (moduleUuid: Uuid) => void;
 	openCaseList: (moduleUuid: Uuid) => void;
-	openCaseDetail: (moduleUuid: Uuid, caseId: string) => void;
+	openCaseDetail: (
+		moduleUuid: Uuid,
+		caseId: string,
+		searchResult?: {
+			readonly submission: string;
+			readonly receipt: string;
+			readonly session: string;
+		},
+	) => void;
 	/**
 	 * Open the case-search authoring workspace for `moduleUuid`. Routes
 	 * to `/build/{appId}/{moduleUuid}/search`. Sibling to
@@ -116,6 +125,10 @@ export interface NavigationPort {
 			readonly menu: PreviewHeldCaseListMenu;
 			readonly session: string;
 		},
+		searchResult?: {
+			readonly detail: RecordedSearchResultDetail;
+			readonly session: string;
+		},
 	): void;
 	reopenHeldMenu(
 		url: string,
@@ -156,8 +169,20 @@ export function createNavigateActions(port: NavigationPort): NavigateActions {
 		goHome: () => push({ kind: "home" }),
 		openModule: (moduleUuid: Uuid) => push({ kind: "module", moduleUuid }),
 		openCaseList: (moduleUuid: Uuid) => push({ kind: "cases", moduleUuid }),
-		openCaseDetail: (moduleUuid: Uuid, caseId: string) =>
-			push({ kind: "cases", moduleUuid, caseId }),
+		openCaseDetail: (moduleUuid, caseId, searchResult) => {
+			const next: Location = { kind: "cases", moduleUuid, caseId };
+			if (!searchResult) return push(next);
+			const { session, submission, receipt } = searchResult;
+			port.write(
+				buildUrl(getBasePath(), next, port.getDoc()),
+				false,
+				undefined,
+				{
+					session,
+					detail: { moduleUuid, caseId, submission, receipt },
+				},
+			);
+		},
 		openSearchConfig: (moduleUuid: Uuid) =>
 			push({ kind: "search-config", moduleUuid }),
 		openDetailConfig: (moduleUuid: Uuid) =>

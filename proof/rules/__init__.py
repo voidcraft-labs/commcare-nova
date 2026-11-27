@@ -89,6 +89,7 @@ class SpellingRule:
 # modules are imported after it is defined.
 from proof.rules import (  # noqa: E402
     add_ons,
+    android_intent_response_groups,
     case_list_form_follow_up_return,
     case_list_form_unset,
     case_references_load,
@@ -102,6 +103,7 @@ from proof.rules import (  # noqa: E402
     form_filter_blank,
     form_link_fallback,
     hidden_sort_header,
+    hidden_text_number_order,
     hint_validation_markdown_form,
     inactive_parent_select,
     itext_value_order,
@@ -140,6 +142,8 @@ RULES: tuple[SpellingRule, ...] = (
     # Before itext_value_order: the values it sorts are the ones left.
     hint_validation_markdown_form.RULE,
     itext_value_order.RULE,
+    android_intent_response_groups.RULE,
+    hidden_text_number_order.RULE,
     model_order.RULE,
     setvalue_order.RULE,
     # HQ's app document, and the suite where it builds the same reading.

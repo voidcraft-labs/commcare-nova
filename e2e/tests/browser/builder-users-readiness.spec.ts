@@ -280,7 +280,7 @@ test("Users authoring keeps an unfinished role draft and a cancelable removal th
 	} finally {
 		try {
 			if (held && !released) await held.abort();
-			if (refresh) await refresh;
+			if (refresh !== undefined) await refresh;
 		} finally {
 			await close(page, peer);
 		}

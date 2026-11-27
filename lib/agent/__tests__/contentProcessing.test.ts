@@ -103,6 +103,41 @@ describe("prepareToolOptionsSource", () => {
 		expect(result.options[2].uuid).not.toBe(yes);
 		expect(result.options[2].uuid).not.toBe(no);
 	});
+	it("keeps and clears extended wording by the matched choice's stable identity", () => {
+		const uuid = testUuid("extended-choice");
+		const extended = proseText("The worker chose this one");
+		const previous = {
+			kind: "inline" as const,
+			options: [
+				{
+					uuid,
+					value: "yes",
+					label: proseText("Yes"),
+					extended_text: extended,
+				},
+			],
+		};
+		const replacement = {
+			optionUuid: uuid,
+			value: "first",
+			label: proseText("First"),
+		};
+		const retained = prepareToolOptionsSource(
+			{ kind: "inline", options: [replacement] },
+			previous,
+		);
+		expect(retained).toMatchObject({
+			options: [{ uuid, value: "first", extended_text: extended }],
+		});
+		const cleared = prepareToolOptionsSource(
+			{ kind: "inline", options: [{ ...replacement, extended_text: null }] },
+			previous,
+		);
+		expect(cleared).toMatchObject({ options: [{ uuid, value: "first" }] });
+		if (cleared.kind !== "inline") throw new Error("Expected choices.");
+		expect(cleared.options[0]).not.toHaveProperty("extended_text");
+	});
+
 	it("maps the machine option projection once, preserving declared identity and source order", () => {
 		const preserved = testUuid("prepared-option-preserved");
 		const result = prepareToolOptionsSource({
@@ -452,8 +487,10 @@ describe("flatFieldToField — schema-admitted witnesses and failure reasons", (
 	// Each witness passes the real model-facing input schema and identity
 	// projection before assembly. This finite corpus proves the mapping for
 	// those witnesses, not totality across every admitted value.
-	it("assembles an input-schema-admitted witness for every kind", () => {
+	it("assembles an input-schema-admitted witness for every field the add tool creates", () => {
 		for (const kind of fieldKinds) {
+			// A positioned case change belongs to an existing operation.
+			if (kind === "case_change") continue;
 			const processed = applyDefaults(stripEmpty(validFlatPayload(kind)), null);
 			const result = flatFieldToField(processed, TEST_UUID);
 			expect(result.ok, `kind ${kind} did not assemble`).toBe(true);

@@ -49,6 +49,14 @@ the server the app is published on, and the publish dialog lists that space
 as one that cannot be chosen, from the same standing
 (`lib/deployment/downloadTarget.ts::readCczStanding`).
 
+A menu that sends its questions to a project-supplied search gives both
+downloads a destination. The contributor chooses the server, project space
+and the service there. Nova checks the capability with the acting user's
+connection and rereads the revision and bindings before generating bytes.
+The manual HQ file installs a new copy with its ordinary derived identities
+and media paths. Only the external search ID comes from that destination.
+An Android package still uses the physical identities of the published app.
+
 A download records nothing: the HQ import file and the `.ccz` emit each case
 change's effective placement, held or else the simplest, and write no
 `publish-placement` change. Only `publishAppToHq` records placements
@@ -79,8 +87,9 @@ every other complete global table a page at a time into `suite.xml`
 (`streamedTables`, Nova's own and a complete copy of a table CommCare HQ
 manages alike: `lib/lookup/fixtureSnapshot.ts`'s `download-archive`). The
 aggregate 10,000-row / 100,000-cell / 16 MiB budget
-(`LOOKUP_FIXTURE_EXPORT_TOO_LARGE`) bounds only the inline part, which the
-snapshot keeps far below it. The HQ modes stream only Nova's own tables: a
+(`LOOKUP_FIXTURE_EXPORT_TOO_LARGE`) covers inline and paged fixtures together.
+Preparation measures the paged XML and stops as soon as it crosses the wire
+budget. The HQ modes stream only Nova's own tables: a
 copy of a table CommCare HQ manages is written by its own rule below. `hq-json` and
 `hq-upload` build the fixapi workbook (`lookupWorkbook`) and take CommCare HQ's
 whole-workbook row ceiling (`LOOKUP_HQ_PUSH_TOO_LARGE`), their one size

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { PersistableDoc, Uuid } from "@/lib/domain";
 import { uuidSchema } from "@/lib/domain";
+import { BOUNDED_FLAT_FOLLOWUP_MAXIMUM } from "@/lib/domain/caseSelectionLimits";
 import {
 	appLanguageIdentitySchema,
 	type LanguageTag,
@@ -241,7 +242,10 @@ function actionSchema<R extends z.ZodType<string>>(reference: R) {
 		z.strictObject({ kind: z.literal("form"), formUuid: reference }),
 		z.strictObject({
 			kind: z.literal("select"),
-			caseIds: z.array(z.string().min(1).max(255)).min(1).max(100),
+			caseIds: z
+				.array(z.string().min(1).max(255))
+				.min(1)
+				.max(BOUNDED_FLAT_FOLLOWUP_MAXIMUM),
 		}),
 		z.strictObject({ kind: z.literal("clearSearch") }),
 		z.strictObject({
@@ -447,6 +451,7 @@ export type AppTestScreen =
 			 * of it, as a device's session keeps its query step. A new entry
 			 * takes its own. */
 			searchResults?: SearchResultsSnapshot;
+			searches?: readonly import("../engine/xpathInstances").CompletedFormSearch[];
 			/** The record list whose Register action opened this form, which
 			 * it always offers; set by that action alone. */
 			caseListRegistrationLaunch?: PreviewCaseListRegistrationLaunch;

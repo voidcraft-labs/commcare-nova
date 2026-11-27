@@ -41,6 +41,12 @@ export function answerRequiresAndroid(
 	return action !== undefined && action !== "case" && action !== "stock";
 }
 
+/** Formplayer decodes the XML instance as ASCII when opening a form.
+ * Use for generated element names in that instance, never for restored data. */
+export function submittedElementNameNeedsAndroid(name: string): boolean {
+	return /[^\x20-\x7e]/.test(name);
+}
+
 /** The receiving service's namespace may be a URL or another URI such as a
  * URN. XML reserves its own two namespace names, and a URI cannot contain
  * unescaped whitespace. Clearing this setting leaves the value in its

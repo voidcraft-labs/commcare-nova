@@ -1,5 +1,12 @@
+import { recordWebFormActivity } from "@/lib/db/previewWebActivity";
 import { submittedActivityFacts } from "@/lib/domain/connectSubmissionFacts";
 import { CaptureSubmissionRejectedError } from "../errors";
+import {
+	FLAT_CLOSE_CASE_BYTES,
+	FLAT_CLOSE_SELECTED_RECORDS,
+	FlatClosePayloadTooLargeError,
+} from "../flatCloseBudget";
+import { searchSupportingIds } from "./searchSupportingIds";
 // lib/case-store/postgres/store.ts
 //
 // `PostgresCaseStore` — the only implementation of the `CaseStore`
@@ -41,6 +48,7 @@ import {
 	type Kysely,
 	type RawBuilder,
 	type Selectable,
+	type SelectQueryBuilder,
 	sql,
 	type Transaction,
 } from "kysely";
@@ -131,6 +139,7 @@ import type {
 	ResetSampleDataArgs,
 	RestoreScope,
 	SchemaChangeKind,
+	SearchClaimSelection,
 	SearchResultInstance,
 	SearchResultsPage,
 	SelectedParentCases,
@@ -152,6 +161,7 @@ import {
 import {
 	applyLinkEffect,
 	executeSubmissionEnvelope,
+	prepareSubmissionEnvelope,
 	type SubmissionEnvelopeHost,
 } from "./submissionEnvelope";
 import {
@@ -704,6 +714,25 @@ export class PostgresCaseStore implements CaseStore {
 		return validators;
 	}
 
+	/** A flat close does not change case properties. Hold the same active
+	 * schema row as the validator, without transferring its data before the
+	 * locked flat-close budget checks it. */
+	private async lockFlatCloseCaseType(
+		trx: Transaction<Database>,
+		appId: string,
+		caseType: string,
+	): Promise<void> {
+		const locked = await trx
+			.selectFrom("case_type_schemas")
+			.select("case_type")
+			.where("app_id", "=", appId)
+			.where("case_type", "=", caseType)
+			.where("is_active", "=", true)
+			.forShare()
+			.executeTakeFirst();
+		if (locked === undefined) throw new SchemaNotSyncedError(appId, caseType);
+	}
+
 	/**
 	 * The bound Project id for a tenant-scoped read/write. Throws if
 	 * reached on a schema-only store (`withSchemaContext`, `projectId =
@@ -853,7 +882,7 @@ export class PostgresCaseStore implements CaseStore {
 				from cases as selected_parent_case
 				where selected_parent_case.app_id = ${appId}
 					and selected_parent_case.project_id = ${projectId}
-					and selected_parent_case.case_type = ${parentCases.caseType}
+					and selected_parent_case.case_type = any(${[parentCases.caseType, ...(parentCases.additionalCaseTypes ?? [])]}::text[])
 					and selected_parent_case.case_id in (${parentIds})
 			) = ${parentCases.caseIds.length}
 			and exists (
@@ -1047,7 +1076,10 @@ export class PostgresCaseStore implements CaseStore {
 			.selectFrom("cases as c")
 			.selectAll("c")
 			.where("c.app_id", "=", args.appId)
-			.where("c.case_type", "=", args.caseType)
+			.where("c.case_type", "in", [
+				args.caseType,
+				...(args.additionalCaseTypes ?? []),
+			])
 			.where("c.project_id", "=", this.requireProjectId());
 		if (args.searchPopulation !== undefined) {
 			qb = qb.where("c.status", "is distinct from", "closed");
@@ -1160,7 +1192,11 @@ export class PostgresCaseStore implements CaseStore {
 		read: (
 			built: ReturnType<PostgresCaseStore["buildCaseSelect"]>,
 			db: Kysely<Database>,
-			primaryCount?: number,
+			response?: {
+				readonly tx: Transaction<Database>;
+				readonly primary: readonly string[];
+				readonly supporting: readonly string[];
+			},
 		) => Promise<T>,
 		transaction?: Transaction<Database>,
 	): Promise<T> {
@@ -1177,11 +1213,11 @@ export class PostgresCaseStore implements CaseStore {
 				population,
 				request,
 			);
-			const supporting = await this.searchSupportingIds(
+			const supporting = await searchSupportingIds(
 				tx,
-				args,
+				{ appId: args.appId, projectId: this.requireProjectId() },
 				ids,
-				request.relatedPaths ?? [],
+				request,
 			);
 			const device = this.buildCaseSelect(
 				{
@@ -1195,12 +1231,18 @@ export class PostgresCaseStore implements CaseStore {
 			// The worker's datum excludes every returned case marked related.
 			// A primary hit can itself carry an author-written property of
 			// that name. Core unpacks its text and converts it to boolean.
-			const qb = device.qb
+			let qb = device.qb
 				.where(sql<boolean>`c.case_id = any(${ids}::text[])`)
 				.where(
 					sql<boolean>`coalesce(c.properties ->> 'commcare_is_related_case', '') = ''`,
 				);
-			return read({ ...device, qb }, tx, ids.length);
+			if (args.datumOrder)
+				qb = qb.orderBy(sql`array_position(${ids}::text[], c.case_id)`);
+			return read({ ...device, qb }, tx, {
+				tx,
+				primary: ids,
+				supporting,
+			});
 		};
 		return transaction === undefined
 			? this.dataTransaction(resolve, true)
@@ -1223,7 +1265,12 @@ export class PostgresCaseStore implements CaseStore {
 						tx,
 						{ appId: args.appId, projectId: this.requireProjectId() },
 						selected,
-						[args.caseType],
+						[
+							args.caseType,
+							...(request.additionalRequestTypes ??
+								args.additionalCaseTypes ??
+								[]),
+						],
 					);
 		if (
 			selected?.revision !== undefined &&
@@ -1238,6 +1285,8 @@ export class PostgresCaseStore implements CaseStore {
 		const server = this.buildCaseSelect(
 			{
 				...args,
+				additionalCaseTypes:
+					request.additionalRequestTypes ?? args.additionalCaseTypes,
 				predicate: indexed ? undefined : args.predicate,
 				reading: { filter: "search", columns: "results" },
 				bindings: {
@@ -1275,67 +1324,38 @@ export class PostgresCaseStore implements CaseStore {
 		);
 	}
 
-	/** HQ delivers the last case of each requested path. An intermediate
-	 * case is delivered only when a detail also asks for that prefix. */
-	private async searchSupportingIds(
-		tx: Transaction<Database>,
-		args: QueryArgs,
-		primary: readonly string[],
-		paths: readonly (readonly string[])[],
-	): Promise<string[]> {
-		if (!primary.length || !paths.length) return [];
-		const projectId = this.requireProjectId();
-		const prefixes = new Map<string, readonly string[]>();
-		const related = new Set<string>();
-		for (const path of paths) {
-			let ids = primary;
-			for (let step = 0; step < path.length; step++) {
-				const prefix = JSON.stringify(path.slice(0, step + 1));
-				const cached = prefixes.get(prefix);
-				if (cached !== undefined) {
-					ids = cached;
-					continue;
-				}
-				if (!ids.length) break;
-				const found = await tx
-					.selectFrom("case_indices as edge")
-					.innerJoin("cases as target", "target.case_id", "edge.ancestor_id")
-					.select("target.case_id")
-					.distinct()
-					.where("edge.depth", "=", 1)
-					.where("edge.identifier", "=", path[step])
-					.where("edge.case_id", "in", ids)
-					.where("target.app_id", "=", args.appId)
-					.where("target.project_id", "=", projectId)
-					.where(({ not, exists, selectFrom }) =>
-						not(
-							exists(
-								selectFrom("parked_case_values as held")
-									.select("held.id")
-									.whereRef("held.case_id", "=", "target.case_id")
-									.where("held.dismissed_at", "is", null),
-							),
-						),
-					)
-					.execute();
-				ids = found.map((row) => row.case_id);
-				prefixes.set(prefix, ids);
-			}
-			for (const id of ids) related.add(id);
-		}
-		for (const id of primary) related.delete(id);
-		return [...related];
-	}
-
 	/** The primary count powers the empty-search transition. The inline
 	 * predicate and transport page must see that very same set of hits. */
 	async querySearchResults(
 		args: QueryArgs,
 		grouping?: string,
+		capture?: true | "offered-primary-ids",
 	): Promise<SearchResultsPage> {
-		return this.withCaseSelect(args, async (built, tx, primaryCount) => {
-			if (primaryCount === undefined)
+		return this.withCaseSelect(args, async (built, tx, response) => {
+			if (response === undefined)
 				throw new Error("A search result page requires a completed request.");
+			const primaryCount = response.primary.length;
+			const instance =
+				capture === true
+					? await this.readSearchInstanceByIds(
+							response.tx,
+							args.appId,
+							response.primary,
+							response.supporting,
+						)
+					: undefined;
+			const primary =
+				capture === "offered-primary-ids"
+					? new Set(response.primary)
+					: undefined;
+			const receiptData = (rows: readonly CaseRowWithCalculated[]) => ({
+				...(instance && { instance }),
+				...(primary && {
+					offeredPrimaryIds: rows.flatMap(({ case_id }) =>
+						primary.has(case_id) ? [case_id] : [],
+					),
+				}),
+			});
 			const limit = args.limit;
 			const offset = Math.max(0, args.offset ?? 0);
 			const clamp = (total: number) =>
@@ -1358,10 +1378,12 @@ export class PostgresCaseStore implements CaseStore {
 				const position = clamp(page.totalGroups);
 				if (position !== offset && page.totalGroups)
 					page = await pageAt(position);
+				const rows = page.groups.flatMap((group) => group.rows);
 				return {
 					primaryCount,
+					...receiptData(rows),
 					totalRows: page.totalRows,
-					rows: page.groups.flatMap((group) => group.rows),
+					rows,
 					offset: position,
 					grouped: page,
 				};
@@ -1372,13 +1394,15 @@ export class PostgresCaseStore implements CaseStore {
 				.executeTakeFirstOrThrow();
 			const totalRows = Number(counted.total);
 			const position = clamp(totalRows);
+			const rows = totalRows
+				? await this.readCasePage({ ...args, offset: position }, built)
+				: [];
 			return {
 				primaryCount,
+				...receiptData(rows),
 				totalRows,
 				offset: position,
-				rows: totalRows
-					? await this.readCasePage({ ...args, offset: position }, built)
-					: [],
+				rows,
 			};
 		});
 	}
@@ -1403,36 +1427,128 @@ export class PostgresCaseStore implements CaseStore {
 							.select("c.case_id")
 							.execute()
 					).map((row) => row.case_id);
-			const supporting = await this.searchSupportingIds(
+			const supporting = await searchSupportingIds(
 				tx,
-				args,
+				{ appId: args.appId, projectId: this.requireProjectId() },
 				ids,
-				request?.relatedPaths ?? [],
+				request,
 			);
-			const allIds = [...ids, ...supporting];
-			const patch = await this.readCaseDatabasePatchInTransaction(tx, {
-				appId: args.appId,
-				projectId: this.requireProjectId(),
-				caseIds: allIds,
-			});
-			const rows = new Map(patch.rows.map((row) => [row.case_id, row]));
-			return {
-				...patch,
-				primaryIds: ids,
-				rows: allIds.map((id) => {
-					const row = rows.get(id);
-					if (!row)
-						throw new Error(
-							"A search result is missing from the snapshot that selected it.",
-						);
-					return row;
-				}),
-			};
+			return this.readSearchInstanceByIds(tx, args.appId, ids, supporting);
 		}, true);
+	}
+
+	private async readSearchInstanceByIds(
+		tx: Transaction<Database>,
+		appId: string,
+		primary: readonly string[],
+		supporting: readonly string[],
+	): Promise<SearchResultInstance> {
+		const allIds = [...primary, ...supporting];
+		const patch = await this.readCaseDatabasePatchInTransaction(tx, {
+			appId,
+			projectId: this.requireProjectId(),
+			caseIds: allIds,
+		});
+		const rows = new Map(patch.rows.map((row) => [row.case_id, row]));
+		return {
+			...patch,
+			primaryIds: primary,
+			rows: allIds.map((id) => {
+				const row = rows.get(id);
+				if (!row)
+					throw new Error(
+						"A search result is missing from the snapshot that selected it.",
+					);
+				return row;
+			}),
+		};
 	}
 
 	async query(args: QueryArgs): Promise<CaseRowWithCalculated[]> {
 		return this.withCaseSelect(args, (built) => this.readCasePage(args, built));
+	}
+
+	async queryAutomaticSelection(
+		args: QueryArgs,
+		maximum: number,
+		boundedFlatClose?: true,
+	): Promise<{ rows: readonly CaseRowWithCalculated[]; totalCount: number }> {
+		// This is a row materialization budget, independent of an HQ-authored
+		// limit, the page size and the number of effects a submission can write.
+		const maxAutomaticSelectionRows = boundedFlatClose
+			? FLAT_CLOSE_SELECTED_RECORDS
+			: 100;
+		if (
+			!Number.isInteger(maximum) ||
+			maximum < 1 ||
+			maximum > maxAutomaticSelectionRows
+		)
+			throw new Error("Automatic case selection exceeds its row budget.");
+		if (args.searchPopulation?.request)
+			throw new Error("A completed Search must keep its own result snapshot.");
+
+		// Probe only the eligible identities. The overflow count and the
+		// accepted row projection see the same data as the probe, using either
+		// the browser's repeatable read or the App Test's locked namespace.
+		return this.dataTransaction(async (tx) => {
+			const read = {
+				...args,
+				datumOrder: true as const,
+				sort: undefined,
+				calculated: undefined,
+				related: undefined,
+				limit: maximum,
+				offset: undefined,
+			};
+			const built = this.buildCaseSelect(read, tx);
+			const population = boundedFlatClose
+				? built.qb.where("c.status", "is distinct from", "closed")
+				: built.qb;
+			const ordered = boundedFlatClose
+				? population.orderBy("c.opened_on", "asc").orderBy("c.case_id", "asc")
+				: population;
+			const ids = await ordered
+				.clearSelect()
+				.select("c.case_id")
+				.limit(maximum + 1)
+				.execute();
+			if (ids.length > maximum) {
+				const count = await population
+					.clearSelect()
+					.select((eb) => eb.fn.countAll<string>().as("total"))
+					.executeTakeFirstOrThrow();
+				return { rows: [], totalCount: Number(count.total) };
+			}
+			if (!ids.length) return { rows: [], totalCount: 0 };
+			if (boundedFlatClose) {
+				if (!args.restoreScope || !args.caseType)
+					throw new Error("A flat close needs a device and one record type.");
+				const patch = await this.readFlatCloseSelectionInTransaction(tx, {
+					appId: args.appId,
+					caseIds: ids.map(({ case_id }) => case_id),
+					caseType: args.caseType,
+					restoreScope: args.restoreScope,
+					automaticMaximum: maximum,
+				});
+				if (!patch)
+					throw new CaptureSubmissionRejectedError(
+						"The selected records changed. Reopen the list to choose them again.",
+					);
+				return {
+					rows: patch.rows.map((row) => ({ ...row, calculated: {} })),
+					totalCount: ids.length,
+				};
+			}
+			const rows = await this.readCasePage(read, {
+				...built,
+				qb: built.qb.where(
+					"c.case_id",
+					"in",
+					ids.map(({ case_id }) => case_id),
+				),
+			});
+			return { rows, totalCount: ids.length };
+		}, true);
 	}
 
 	private async readCasePage(
@@ -1455,7 +1571,7 @@ export class PostgresCaseStore implements CaseStore {
 					qb = qb.orderBy(part.expression, part.direction);
 				}
 			}
-		} else {
+		} else if (!args.datumOrder || !args.searchPopulation?.request) {
 			// The durable default ordering fact: creation time, then the
 			// id purely as a deterministic total-order key. Authored
 			// opaque ids carry no timestamp, so heap order and id order
@@ -1626,26 +1742,144 @@ export class PostgresCaseStore implements CaseStore {
 		return parseSubmissionEnvelopeResult(row.result).caseDatabasePatch;
 	}
 
+	async readFlatCloseSelection(args: {
+		readonly appId: string;
+		readonly caseIds: readonly string[];
+		readonly caseType: string;
+		readonly restoreScope: RestoreScope;
+		readonly automaticMaximum?: number;
+	}): Promise<DeviceCaseDatabase | undefined> {
+		return this.dataTransaction(
+			(tx) => this.readFlatCloseSelectionInTransaction(tx, args),
+			true,
+		);
+	}
+
+	private async readFlatCloseSelectionInTransaction(
+		tx: Transaction<Database>,
+		args: {
+			readonly appId: string;
+			readonly caseIds: readonly string[];
+			readonly caseType: string;
+			readonly restoreScope: RestoreScope;
+			readonly automaticMaximum?: number;
+		},
+	): Promise<DeviceCaseDatabase | undefined> {
+		const { appId, caseIds, caseType, restoreScope, automaticMaximum } = args;
+		if (
+			!caseIds.length ||
+			caseIds.length > FLAT_CLOSE_SELECTED_RECORDS ||
+			new Set(caseIds).size !== caseIds.length ||
+			caseIds.some((id) => !id.trim())
+		)
+			return undefined;
+
+		const eligible = this.buildCaseSelect(
+			{
+				appId,
+				caseType,
+				restoreScope,
+				reading: { filter: "casedb", columns: "casedb" },
+			},
+			tx,
+		)
+			.qb.clearSelect()
+			.select("c.case_id")
+			.where("c.status", "is distinct from", "closed");
+		if (automaticMaximum !== undefined) {
+			if (
+				!Number.isInteger(automaticMaximum) ||
+				automaticMaximum < caseIds.length ||
+				automaticMaximum > FLAT_CLOSE_SELECTED_RECORDS
+			)
+				return undefined;
+			const ordered = await eligible
+				.orderBy("c.opened_on", "asc")
+				.orderBy("c.case_id", "asc")
+				.limit(automaticMaximum + 1)
+				.execute();
+			if (
+				ordered.length !== caseIds.length ||
+				ordered.some(({ case_id }, index) => case_id !== caseIds[index])
+			)
+				return undefined;
+		} else {
+			const available = await eligible
+				.where("c.case_id", "in", caseIds)
+				.execute();
+			if (available.length !== caseIds.length) return undefined;
+		}
+		const patch = await this.readCaseDatabasePatchInTransaction(tx, {
+			appId,
+			projectId: this.requireProjectId(),
+			caseIds,
+			boundedFlatClose: true,
+		});
+		if (patch.rows.length !== caseIds.length) return undefined;
+		// A plain close changes only status and the two lifecycle timestamps.
+		// Test the exact public payload both as read and as it can land.
+		assertFlatCloseCaseBytes(patch);
+		const stamp = new Date();
+		assertFlatCloseCaseBytes({
+			...patch,
+			rows: patch.rows.map((row) => ({
+				...row,
+				status: "closed",
+				closed_on: row.closed_on ?? stamp,
+				modified_on: row.closed_on === null ? stamp : row.modified_on,
+			})),
+		});
+		return patch;
+	}
+
+	private async checkFlatCloseSelection(
+		tx: Transaction<Database>,
+		args: {
+			appId: string;
+			caseIds: readonly string[];
+			caseType: string;
+			ownerIds: readonly string[];
+		},
+	): Promise<void> {
+		const selected = await this.readFlatCloseSelectionInTransaction(tx, {
+			...args,
+			restoreScope: { ownerIds: args.ownerIds },
+		});
+		if (!selected)
+			throw new CaptureSubmissionRejectedError(
+				"The selected records changed. Reopen the form to choose them again.",
+			);
+	}
+
 	private async readCaseDatabasePatchInTransaction(
 		trx: Transaction<Database>,
 		args: {
 			readonly appId: string;
 			readonly projectId: string;
 			readonly caseIds: readonly string[];
+			readonly boundedFlatClose?: true;
 		},
 	): Promise<DeviceCaseDatabase> {
 		const caseIds = [...new Set(args.caseIds)];
 		if (caseIds.length === 0)
 			return { rows: [], indices: [], propertyTypes: {} };
-		const storedRows = await trx
+		const caseRows = trx
 			.selectFrom("cases as c")
 			.selectAll("c")
 			.where("c.app_id", "=", args.appId)
 			.where("c.project_id", "=", args.projectId)
-			.where("c.case_id", "in", caseIds)
-			.orderBy("c.opened_on", "asc")
-			.orderBy("c.case_id", "asc")
-			.execute();
+			.where("c.case_id", "in", caseIds);
+
+		const storedRows = args.boundedFlatClose
+			? await this.readWithinFlatCloseTransferBudget(
+					trx,
+					caseRows,
+					sql`payload.opened_on asc, payload.case_id asc`,
+				)
+			: await caseRows
+					.orderBy("c.opened_on", "asc")
+					.orderBy("c.case_id", "asc")
+					.execute();
 		const rows = storedRows.map(publicCaseRow);
 		// The read above already holds the tenant's own rows, so the indices
 		// are read for those ids alone and only the ancestor is checked, by
@@ -1653,10 +1887,10 @@ export class PostgresCaseStore implements CaseStore {
 		// with every case before probing `case_indices` when the tenant's
 		// rows had no statistics yet: 500 fresh cases took 18 seconds.
 		const tenantCaseIds = rows.map((row) => row.case_id);
-		const indices =
+		const indicesQuery =
 			tenantCaseIds.length === 0
-				? []
-				: await trx
+				? undefined
+				: trx
 						.selectFrom("case_indices as ci")
 						.select([
 							"ci.case_id",
@@ -1680,14 +1914,60 @@ export class PostgresCaseStore implements CaseStore {
 						)
 						.orderBy("ci.case_id", "asc")
 						.orderBy("ci.identifier", "asc")
-						.orderBy("ci.ancestor_id", "asc")
-						.execute();
+						.orderBy("ci.ancestor_id", "asc");
+		const indices = !indicesQuery
+			? []
+			: args.boundedFlatClose
+				? await this.readWithinFlatCloseTransferBudget(
+						trx,
+						indicesQuery.clearOrderBy(),
+						sql`payload.case_id asc, payload.identifier asc, payload.ancestor_id asc`,
+					)
+				: await indicesQuery.execute();
 		const propertyTypes = await this.readCaseDatabasePropertyTypes(
 			trx,
 			args.appId,
 			rows.map((row) => row.case_type),
+			args.boundedFlatClose,
 		);
 		return { rows, indices, propertyTypes };
+	}
+
+	/**
+	 * Measure and return the same SQL snapshot even before locks in the
+	 * read-committed submission transaction. Keep raw transfer (including
+	 * database-only values and spacing) bounded separately from the exact
+	 * compact DTO. An explicit sentinel distinguishes overflow from no rows.
+	 */
+	private async readWithinFlatCloseTransferBudget<
+		Schema,
+		Table extends keyof Schema,
+		Row extends object,
+	>(
+		trx: Transaction<Database>,
+		query: SelectQueryBuilder<Schema, Table, Row>,
+		order: RawBuilder<unknown>,
+	): Promise<Row[]> {
+		const result = await sql<
+			Row & { _nova_present: true | null; _nova_within_budget: boolean }
+		>`
+			WITH payload AS MATERIALIZED (
+				SELECT source.*, true AS _nova_present FROM (${query}) AS source
+			), budget AS (
+				SELECT coalesce(sum(octet_length(to_jsonb(payload)::text)), 0)
+					<= ${2 * FLAT_CLOSE_CASE_BYTES} AS fits
+				FROM payload
+			)
+			SELECT payload.*, budget.fits AS _nova_within_budget
+			FROM budget LEFT JOIN payload ON budget.fits
+			ORDER BY ${order}
+		`.execute(trx);
+		const rows: Row[] = [];
+		for (const { _nova_present, _nova_within_budget, ...row } of result.rows) {
+			if (!_nova_within_budget) throw new FlatClosePayloadTooLargeError();
+			if (_nova_present) rows.push(row as Row);
+		}
+		return rows;
 	}
 
 	/** The source rows were selected in this transaction, including the worker
@@ -1737,15 +2017,22 @@ export class PostgresCaseStore implements CaseStore {
 		trx: Transaction<Database>,
 		appId: string,
 		caseTypes: readonly string[],
+		boundedFlatClose?: true,
 	): Promise<Record<string, Readonly<Record<string, CasePropertyDataType>>>> {
 		const names = [...new Set(caseTypes)].sort();
 		if (names.length === 0) return {};
-		const schemaRows = await trx
+		const schemas = trx
 			.selectFrom("case_type_schemas")
-			.select(["case_type", "schema"])
 			.where("app_id", "=", appId)
-			.where("case_type", "in", names)
-			.execute();
+			.where("case_type", "in", names);
+		const projection = schemas.select(["case_type", "schema"]);
+		const schemaRows = boundedFlatClose
+			? await this.readWithinFlatCloseTransferBudget(
+					trx,
+					projection,
+					sql`payload.case_type asc`,
+				)
+			: await projection.execute();
 		const propertyTypes: Record<
 			string,
 			Readonly<Record<string, CasePropertyDataType>>
@@ -2410,6 +2697,7 @@ export class PostgresCaseStore implements CaseStore {
 			origin?: "existing-record";
 			caseId?: string;
 			ownerId?: string;
+			allowEmptyName?: true;
 			parentRelationship?: CaseIndicesTable["relationship"];
 			parentIdentifier?: string;
 			caseIdTaken?: () => never;
@@ -2447,7 +2735,7 @@ export class PostgresCaseStore implements CaseStore {
 			case_name: normalizedCaseScalar(
 				"case_name",
 				args.row.case_name,
-				"reject",
+				args.allowEmptyName ? "allow" : "reject",
 			),
 			...(args.row.external_id === null || args.row.external_id === undefined
 				? { external_id: null }
@@ -2533,7 +2821,7 @@ export class PostgresCaseStore implements CaseStore {
 		// the form's operation program, its own case first, lands together
 		// or not at all. Every envelope first adjudicates and claims its durable
 		// entry receipt, even with no attachments. Standard lock order:
-		// authorize → entry receipt → relationship advisory → schema locks in
+		// authorize → entry receipt → pure plan → relationship advisory → schema locks in
 		// sorted order for every case type the
 		// submission names up front (a followup/close bound case's type
 		// is discovered inside the update core, which acquires its own
@@ -2561,16 +2849,25 @@ export class PostgresCaseStore implements CaseStore {
 					: submittedActivityFacts(args.connect);
 			if (activities && "issue" in activities)
 				throw new CaptureSubmissionRejectedError(activities.issue);
+			const prepared = prepareSubmissionEnvelope(args);
+			if (prepared.flatClose)
+				await this.checkFlatCloseSelection(trx, prepared.flatClose);
 			await this.lockRelationshipWrites(trx, args.appId);
-			await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
-			const { deviceExternalIds, ...effects } = await executeSubmissionEnvelope(
-				trx,
-				this.submissionEnvelopeHost(),
-				args,
-			);
+			const flatCloseCaseType = prepared.flatClose?.caseType;
+			if (flatCloseCaseType === undefined)
+				await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
+			else await this.lockFlatCloseCaseType(trx, args.appId, flatCloseCaseType);
+			const { deviceExternalIds, reachedWriteCaseIds, ...effects } =
+				await executeSubmissionEnvelope(
+					trx,
+					this.submissionEnvelopeHost(flatCloseCaseType),
+					args,
+					prepared,
+				);
 			const affectedCaseIds = [
 				...effects.primaryCaseIds,
 				...effects.createdChildren.map((child) => child.caseId),
+				...reachedWriteCaseIds,
 				...effects.operations.flatMap((operation) =>
 					operation.executed ? [operation.caseId] : [],
 				),
@@ -2580,9 +2877,11 @@ export class PostgresCaseStore implements CaseStore {
 					appId: args.appId,
 					projectId: this.requireProjectId(),
 					caseIds: affectedCaseIds,
+					...(prepared.flatClose && { boundedFlatClose: true }),
 				}),
 				deviceExternalIds,
 			);
+			if (prepared.flatClose) assertFlatCloseCaseBytes(caseDatabasePatch);
 			const result: SubmissionEnvelopeResult = {
 				...effects,
 				...(args.submissionLocation !== undefined && {
@@ -2595,6 +2894,19 @@ export class PostgresCaseStore implements CaseStore {
 				}),
 				caseDatabasePatch,
 			};
+			if (args.webActivity !== undefined)
+				await recordWebFormActivity(
+					trx,
+					{
+						appId: args.appId,
+						projectId: this.requireProjectId(),
+						actorId: this.requireActorUserId(),
+						workerId: this.requireOwnerId(),
+					},
+					args.submissionReceipt.entryKey,
+					args.webActivity,
+					"submitted",
+				);
 			await completeSubmissionReceipt(trx, {
 				appId: args.appId,
 				projectId: this.requireProjectId(),
@@ -2608,7 +2920,9 @@ export class PostgresCaseStore implements CaseStore {
 
 	/** The narrow store internals the envelope executor borrows — see
 	 * `SubmissionEnvelopeHost`. */
-	private submissionEnvelopeHost(): SubmissionEnvelopeHost {
+	private submissionEnvelopeHost(
+		lockedFlatCloseCaseType?: string,
+	): SubmissionEnvelopeHost {
 		return {
 			projectId: this.requireProjectId(),
 			// The WORKER, not the member: a submission's `acting-user` and its
@@ -2640,6 +2954,7 @@ export class PostgresCaseStore implements CaseStore {
 					},
 					...(a.caseId === undefined ? {} : { caseId: a.caseId }),
 					...(a.ownerId === undefined ? {} : { ownerId: a.ownerId }),
+					...(a.allowEmptyName && { allowEmptyName: true as const }),
 					...(a.seed.parentRelationship === undefined
 						? {}
 						: { parentRelationship: a.seed.parentRelationship }),
@@ -2648,7 +2963,9 @@ export class PostgresCaseStore implements CaseStore {
 						: { caseIdTaken: a.caseIdTaken }),
 				}),
 			updateCase: (trx, a) => this.updateInTransaction(trx, a),
-			closeCase: (trx, a) => this.closeCaseInTransaction(trx, a),
+			checkFlatCloseSelection: (trx, a) => this.checkFlatCloseSelection(trx, a),
+			closeCase: (trx, a) =>
+				this.closeCaseInTransaction(trx, a, lockedFlatCloseCaseType),
 		};
 	}
 
@@ -2864,6 +3181,7 @@ export class PostgresCaseStore implements CaseStore {
 			patch: CaseUpdate;
 			parentRelationship?: CaseIndicesTable["relationship"];
 			parentIdentifier?: string;
+			allowBlankName?: true;
 		},
 	): Promise<void> {
 		// Discover the immutable type without a row lock, then acquire its schema
@@ -2942,7 +3260,7 @@ export class PostgresCaseStore implements CaseStore {
 						case_name: normalizedCaseScalar(
 							"case_name",
 							args.patch.case_name,
-							"reject",
+							args.allowBlankName ? "allow" : "reject",
 						),
 					}),
 			...(args.patch.external_id === undefined
@@ -3034,17 +3352,20 @@ export class PostgresCaseStore implements CaseStore {
 	private async closeCaseInTransaction(
 		trx: Transaction<Database>,
 		args: { appId: string; caseId: string },
+		lockedFlatCloseCaseType?: string,
 	): Promise<void> {
-		const discovered = await trx
-			.selectFrom("cases as c")
-			.select("c.case_type")
-			.where("c.app_id", "=", args.appId)
-			.where("c.case_id", "=", args.caseId)
-			.where("c.project_id", "=", this.requireProjectId())
-			.executeTakeFirst();
-		if (discovered === undefined) return;
-		await this.getValidator(args.appId, discovered.case_type, trx);
-		await trx
+		if (lockedFlatCloseCaseType === undefined) {
+			const discovered = await trx
+				.selectFrom("cases as c")
+				.select("c.case_type")
+				.where("c.app_id", "=", args.appId)
+				.where("c.case_id", "=", args.caseId)
+				.where("c.project_id", "=", this.requireProjectId())
+				.executeTakeFirst();
+			if (discovered === undefined) return;
+			await this.getValidator(args.appId, discovered.case_type, trx);
+		}
+		const close = trx
 			.updateTable("cases as c")
 			.set({
 				closed_on: sql<Date>`coalesce(c.closed_on, now())`,
@@ -3059,13 +3380,18 @@ export class PostgresCaseStore implements CaseStore {
 					eb("c.closed_on", "is", null),
 					eb("c.status", "is distinct from", "closed"),
 				]),
-			)
-			.execute();
+			);
+		await (lockedFlatCloseCaseType === undefined
+			? close
+			: close.where("c.case_type", "=", lockedFlatCloseCaseType)
+		).execute();
 	}
 
 	async claimCases(args: {
 		readonly appId: string;
 		readonly caseIds: readonly string[];
+		readonly fromSearches?: readonly SearchClaimSelection[];
+		readonly expectedAppMutationSeq?: number;
 	}): Promise<{
 		readonly created: readonly string[];
 		readonly alreadyClaimed: readonly string[];
@@ -3075,7 +3401,15 @@ export class PostgresCaseStore implements CaseStore {
 		const ownerId = this.requireOwnerId();
 		const caseIds = [...args.caseIds].sort();
 		return await this.dataTransaction(async (trx) => {
-			await this.authorizeMutation(trx, args.appId);
+			const authorization = await this.authorizeMutation(trx, args.appId);
+			if (
+				args.expectedAppMutationSeq !== undefined &&
+				args.expectedAppMutationSeq !== authorization?.appMutationSeq
+			) {
+				throw new CaseSearchUnavailableError({
+					kind: "search-settings-changed",
+				});
+			}
 			await this.lockRelationshipWrites(trx, args.appId);
 			// The claim row's schema lock, before any row lock. A missing row
 			// refuses here with `SchemaNotSyncedError`, which a healing store
@@ -3096,6 +3430,44 @@ export class PostgresCaseStore implements CaseStore {
 			const hostById = new Map(hosts.map((row) => [row.case_id, row]));
 			const missing = caseIds.find((caseId) => !hostById.has(caseId));
 			if (missing !== undefined) throw new CaseNotFoundError(missing);
+
+			// Reapply the completed search after the host locks. The server limit
+			// and inline datum run before the chosen IDs narrow the read. Neither a
+			// supporting row nor a request-only type can become a claim this way.
+			if (args.fromSearches !== undefined) {
+				const accepted = new Set<string>();
+				for (const source of args.fromSearches) {
+					const completed =
+						source.query.searchPopulation?.request !== undefined;
+					const heldParent =
+						source.prerequisite && source.query.restoreScope !== undefined;
+					if (
+						source.query.appId !== args.appId ||
+						!(completed || heldParent) ||
+						!source.caseIds.length
+					) {
+						throw new CaseNotFoundError(caseIds[0]);
+					}
+					const rows = await this.withCaseSelect(
+						source.query,
+						({ qb }) =>
+							qb
+								.clearSelect()
+								.select("c.case_id")
+								.where("c.case_id", "in", source.caseIds)
+								.execute(),
+						trx,
+					);
+					const found = new Set(rows.map((row) => row.case_id));
+					for (const id of source.caseIds) {
+						if (!found.has(id) || (!source.prerequisite && !hostById.has(id)))
+							throw new CaseNotFoundError(id);
+						if (!source.prerequisite) accepted.add(id);
+					}
+				}
+				const refused = caseIds.find((id) => !accepted.has(id));
+				if (refused !== undefined) throw new CaseNotFoundError(refused);
+			}
 
 			// HQ's existing claim: an open claim-type case the worker owns whose
 			// extension index targets the host (`get_first_claims`).
@@ -5332,6 +5704,7 @@ function submissionCaseTypes(args: ApplySubmissionArgs): string[] {
 	const ordinary = args.ordinary;
 	if (ordinary.kind === "followup" || ordinary.kind === "close") {
 		types.add(ordinary.caseType);
+		for (const type of ordinary.additionalCaseTypes ?? []) types.add(type);
 	}
 	const ownCase = args.operations?.ownCase;
 	if (ownCase !== undefined) types.add(ownCase.caseType);
@@ -5345,6 +5718,7 @@ function submissionCaseTypes(args: ApplySubmissionArgs): string[] {
 		for (const link of entry.operation.links ?? []) {
 			types.add(link.targetType);
 		}
+		for (const caseType of entry.parentUserCaseTypes ?? []) types.add(caseType);
 		for (const caseType of entry.viaCaseTypes?.values() ?? []) {
 			types.add(caseType);
 		}
@@ -5358,6 +5732,11 @@ function submissionCaseTypes(args: ApplySubmissionArgs): string[] {
  * external id, the device keeps the external id it had
  * (`submissionEnvelope.ts::DeviceExternalIds`) until its next sync.
  */
+function assertFlatCloseCaseBytes(patch: DeviceCaseDatabase): void {
+	if (Buffer.byteLength(JSON.stringify(patch), "utf8") > FLAT_CLOSE_CASE_BYTES)
+		throw new FlatClosePayloadTooLargeError();
+}
+
 function devicePatch(
 	patch: DeviceCaseDatabase,
 	deviceExternalIds: ReadonlyMap<string, string | null>,
@@ -5972,6 +6351,10 @@ function strictStoredDataType(
 	property: string,
 	propertySchema: unknown,
 ): CasePropertyDataType {
+	// Before the empty-Date migration the same logical type had a single
+	// format guard. Still read that exact stored declaration as Date.
+	if (isDeepStrictEqual(propertySchema, { type: "string", format: "date" }))
+		return "date";
 	for (const dataType of casePropertyDataTypes) {
 		if (isDeepStrictEqual(propertySchema, schemaForDataType(dataType))) {
 			return dataType;

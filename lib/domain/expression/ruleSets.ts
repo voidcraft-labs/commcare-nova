@@ -10,10 +10,14 @@ import {
 	type ComparisonKind,
 	type Expression,
 	isConditionArm,
+	isRelationPath,
 	type Literal,
 	MATCH_MODES,
 	type MatchMode,
+	type Term,
 } from "./types";
+import { walkExpression } from "./walk";
+
 export const ANY_TYPE = "_any" as const;
 
 export type ResolvedType = ScalarType;
@@ -214,6 +218,298 @@ export function literalShape(
 		return { type: "datetime", fractionDigits: datetime[1]?.length ?? 0 };
 	if (TIME_SHAPE.test(text)) return { type: "time", fractionDigits: 0 };
 	return undefined;
+}
+
+/** The type in a query of restored cases that has one typed case-type match. */
+function restoredCaseType(expression: Expression): string | undefined {
+	if (
+		expression.kind !== "cases" ||
+		expression.source !== "casedb" ||
+		expression.supplier !== undefined
+	)
+		return undefined;
+	const filter = expression.where?.[0];
+	return filter?.kind === "eq" &&
+		filter.left.kind === "term" &&
+		filter.left.term.kind === "case-row-type" &&
+		filter.right.kind === "term" &&
+		filter.right.term.kind === "case-type"
+		? filter.right.term.caseType
+		: undefined;
+}
+
+export function isRestoredCaseTypeQuery(expression: Expression): boolean {
+	return (
+		expression.kind === "cases" &&
+		expression.where.length === 1 &&
+		restoredCaseType(expression) !== undefined
+	);
+}
+
+/** A Search value reads one property from the first restored case of a type. */
+export function firstRestoredSearchProperty(
+	expression: Expression,
+): { readonly caseType: string; readonly property: string } | undefined {
+	if (
+		expression.kind !== "project" ||
+		expression.of.kind !== "cases" ||
+		expression.of.first !== true ||
+		expression.of.where.length !== 1 ||
+		expression.value.kind !== "prop" ||
+		expression.value.via !== undefined ||
+		expression.value.readReached === true
+	)
+		return;
+	const caseType = restoredCaseType(expression.of);
+	if (caseType === undefined || expression.value.caseType !== caseType) return;
+	return { caseType, property: expression.value.property };
+}
+
+type RestoredCaseMatchValue =
+	| { kind: "text"; value: string }
+	| { kind: "property"; value: string };
+
+export function restoredCasePropertyMatch(
+	expression: Expression,
+):
+	| { caseType: string; property: string; match: RestoredCaseMatchValue }
+	| undefined {
+	if (expression.kind !== "cases" || expression.where.length !== 2) return;
+	const caseType = restoredCaseType(expression);
+	const check = expression.where[1];
+	if (
+		caseType === undefined ||
+		check?.kind !== "eq" ||
+		check.left.kind !== "term" ||
+		check.left.term.kind !== "prop" ||
+		check.left.term.caseType !== caseType ||
+		check.left.term.via !== undefined ||
+		check.left.term.readReached === true ||
+		check.right.kind !== "term"
+	)
+		return;
+
+	const right = check.right.term;
+	const property = check.left.term.property;
+	if (
+		right.kind === "literal" &&
+		right.data_type === undefined &&
+		typeof right.value === "string"
+	)
+		return { caseType, property, match: { kind: "text", value: right.value } };
+	if (
+		right.kind === "prop" &&
+		right.caseType === caseType &&
+		right.via === undefined &&
+		right.readReached !== true
+	)
+		return {
+			caseType,
+			property,
+			match: { kind: "property", value: right.property },
+		};
+}
+
+export function isSearchRequiredCaseQuery(expression: Expression): boolean {
+	return (
+		isRestoredCaseTypeQuery(expression) ||
+		restoredCasePropertyMatch(expression) !== undefined
+	);
+}
+
+export function readsSearchRequiredCaseQuery(expression: Expression): boolean {
+	let reads = false;
+	walkExpression(expression, {
+		visitExpression(node) {
+			if (isSearchRequiredCaseQuery(node)) reads = true;
+		},
+	});
+	return reads;
+}
+
+/** Count the ordinary device list’s unfiltered restored cases of its own type. */
+export function countsOwnRestoredType(
+	expression: Expression,
+	caseType: string | undefined,
+): boolean {
+	return (
+		caseType !== undefined &&
+		expression.kind === "count" &&
+		expression.where === undefined &&
+		!isRelationPath(expression.via) &&
+		isRestoredCaseTypeQuery(expression.via) &&
+		restoredCaseType(expression.via) === caseType
+	);
+}
+
+export type RestoredColumnCountMatch = {
+	property: string;
+	match: RestoredCaseMatchValue;
+};
+
+/** Row-local text comparisons over the worker’s restored type, for an ordinary column. */
+export function restoredColumnCountMatch(
+	expression: Expression,
+	caseType: string | undefined,
+): RestoredColumnCountMatch | undefined {
+	if (
+		expression.kind !== "count" ||
+		expression.where !== undefined ||
+		isRelationPath(expression.via)
+	)
+		return;
+	const match = restoredCasePropertyMatch(expression.via);
+	if (match?.caseType === caseType && match !== undefined)
+		return { property: match.property, match: match.match };
+}
+
+export function isRestoredColumnCaseQuery(expression: Expression): boolean {
+	return (
+		isRestoredCaseTypeQuery(expression) ||
+		restoredCasePropertyMatch(expression) !== undefined
+	);
+}
+
+/** A whole-list threshold counts only restored candidates of the list’s own type. */
+export function sameTypeRestoredThreshold(
+	expression: Expression,
+	caseType: string | undefined,
+): number | undefined {
+	if (
+		expression.kind !== "gt" ||
+		!countsOwnRestoredType(expression.left, caseType) ||
+		expression.right.kind !== "term" ||
+		expression.right.term.kind !== "literal" ||
+		expression.right.term.data_type !== undefined
+	)
+		return undefined;
+	const threshold = expression.right.term.value;
+	return typeof threshold === "number" &&
+		Number.isInteger(threshold) &&
+		threshold >= 0 &&
+		threshold <= 2_147_483_647
+		? threshold
+		: undefined;
+}
+
+/** A device-list rule can compare its own restored population with a scaled copy of that count. */
+export function sameTypeRestoredScaledComparison(
+	expression: Expression,
+	caseType: string | undefined,
+): boolean {
+	if (
+		expression.kind !== "gt" ||
+		!countsOwnRestoredType(expression.left, caseType) ||
+		expression.right.kind !== "arith" ||
+		expression.right.op !== "*" ||
+		!countsOwnRestoredType(expression.right.right, caseType)
+	)
+		return false;
+	const factor = expression.right.left;
+	return (
+		factor.kind === "term" &&
+		factor.term.kind === "literal" &&
+		factor.term.data_type === undefined &&
+		typeof factor.term.value === "number" &&
+		Number.isInteger(factor.term.value) &&
+		factor.term.value >= 0 &&
+		factor.term.value <= 2_147_483_647
+	);
+}
+
+export function readsRestoredCaseTypeQuery(
+	expression: Expression,
+	isQuery = isRestoredCaseTypeQuery,
+): boolean {
+	let reads = false;
+	walkExpression(expression, {
+		visitExpression(node) {
+			if (isQuery(node)) reads = true;
+		},
+	});
+	return reads;
+}
+
+/** Core numerically coerces two text columns on the same fixture row. */
+export function searchChoiceColumnOrder(
+	kind: ComparisonKind,
+	left: Expression,
+	right: Expression,
+): boolean {
+	return (
+		(kind === "gt" || kind === "lt" || kind === "gte" || kind === "lte") &&
+		left.kind === "term" &&
+		left.term.kind === "table-column" &&
+		right.kind === "term" &&
+		right.term.kind === "table-column" &&
+		left.term.tableId === right.term.tableId
+	);
+}
+
+/** A choice can order a text column against the length of another text
+ * value on the same fixture row. Core compares the column numerically. */
+export function searchChoiceLengthColumn(
+	kind: ComparisonKind,
+	left: Expression,
+	right: Expression,
+): Extract<Term, { kind: "table-column" }> | undefined {
+	if (
+		right.kind !== "call" ||
+		right.fn !== "string-length" ||
+		right.args.length !== 1
+	)
+		return undefined;
+	const column = right.args[0];
+	return left.kind === "term" &&
+		left.term.kind === "table-column" &&
+		typeof left.term.columnId === "string" &&
+		column.kind === "term" &&
+		column.term.kind === "table-column" &&
+		typeof column.term.columnId === "string" &&
+		searchChoiceColumnOrder(kind, left, column)
+		? column.term
+		: undefined;
+}
+
+/** Core coerces these session operands before comparing them. */
+export function searchSessionTextOrder(
+	kind: ComparisonKind,
+	left: Expression,
+	right: Expression,
+): boolean {
+	return (
+		left.kind === "term" &&
+		left.term.kind === "session-context" &&
+		(kind === "gt" || (kind === "lt" && left.term.field === "deviceid")) &&
+		(left.term.field === "username" ||
+			left.term.field === "userid" ||
+			left.term.field === "deviceid") &&
+		right.kind === "term" &&
+		right.term.kind === "literal" &&
+		right.term.data_type === undefined &&
+		typeof right.term.value === "string" &&
+		right.term.value.trim() !== "" &&
+		literalShape(right.term.value) === undefined
+	);
+}
+
+/** A Search expression can compare two raw session identities numerically. */
+export function searchSessionIdentityPairOrder(
+	kind: ComparisonKind,
+	left: Expression,
+	right: Expression,
+): boolean {
+	return (
+		(kind === "gt" || kind === "lt" || kind === "gte" || kind === "lte") &&
+		[left, right].every(
+			(value) =>
+				value.kind === "term" &&
+				value.term.kind === "session-context" &&
+				(value.term.field === "username" ||
+					value.term.field === "userid" ||
+					value.term.field === "deviceid"),
+		)
+	);
 }
 
 export function literalType(lit: Literal): ResolvedType {

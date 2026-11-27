@@ -544,6 +544,12 @@ export function formLogicFinding(
 					platforms: ctx?.platforms ?? PLATFORMS,
 					subject: owner.slotSubject,
 				});
+			} else if (
+				error.reason === "case-list-lookup-count-slot" ||
+				error.reason === "case-list-lookup-count-source"
+			) {
+				code = "XPATH_FUNCTION_CONTEXT_UNAVAILABLE";
+				details = { reason: error.reason };
 			} else if (error.reason === "case-list-search-text-slot") {
 				code = "XPATH_FUNCTION_CONTEXT_UNAVAILABLE";
 				details = { reason: "case-list-search-text-slot" };

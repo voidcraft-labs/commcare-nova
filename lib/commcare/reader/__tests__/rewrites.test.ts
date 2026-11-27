@@ -165,6 +165,39 @@ const CASES: {
 	readonly register: string;
 	readonly rewrites: () => Promise<Rewrites>;
 }[] = [
+	...(
+		[
+			["++name:exact", "search-order-direction-signs-respelled"],
+			["+name:exact:obsolete", "search-order-unused-suffix-removed"],
+		] as const
+	).map(([value, register]) => ({
+		section: `a default Search sort of ${value}`,
+		register,
+		rewrites: () =>
+			listRewrites(patients([], { search: {} }), (app) => {
+				firstModule(app).search_config.default_properties = [
+					{ property: "commcare_sort", defaultValue: `'${value}'` },
+				];
+			}),
+	})),
+	{
+		section: "an unused suffix on an address receiver",
+		register: "search-address-receiver-suffix-removed",
+		rewrites: () =>
+			listRewrites(searched({}, notesIs("open")), (app) => {
+				app.cloudcare_enabled = true;
+				const search = firstModule(app).search_config;
+				const prompts = search.properties as Record<string, unknown>[];
+				prompts[0].receiver_expression = "home-city-extra";
+				prompts.unshift({
+					name: "home",
+					doc_type: "CaseSearchProperty",
+					label: { en: "Find an address" },
+					appearance: "address",
+					exclude: true,
+				});
+			}),
+	},
 	{
 		section: "3.5, an own update's `if` condition",
 		register: "case-settings-respelled",
@@ -435,6 +468,29 @@ const CASES: {
 			listRewrites(searched({}, notesIs("open")), (app) => {
 				firstModule(app).search_config.description = { fra: "" };
 			}),
+	},
+	{
+		section: "translatable text from a saved related record column",
+		register: "legacy-related-case-text-rekeyed",
+		rewrites: () =>
+			listRewrites(
+				patients([plainColumn(uuid(1), "case_name", "Name")]),
+				(app) => {
+					Object.assign(firstModule(app).case_details.short.columns[0], {
+						field: "parent/case_name",
+						format: "translatable-enum",
+						useXpathExpression: false,
+						enum: [
+							{
+								doc_type: "MappingItem",
+								key: "guide",
+								value: { en: "Guide" },
+								alt_text: {},
+							},
+						],
+					});
+				},
+			),
 	},
 ];
 

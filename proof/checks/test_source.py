@@ -253,6 +253,26 @@ def test_whitespace_between_elements_and_attribute_order_are_no_difference_and_a
     assert _parts(bare, worded) == [("changed", "/data/*/:itext/label/*/default", "/data/q/:itext/label/en/default")]
 
 
+def test_only_the_exact_singleton_session_count_guard_is_respelled_on_first_publish():
+    path = "instance('commcaresession')/session/data/fingerprintquery"
+
+    def form(condition, read, src="jr://instance/session"):
+        return _form(model=(
+            f'<instance id="commcaresession" src="{src}"/>'
+            f'<bind nodeset="/data/q" calculate="if(count({path}) {condition}, number({read}), &apos;&apos;)"/>'
+        ))
+
+    before = form("= 1", path)
+    after = form("= 1", f"{path}[1]")
+    bind = "/data/*/:bind/@calculate"
+    at = "/data/q/:bind/@calculate"
+    assert _parts(before, after) == [("changed", bind + "/:respelled", at + "/:respelled")]
+    assert _parts(form("= 2", path), form("= 2", f"{path}[1]")) == [("changed", bind, at)]
+    assert _parts(before, form("= 1", f"{path}[2]")) == [("changed", bind, at)]
+    other = "jr://fixture/item-list:counts"
+    assert _parts(form("= 1", path, other), form("= 1", f"{path}[1]", other)) == [("changed", bind, at)]
+
+
 def test_an_output_s_form_builder_copy_is_a_part_of_its_own_beside_the_text():
     body = '<input ref="/data/q"><label ref="jr:itext(\'q-label\')"/></input>'
     shadowed = _form(
@@ -378,3 +398,50 @@ def test_a_row_filter_reading_current_is_no_respelling_of_one_reading_every_entr
     a = form.format(calculate.format("/data/visits/case_ref"))
     b = form.format(calculate.format("current()/../case_ref"))
     assert _parts(a, b) == [("changed", "/data/*/:bind/@calculate", "/data/visits/total/:bind/@calculate")]
+
+
+def test_only_a_single_declared_fixture_ordinal_is_its_explicit_position_spelling():
+    itemset = '<select1 ref="/data/q"><itemset nodeset="{}"><label ref="name"/><value ref="id"/></itemset></select1>'
+
+    def form(expression, source="jr://fixture/item-list:villages", *, control=None):
+        return _form(
+            model=f'<instance id="rows" src="{source}"/>',
+            body=(control or itemset).format(expression),
+        )
+
+    path = "instance('rows')/villages_list/villages"
+    before = form(path + "[2]")
+    after = form(path + "[position() = 2]")
+    at = "/data/q/:control/itemset/@nodeset"
+    pattern = "/data/*/:control/itemset/@nodeset"
+    assert _parts(before, after) == [("changed", pattern + "/:respelled", at + "/:respelled")]
+
+    fractional = form(path + "[2.5]")
+    assert _parts(fractional, after) == [("changed", pattern + "/:respelled", at + "/:respelled")]
+    assert _parts(fractional, form(path + "[position() = 2.5]")) == [("changed", pattern, at)]
+    for predicate in ("[0]", "[0.5]"):
+        assert _parts(form(path + predicate), form(path + "[position() = 0]")) == [
+            ("changed", pattern + "/:respelled", at + "/:respelled"),
+        ]
+    assert _parts(form(path + "[2.0]"), after) == [("changed", pattern + "/:respelled", at + "/:respelled")]
+    overflow = form(path + "[2147483648]")
+    assert _parts(overflow, form(path + "[position() = 2147483647]")) == [
+        ("changed", pattern + "/:respelled", at + "/:respelled"),
+    ]
+    for expression in ("[(2)]", "[((2.5))]", "[(1 + 1)]", "[3 - 1]", "[1 * 2]"):
+        assert _parts(form(path + expression), after) == [("changed", pattern + "/:respelled", at + "/:respelled")]
+    for expression in (
+        "[1 + 2]", "[2 - 4]", "[4 div 2]", "[number('2')]", "[-2]", "[2147483648]", "[last() - 1]", "[name != ''][2]",
+    ):
+        assert _parts(form(path + expression), after) == [("changed", pattern, at)]
+    assert _parts(before, form(path + "[position() = 1]")) == [("changed", pattern, at)]
+    assert _parts(before, form(path + "[position() = 2][name != '']")) == [("changed", pattern, at)]
+    cases = "jr://instance/casedb"
+    for expression in ("[2]", "[(1 + 1)]"):
+        assert _parts(form(path + expression, cases), form(path + "[position() = 2]", cases)) == [
+            ("changed", pattern, at),
+        ]
+    value = itemset.replace('nodeset="{}"', f'nodeset="{path}"').replace('ref="id"', 'ref="{}"')
+    assert _parts(
+        form(path + "[2]", control=value), form(path + "[position() = 2]", control=value),
+    ) == [("changed", "/data/*/:control/itemset/value/@ref", "/data/q/:control/itemset/value/@ref")]

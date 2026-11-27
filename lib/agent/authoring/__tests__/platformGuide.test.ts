@@ -10,9 +10,21 @@ import {
 	platformSentence,
 	platformSentenceForFieldKind,
 } from "@/lib/domain";
+import { editFieldUpdatesSchema } from "../../toolSchemas";
 import { AUTHORING_REFERENCE } from "../reference";
 
 describe("the guide's platform sentences", () => {
+	it("lists the field kinds the add-fields tool can create", () => {
+		expect(
+			AUTHORING_REFERENCE.fields()
+				.split("\n")
+				.map((line) => line.split(":")[0]),
+		).toEqual(fieldKinds.filter((kind) => kind !== "case_change"));
+		expect(
+			editFieldUpdatesSchema.parse({ kind: "case_change", id: "visit_change" }),
+		).toEqual({ kind: "case_change", id: "visit_change" });
+	});
+
 	it("ends each platform-feature kind's line in the field list with its sentence", () => {
 		const lines = AUTHORING_REFERENCE.fields().split("\n");
 		const featured = fieldKinds.filter(

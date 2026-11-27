@@ -39,6 +39,7 @@ import type { Mutation } from "@/lib/doc/types";
 import {
 	automationSchema,
 	type BlueprintDoc,
+	calculatedColumn,
 	canonicalProseTemplate,
 	casePropertyTargetKey,
 	caseTypeTargetKey,
@@ -246,6 +247,56 @@ function richDoc(): BlueprintDoc {
 }
 
 describe("buildReferenceIndex — identity-keyed edges", () => {
+	it("indexes a result Detail by its actual Search prompt identity", () => {
+		const prompt = testUuid("detail-prompt-reference");
+		const column = {
+			...calculatedColumn(
+				testUuid("detail-prompt-column"),
+				"Answer",
+				term(literal("Ordinary")),
+				{
+					notOnList: true,
+					visibleInList: false,
+				},
+			),
+			searchResultDetail: {
+				inputUuid: prompt,
+				prefix: "Before",
+				suffix: "After",
+			},
+		};
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Cases",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [column],
+						searchInputs: [
+							simpleSearchInputDef(
+								prompt,
+								"marker",
+								"Marker",
+								"text",
+								"case_name",
+							),
+						],
+					},
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+			],
+		});
+		expect(slotsFor(doc, entityTargetKey(prompt))).toEqual({
+			[doc.moduleOrder[0]]: { case_list_result_detail_input: true },
+		});
+	});
+
 	it("indexes menu parent identity and reports child removal dependents", () => {
 		const doc = buildDoc({
 			modules: [

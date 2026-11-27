@@ -100,6 +100,7 @@ import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
+	type CaseListDeviceLookup,
 	type CaseTileGrouping,
 	type Column,
 	caseListWordingUnitId,
@@ -112,8 +113,10 @@ import {
 import type { FormIconRef } from "@/lib/domain/builtinIcons";
 import { simplifyForEmission } from "@/lib/domain/expression";
 import type { Expression } from "@/lib/domain/expression/types";
+import { generatedWordingId } from "@/lib/domain/generatedWording";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
+import { resolveSearchResultDetailText } from "@/lib/domain/searchResultDetail";
 import {
 	type ModuleExpressionContexts,
 	moduleExpressionContexts,
@@ -121,7 +124,10 @@ import {
 import { projectColumnToDetail } from "../../hqJson/caseList";
 import { listIconEndpointId } from "../../listIconAction";
 import { commCareLocalization } from "../../localization";
-import type { AssetManifest } from "../../multimedia/assetWirePath";
+import {
+	type AssetManifest,
+	requireAssetRef,
+} from "../../multimedia/assetWirePath";
 import { buildActionDisplay } from "../../multimedia/navMenuMedia";
 import type { ColumnFieldWordOf } from "../../wireIdentity";
 import {
@@ -140,6 +146,13 @@ import {
 	SELECT_TEXT,
 	selectTextLocaleId,
 } from "./detailTexts";
+import {
+	deviceLookupExtraWire,
+	lookupConfidenceColumn,
+	lookupConfidenceLocaleId,
+	lookupEvaluateExtrasControl,
+	lookupEvaluateExtrasWire,
+} from "./deviceLookup";
 import { buildNamedTileFields } from "./namedTile";
 import { withDetailLoadBehavior } from "./optimizations";
 import { moduleCaseListOrderPlan } from "./orderPlanOptions";
@@ -299,7 +312,7 @@ export function buildShortDetail(args: {
 	 *  (`DetailContributor.build_detail`), so on both targets. */
 	readonly registerAction?: RegisterActionContext;
 	/** The case-target rows' source; see `CaseListEmitContext.caseSource`. */
-	readonly caseSource?: "casedb" | "results:inline";
+	readonly caseSource?: "casedb" | `results:${string}`;
 	readonly assets?: AssetManifest;
 	readonly lookupNaming?: LookupWireNaming;
 	/**
@@ -403,6 +416,11 @@ export function buildShortDetail(args: {
 		caseTypes,
 		proseDoc: doc,
 		listIconEndpointId: (uuid) => listIconEndpointId(doc, uuid),
+		resultDetailText: (column) => {
+			const branch = column.searchResultDetail;
+			if (target === "search" && branch && "onList" in branch && branch.onList)
+				return resolveSearchResultDetailText(doc, mod, column, branch);
+		},
 		expressions,
 		...(config.tile !== undefined && { tileLayout: config.tile }),
 		...(args.assets && { assets: args.assets }),
@@ -528,6 +546,13 @@ export function buildShortDetail(args: {
 			);
 	}
 
+	if (config.deviceLookup?.resultHeading !== undefined) {
+		const locale = lookupConfidenceLocaleId(moduleIndex);
+		strings[locale] = config.deviceLookup.resultHeading;
+		translationUnits[locale] = caseListWordingUnitId(mod.uuid, "lookup");
+		wordingUnits[locale] = generatedWordingId(mod.uuid, "lookupResultHeading");
+	}
+
 	for (const calc of plan.calculations) {
 		const emission = buildCalculatedSortField(calc, ctx);
 		fields.push(emission.element);
@@ -549,6 +574,8 @@ export function buildShortDetail(args: {
 				expressions,
 				wire,
 				args.lookupNaming,
+				config.deviceLookup,
+				args.assets,
 			),
 			config,
 			config.columns.filter(
@@ -650,11 +677,67 @@ function buildDetailShell(
 	expressions: ModuleExpressionContexts,
 	wire: WireElementContext,
 	lookupNaming?: LookupWireNaming,
+	deviceLookup?: CaseListDeviceLookup,
+	assets?: AssetManifest,
 ): Element {
 	const titleEl = el("title", {}, [
 		el("text", {}, [el("locale", { id: "cchq.case" })]),
 	]);
-	const children: Element[] = [titleEl, ...fields];
+	const children: Element[] = [titleEl];
+	if (deviceLookup !== undefined)
+		children.push(
+			el(
+				"lookup",
+				{
+					action: deviceLookup.action,
+					name: deviceLookup.label,
+					...(deviceLookup.icon !== undefined &&
+						assets !== undefined && {
+							image: requireAssetRef(
+								deviceLookup.icon,
+								assets,
+								"case-list lookup icon",
+							),
+						}),
+					auto_launch: String(deviceLookup.automatic === true),
+				},
+				[
+					...deviceLookup.extras.map((extra) =>
+						xel(
+							"extra",
+							{
+								attributes: { key: extra.name },
+								xpath: { value: deviceLookupExtraWire(extra) },
+							},
+							wire,
+						),
+					),
+					...(deviceLookup.evaluateExtras === true
+						? [
+								xel(
+									"extra",
+									{
+										attributes: { key: lookupEvaluateExtrasControl.key },
+										xpath: { value: lookupEvaluateExtrasWire() },
+									},
+									wire,
+								),
+							]
+						: []),
+					...deviceLookup.responses.map((key) => el("response", { key })),
+					...(deviceLookup.resultHeading === undefined
+						? []
+						: [
+								lookupConfidenceColumn(
+									moduleIndex,
+									wire,
+									deviceLookup.resultProperty,
+								),
+							]),
+				],
+			),
+		);
+	children.push(...fields);
 	// HQ adds the register action before the search action
 	// (`DetailContributor.build_detail`: `add_register_action`, then
 	// `get_case_search_action`).

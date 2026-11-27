@@ -184,11 +184,16 @@ export function manifestFinding(
 		readonly code?: string;
 	} = {},
 ): ManifestFinding {
+	const subject = options.subject ?? "question-choices";
 	return {
-		code: options.code ?? "question-appearance-unsupported",
+		code:
+			options.code ??
+			(subject === "case-tiles"
+				? "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name"
+				: "questions/itemset-filter-outside-predicate"),
 		standing: options.standing ?? "not-yet",
 		place,
-		subject: options.subject ?? "question-appearance",
+		subject,
 		detail: options.name === undefined ? {} : { name: options.name },
 	};
 }

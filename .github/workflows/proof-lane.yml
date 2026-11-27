@@ -350,6 +350,7 @@ jobs:
           sparse-checkout: |
             proof
             lib/commcare/surface
+            lib/domain
             .github/actions/proof-runtime
             .github/actions/proof-android-runtime
       - name: Apply the planned pins

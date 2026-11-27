@@ -1217,3 +1217,89 @@ it("admits a delivery in each row a worker adds where the row asks for a recipie
 	);
 	expect(visit?.kind).toBe("connect_activity");
 });
+
+it("authors a meter and result mappings by question name in one add and a subsequent edit", async () => {
+	const fixture = namedFormFixture([
+		{ name: "Meters", forms: [{ name: "Read meter", type: "survey" }] },
+	]);
+	const h = authoring(
+		{},
+		{
+			...fixture,
+			appSettings: { ...fixture.appSettings, runsOnlyOn: "android" },
+		},
+	);
+	await h.call("addFields", {
+		formUuid: "Read meter",
+		fields: [
+			{ kind: "text", id: "unit", label: "Unit" },
+			{ kind: "int", id: "reading", label: "Reading" },
+			{
+				kind: "text",
+				id: "meter",
+				label: "Open the meter",
+				androidApp: {
+					kind: "open-app",
+					action: "org.example.MEASURE",
+					send: [{ name: "unit", value: "#form/unit" }],
+					receive: [{ name: "measurement", question: "reading" }],
+				},
+			},
+		],
+	});
+	const fields = Object.values(h.currentDoc().fields);
+	const meter = fields.find((field) => field.id === "meter");
+	const unit = fields.find((field) => field.id === "unit");
+	const reading = fields.find((field) => field.id === "reading");
+	expect(meter?.kind === "text" && meter.androidApp).toMatchObject({
+		kind: "open-app",
+		action: "org.example.MEASURE",
+		send: [
+			{
+				name: "unit",
+				value: { kind: "term", term: { kind: "field", uuid: unit?.uuid } },
+			},
+		],
+		receive: [{ name: "measurement", question: reading?.uuid }],
+	});
+	await h.call("editField", {
+		formUuid: "Read meter",
+		fieldUuid: "reading",
+		updates: { androidApp: { kind: "use-question", question: "meter" } },
+	});
+	expect(
+		Object.values(h.currentDoc().fields).find(
+			(field) => field.id === "reading",
+		),
+	).toMatchObject({
+		androidApp: { kind: "use-question", question: meter?.uuid },
+	});
+	const owner = { formUuid: "Read meter", fieldUuid: "meter" };
+	const initial = await h.call("getField", owner);
+	const action = {
+		kind: "open-app",
+		action: "org.example.MEASURE",
+		send: [{ name: "unit", value: "#form/unit" }],
+		receive: [{ name: "measurement", question: "reading" }],
+	};
+	expect(initial).toMatchObject({ field: { androidApp: action } });
+	await h.call("editField", { ...owner, updates: { androidApp: action } });
+	await h.call("editField", {
+		formUuid: "Read meter",
+		fieldUuid: "reading",
+		updates: { id: "amount" },
+	});
+	expect(await h.call("getField", owner)).toMatchObject({
+		field: {
+			androidApp: {
+				...action,
+				receive: [{ name: "measurement", question: "amount" }],
+			},
+		},
+	});
+	expect(
+		await h.call("getField", { formUuid: "Read meter", fieldUuid: "amount" }),
+	).toMatchObject({
+		field: { androidApp: { kind: "use-question", question: "meter" } },
+	});
+});

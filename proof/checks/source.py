@@ -49,7 +49,8 @@ XPath only then). A calculated column's expression that differs, the column
 calculated on both sides, is reported at its own pointer
 (``/modules/*/case_details/<detail>/columns/*/field``), which
 ``forms-and-settings-rewritten`` names: Nova writes every expression it holds
-in its own spelling. Any other ``field`` that differs is reported at
+in its own spelling. The exact legacy Translatable Text conversion is also compared as a ``field``.
+Any other ``field`` that differs is reported at
 ``/modules/*/case_details/<detail>/columns/*/held``, which the first-publish
 judge never holds either, so a first publish that changes which property a
 column shows is never a declared change.
@@ -72,9 +73,19 @@ from __future__ import annotations
 import hashlib
 import json
 import xml.etree.ElementTree as ElementTree
+from dataclasses import replace
 
 from proof.checks import observations, xform_parts
-from proof.checks.changes import HELD
+from proof.checks.changes import (
+    HELD,
+    LEGACY_SEARCH_GROUP_KEY,
+    POSITIONAL_SEARCH_GROUP_KEY,
+    SEARCH_GROUP_WORDING_PATH,
+    SEARCH_GROUP_WORDING_DUPLICATE_PATH,
+    SEARCH_GROUP_WORDING_REPLACED_PATH,
+    SEARCH_GROUP_WORDING_REMOVED_DORMANT_PATH,
+    legacy_related_case_formula,
+)
 from proof.checks.differences import Difference, pointer_token
 
 CHECK = "source"
@@ -182,7 +193,7 @@ class _Walk:
             starred = self.own(path, {**a, **b})
             column = _is_column(path) and "field" in a and "field" in b
             if column and not _same(a["field"], b["field"]):
-                if _calculated(a) and _calculated(b):
+                if (_calculated(a) and _calculated(b)) or _legacy_case_text_projection(a, b):
                     self.add(f"{path}/field", f"{at}/field", "changed", a["field"], b["field"])
                 else:
                     self.add(f"{path}/{HELD}", f"{at}/{HELD}/field", "changed", a["field"], b["field"])
@@ -267,6 +278,20 @@ def _calculated(column) -> bool:
     return column.get("useXpathExpression") is True
 
 
+def _legacy_case_text_projection(before, after) -> bool:
+    """A legacy relation rendered through HQ's Translatable Text editor as the
+    exact same calculation with the exact same stored translations."""
+    if (before.get("model") != "case" or after.get("model") != "case"
+            or before.get("format") != "translatable-enum" or after.get("format") != "translatable-enum"
+            or before.get("useXpathExpression") is not False or after.get("useXpathExpression") is not True
+            or not legacy_related_case_formula(before["field"], after["field"])):
+        return False
+    original, converted = before.get("enum"), after.get("enum")
+    return (isinstance(original, list) and isinstance(converted, list) and len(original) == len(converted)
+            and all(isinstance(old, dict) and isinstance(new, dict) and old.get("value") == new.get("value")
+                    for old, new in zip(original, converted)))
+
+
 def _same(a, b) -> bool:
     if isinstance(a, bool) or isinstance(b, bool):
         return isinstance(a, bool) and isinstance(b, bool) and a == b
@@ -334,12 +359,125 @@ def held_media(document, a_map, b_map, held_paths, suites=(None, None)) -> list[
     return found
 
 
+
+def preserved_search_group_wording(a, b):
+    """Locate a preserved heading and the dormant destinations its rekey replaced or discarded."""
+
+    def groups(module):
+        search = module.get("search_config")
+        rows = search.get("properties") if isinstance(search, dict) else None
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            return {}
+        headings = [i for i, row in enumerate(rows) if row.get("is_group") is True]
+        heading_keys = [rows[i].get("group_key") for i in headings]
+        fields = {row.get("name") for row in rows
+                  if row.get("is_group") is not True and isinstance(row.get("name"), str)}
+        found = {}
+        for index, end in zip(headings, (*headings[1:], len(rows))):
+            header = rows[index]
+            key = header.get("group_key")
+            members = rows[index + 1:end]
+            if (isinstance(key, str) and header.get("name") == key and key not in fields
+                    and heading_keys.count(key) == 1
+                    and members and all(row.get("group_key") == key and isinstance(row.get("name"), str)
+                                        for row in members)):
+                found[index] = (key, header.get("label"), tuple(row["name"] for row in members))
+        return found
+
+    originals, published = a.get("translations"), b.get("translations")
+    if not isinstance(originals, dict) or not isinstance(published, dict):
+        return set()
+    found = set()
+    languages = _languages(a, b)
+    for menu, (before, after) in enumerate(zip(a.get("modules") or [], b.get("modules") or [])):
+        if not isinstance(before, dict) or not isinstance(after, dict):
+            continue
+        canonical = groups(after)
+        for index, (old, labels, members) in groups(before).items():
+            new = f"group_header_{index}"
+            bilingual_fallback = (
+                isinstance(labels, dict)
+                and isinstance(labels.get("en"), str) and bool(labels["en"].strip())
+                and "es" not in labels
+                and a.get("langs") == a.get("build_langs") == ["en", "es"]
+                and languages == {"en", "es"}
+                and a.get("translation_strategy") == "select-known"
+                and canonical.get(index) in (
+                    (new, labels, members),
+                    (new, {**labels, "es": labels["en"]}, members),
+                )
+            )
+            if (not LEGACY_SEARCH_GROUP_KEY.fullmatch(old)
+                    or POSITIONAL_SEARCH_GROUP_KEY.fullmatch(old)
+                    or not isinstance(labels, dict)
+                    or not (bilingual_fallback or (
+                        canonical.get(index) == (new, labels, members)
+                        and all(isinstance(labels.get(code), str) and labels[code].strip() for code in languages)
+                    ))):
+                continue
+            before_fields = before["search_config"]["properties"]
+            if any(row.get("name") == new or row.get("group_key") == new for row in before_fields):
+                continue
+            old, new = (f"search_property.m{menu}.{key}" for key in (old, new))
+            saved_destinations = [(code, table[new]) for code, table in originals.items()
+                                  if isinstance(table, dict) and new in table]
+            for code, source in originals.items():
+                target = published.get(code)
+                if code not in languages or not isinstance(source, dict) or not isinstance(target, dict) or old in target:
+                    continue
+                wording = source.get(old)
+                if not isinstance(wording, str) or not wording.strip() or target.get(new) != wording:
+                    continue
+                previous = discarded = None
+                if bilingual_fallback:
+                    if code != "en" or not 1 <= len(saved_destinations) <= 2:
+                        continue
+                    spanish_before = originals.get("es", {})
+                    spanish_after = published.get("es", {})
+                    if not isinstance(spanish_before, dict) or not isinstance(spanish_after, dict):
+                        continue
+                    if old in spanish_before or old in spanish_after or new in spanish_after:
+                        continue
+                    previous = source.get(new)
+                    if not isinstance(previous, str) or not previous.strip():
+                        continue
+                    if new in spanish_before:
+                        spanish = spanish_before[new]
+                        if not isinstance(spanish, str) or not spanish.strip():
+                            continue
+                        discarded = ("es", spanish)
+                    if len(saved_destinations) != 1 + (discarded is not None):
+                        continue
+                elif saved_destinations:
+                    if len(languages) != 1 or len(saved_destinations) != 1:
+                        continue
+                    (destination_code, previous), = saved_destinations
+                    if destination_code != code or not isinstance(previous, str) or not previous.strip():
+                        continue
+                found.add((str(menu), str(index), code, old, new, previous, discarded))
+    return found
+
 def compare_sources(document, a, b, held_paths=frozenset(), suites=(None, None)) -> list[Difference]:
     """Every difference between two source answers of one app, A's and B's (the module's docstring)."""
     a, b = by_position(a), by_position(b)
     walk = _Walk(document, _languages(a, b), frozenset(held_paths))
     walk.compare(a, b)
-    return walk.found + held_media(
+    rekeyed = {}
+    for _, _, language, old, new, previous, discarded in preserved_search_group_wording(a, b):
+        pointer = f"/translations/{pointer_token(language)}"
+        if previous is None:
+            rekeyed[f"{pointer}/{old}"] = rekeyed[f"{pointer}/{new}"] = SEARCH_GROUP_WORDING_PATH
+        elif previous == a["translations"][language][old]:
+            rekeyed[f"{pointer}/{old}"] = SEARCH_GROUP_WORDING_DUPLICATE_PATH
+        else:
+            rekeyed[f"{pointer}/{old}"] = rekeyed[f"{pointer}/{new}"] = SEARCH_GROUP_WORDING_REPLACED_PATH
+        if discarded is not None:
+            code, _ = discarded
+            rekeyed[f"/translations/{pointer_token(code)}/{new}"] = SEARCH_GROUP_WORDING_REMOVED_DORMANT_PATH
+    return [
+        replace(row, path=rekeyed[row.at]) if row.at in rekeyed else row
+        for row in walk.found
+    ] + held_media(
         document, a.get("multimedia_map") or {}, b.get("multimedia_map") or {}, held_paths, suites
     )
 

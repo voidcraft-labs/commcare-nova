@@ -4,6 +4,7 @@ import {
 	type ExpressionContext,
 	pushRowScope,
 	type RowScope,
+	readsProjectSearchResults,
 	withFormContextNode,
 } from "@/lib/domain/expression/context";
 import { expressionRowScope } from "@/lib/domain/expression/typeChecker";
@@ -33,6 +34,7 @@ import {
 } from "../formLinkProjection";
 import { bindLookupRead, lookupReadSyntax } from "../lookup/readPath";
 import { CASE_LIST_SEARCH_TEXT_DATA_NAME } from "../sessionContext";
+import { inlineSearchInstance } from "../suite/case-search/types";
 import type { FormNodeProjection } from "./formNodeProjection";
 import { FormParseRefusal, refuse } from "./formParseIssues";
 import type { FormParseScope } from "./formParseScope";
@@ -288,6 +290,13 @@ function rowValue(
 		);
 	const tail = steps.slice(1);
 	if (row.kind === "case") {
+		if (
+			row.root !== "casedb" &&
+			readsProjectSearchResults(context) &&
+			!named.attribute &&
+			tail.length === 0
+		)
+			return { kind: "search-result-field", name: named.name };
 		if (named.attribute && !CASE_NODE_ATTRIBUTE_PROPERTIES.has(named.name))
 			refuse(
 				"case-row-attribute",
@@ -421,14 +430,6 @@ function rowValue(
 		whole,
 		"This path needs a property from its row.",
 	);
-}
-
-/** The case type of the search whose results the slot's entry holds. */
-function searchedCaseType(context: ExpressionContext): string | undefined {
-	const searched = context.supplies.searchResults;
-	return searched === undefined
-		? undefined
-		: context.facts.moduleCaseTypes.get(searched.module);
 }
 
 function instancePath(
@@ -618,7 +619,7 @@ function instancePath(
 			} instead.`,
 		);
 	}
-	if (id === "search-input:results" || id === "search-input:results:inline") {
+	if (id === "search-input:results" || id.startsWith("search-input:results:")) {
 		// Core builds this instance as <input><field name="…">answer</field>
 		// …</input> (`VirtualInstances.java::buildSearchInputInstance`), so an
 		// answer is read as /input/field[@name = '<name>'] with the name quoted.
@@ -653,14 +654,43 @@ function instancePath(
 			(binder.scope.reading === undefined
 				? undefined
 				: context.profile.searchInputs);
-		const input = fields?.find((input) => input.name === keyed.value);
+		const supplier = form?.searchSuppliers?.find(
+			(search) =>
+				`search-input:${inlineSearchInstance(search.resultsName)}` === id,
+		);
+		if (
+			form &&
+			supplier === undefined &&
+			!(
+				form.caseListRegistrationForm &&
+				id ===
+					`search-input:${inlineSearchInstance(binder.scope.doc.modules[form.moduleUuid]?.searchResultsName)}`
+			)
+		)
+			refuse(
+				"search-answer-unloaded",
+				whole,
+				"This form’s entry has not loaded that search. Choose a case through this search to use its answers.",
+			);
+		const external =
+			supplier?.module === form?.moduleUuid ? undefined : supplier?.module;
+		const input = fields?.find(
+			(input) => input.name === keyed.value && input.supplier === external,
+		);
 		if (input === undefined)
 			refuse(
 				"unknown-search-input",
 				whole,
 				`This menu's search has no field called ${keyed.value}.`,
 			);
-		return binder.term({ kind: "input", searchInputUuid: input.uuid }, whole);
+		return binder.term(
+			{
+				kind: "input",
+				searchInputUuid: input.uuid,
+				...(external !== undefined && { supplier: external }),
+			},
+			whole,
+		);
 	}
 
 	let base: Extract<
@@ -671,7 +701,7 @@ function instancePath(
 	let predicates: readonly FormSyntax[];
 	const consumed = 2;
 	const rowsStep = steps[1];
-	if (id === "casedb" || id === "results:inline") {
+	if (id === "casedb" || id.startsWith("results:")) {
 		if (
 			!plain(steps[0], id === "casedb" ? "casedb" : "results") ||
 			rowsStep === undefined ||
@@ -683,7 +713,23 @@ function instancePath(
 				`The records in ${id} are at instance('${id}')/${id === "casedb" ? "casedb" : "results"}/case.`,
 			);
 		predicates = rowsStep.where;
-		if (id === "results:inline") {
+		const last = predicates.at(-1);
+		const first =
+			id === "casedb" &&
+			context.ruleSet === "record" &&
+			binder.scope.reading !== undefined &&
+			predicates.length === 2 &&
+			last?.kind === "number" &&
+			last.value === 1 &&
+			steps.length === consumed + 1;
+		if (first) predicates = predicates.slice(0, -1);
+		const resultSupplier = form?.searchSuppliers?.find(
+			(search) => inlineSearchInstance(search.resultsName) === id,
+		);
+		if (
+			id.startsWith("results:") &&
+			!readsProjectSearchResults(context, resultSupplier?.module)
+		) {
 			const guard = predicates[0];
 			const expected =
 				guard?.kind === "call" &&
@@ -703,14 +749,25 @@ function instancePath(
 				refuse(
 					"search-results-unexcluded",
 					whole,
-					"Search results also hold cases CommCare adds to show related details. You can read the cases the search found with instance('results:inline')/results/case[not(commcare_is_related_case = true())].",
+					`Search results also hold cases CommCare adds to show related details. You can read the cases the search found with instance('${id}')/results/case[not(commcare_is_related_case = true())].`,
 				);
 			predicates = predicates.slice(1);
 		}
+		if (id.startsWith("results:") && form && resultSupplier === undefined)
+			refuse(
+				"search-results-remote",
+				whole,
+				"This form’s entry has not loaded that search.",
+			);
 		base = {
 			kind: "cases",
+			...(resultSupplier !== undefined &&
+				resultSupplier.module !== form?.moduleUuid && {
+					supplier: resultSupplier.module,
+				}),
 			source: id === "casedb" ? "casedb" : "search-results",
 			where: [],
+			...(first && { first: true }),
 		};
 		// First bind only the predicates that establish a row identity. The
 		// checker owns the same inference used when admitting the final tree.
@@ -753,9 +810,14 @@ function instancePath(
 				: { kind: "case", root: id === "casedb" ? "casedb" : "results:inline" };
 		// A search's rows are the searched module's case type, so a custom
 		// property binds to that type even where another type declares it too.
+		const source =
+			resultSupplier?.module ?? context.supplies.searchResults?.module;
 		const searched =
-			id === "results:inline" && typed.caseType === undefined
-				? searchedCaseType(context)
+			id.startsWith("results:") &&
+			typed.caseType === undefined &&
+			source !== undefined &&
+			!readsProjectSearchResults(context, source)
+				? context.facts.moduleCaseTypes.get(source)
 				: undefined;
 		row = searched === undefined ? typed : { ...typed, caseType: searched };
 	} else if (id === "groups") {

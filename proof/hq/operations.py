@@ -249,7 +249,8 @@ def apply_upload(state, upload: Upload) -> Published:
     from corehq.apps.app_manager.views.app_import_api import _handle_import_app
 
     request = hq_requests.raw_post(state, f"/a/{state.domain}/apps/api/import_app/", upload.body, upload.content_type)
-    response = _handle_import_app(request, state.domain)
+    with state.app_save():
+        response = _handle_import_app(request, state.domain)
     return Published(response.status_code, json.loads(response.content), hq_requests.messages(request))
 
 
@@ -1544,7 +1545,8 @@ def save_authored_app(state, document: dict, media) -> str:
     source = json.loads(json.dumps(document))
     attachments = source.pop("_attachments", None) or {}
     app = get_correct_app_class(source).from_source(source, state.domain)
-    app.save_attachments(dict(sorted(attachments.items())))
+    with state.app_save():
+        app.save_attachments(dict(sorted(attachments.items())))
     for item in media:
         held = app.multimedia_map.get(item.path)
         if held is None:
@@ -1577,7 +1579,7 @@ def save_authored_tables(state, tables) -> None:
     (``fixtures/models.py::LookupTable``, ``LookupTableRow``) from the base's ``tables.json``: one object a table,
     ``{tag, is_global, description, fields: [{name, properties, is_indexed}], item_attributes, rows: [{fields:
     {<name>: [{value, properties}]}, item_attributes}]}``, its rows in ``sort_key`` order."""
-    from corehq.apps.fixtures.models import Field, LookupTable, LookupTableRow, TypeField
+    from corehq.apps.fixtures.models import Field, LookupTable, LookupTableRow, LookupTableRowOwner, TypeField
 
     for table in tables:
         made = LookupTable.objects.create(
@@ -1592,7 +1594,7 @@ def save_authored_tables(state, tables) -> None:
             item_attributes=list(table["item_attributes"]),
         )
         for sort_key, row in enumerate(table["rows"]):
-            LookupTableRow.objects.create(
+            made_row = LookupTableRow.objects.create(
                 domain=state.domain,
                 table=made,
                 fields={
@@ -1602,6 +1604,11 @@ def save_authored_tables(state, tables) -> None:
                 item_attributes=dict(row["item_attributes"]),
                 sort_key=sort_key,
             )
+
+            for owner in row.get("owners", ()):
+                LookupTableRowOwner.objects.create(
+                    domain=state.domain, row_id=made_row.id, owner_type=owner["type"], owner_id=owner["id"]
+                )
 
 
 def save_authored_places(state, places) -> None:

@@ -2,6 +2,7 @@ import type {
 	ActivityFact,
 	ConnectSubmissionProgram,
 } from "@/lib/domain/connectSubmissionFacts";
+import type { WebFormActivityEntry } from "@/lib/domain/webFormActivity";
 // lib/case-store/submission.ts
 //
 // The atomic submission envelope's public contract — the argument and
@@ -65,8 +66,10 @@ export type OrdinarySubmissionAction =
 			readonly selection:
 				| { readonly kind: "single"; readonly maximum: 1 }
 				| { readonly kind: "multiple"; readonly maximum: number };
-			/** The module case type every selected case must hold. */
+			/** The primary type of the selecting menu. */
 			readonly caseType: string;
+			/** Other types selectable under the committed menu contract. */
+			readonly additionalCaseTypes?: readonly string[];
 	  }
 	| { readonly kind: "none" };
 
@@ -103,16 +106,16 @@ export interface SubmissionReceiptClaim extends SubmissionReceiptIdentity {
  */
 export interface OperationIterationBindings {
 	readonly formFields: ReadonlyMap<Uuid, string | readonly string[]>;
+	/** Non-relevant fields are blank for expressions but absent from the submission. */
+	readonly absentFields?: ReadonlySet<Uuid>;
 }
 
 /**
- * One physical multiplicity scope in wire document order: the root
+ * Answer rows by repeat definition: the root
  * scope first (`repeat` absent, exactly one iteration), then each
  * repeat scope in post-order field traversal. A repeat scope carries
- * one entry per live iteration in instance order; the executor runs a
- * scope's operations iteration-major (all of iteration 1's operations,
- * then iteration 2's), matching how JavaRosa walks the submitted
- * instance's repeated operation groups.
+ * one entry per live iteration. The program's scope order walks nested
+ * rows where they occur inside the enclosing iteration.
  */
 export interface OperationScopeIterations {
 	/** Absent = the root scope. */
@@ -151,6 +154,21 @@ export interface EnvelopeCaseOperation {
 	 * type's declared property.
 	 */
 	readonly viaCaseTypes?: ReadonlyMap<number, string>;
+	/** An untyped basic external-ID leaf serializes the datetime's calendar day. */
+	readonly basicExternalIdDay?: true;
+	/** A present, blank calendar-day source clears this Basic follow-up's case name. */
+	readonly basicOwnNameDay?: true;
+	/** A present Case Management text leaf or participating label saves its empty value. */
+	readonly emptyTextWrites?: ReadonlySet<number>;
+	/** A proven text-to-date overwrite on this submission's fresh case. */
+	readonly requiredDateRetypeProperty?: string;
+	/** The fresh case's optional Date write keeps a submitted empty leaf. */
+	readonly optionalDateRetypeProperty?: string;
+	/** The required basic parent/user block persists even without a relevant leaf. */
+	readonly parentUserCaseTypes?: readonly [
+		intermediate: string,
+		terminal: string,
+	];
 }
 
 /**
@@ -223,9 +241,28 @@ export interface CaseOperationProgram {
 	 * Server-derived from the committed entry's datums.
 	 */
 	readonly entryCaseKeys?: ReadonlyMap<Uuid, string>;
+	/** Root create identities assigned at initialization and verified with
+	 * the signed form opening. Repeated exact IDs calculate in each live row. */
+	readonly openingCreateIds?: ReadonlyMap<Uuid, string>;
 	/** IDs supplied for exposed creations by this form’s authorized deep-link launch. */
 	readonly suppliedCaseIds?: ReadonlyMap<Uuid, string>;
 	readonly scopes: ReadonlyArray<OperationScopeIterations>;
+	/** Server-derived physical row order for nested repeats. Root effects
+	 * come first; each nested repeat runs inside the enclosing iteration. */
+	readonly scopeOrder?: readonly {
+		readonly repeat?: Uuid;
+		readonly iteration: number;
+	}[];
+	/** Exact submitted-block order when the form positions case changes among
+	 * its answers. The server derives the operation IDs and order from the
+	 * committed submitted layout. An absent leaf covers its expected slot
+	 * but contributes no case block or history. */
+	readonly effectOrder?: readonly {
+		readonly repeat?: Uuid;
+		readonly iteration: number;
+		readonly operationUuids: readonly Uuid[];
+		readonly absent?: true;
+	}[];
 	/** The loaded case a `session` target addresses; absent when the
 	 * form loads none. */
 	readonly sessionCaseIds?: ReadonlyArray<string>;
@@ -236,6 +273,8 @@ export interface CaseOperationProgram {
 	/** What CommCare holds each answer as (`TermCompileContext.formFieldHeld`):
 	 * the truth of an answer read where a condition belongs. */
 	readonly formFieldHeld?: ReadonlyMap<Uuid, ScalarHeld>;
+	/** The worker platform's epoch for the date fallback in numeric answer comparisons. */
+	readonly dayNumberEpoch?: "utc" | "device-zone";
 	/** Organization hierarchy used only by owner-location-at-level terms. */
 	readonly organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 	/** The places of the worker's `locations` fixture, by id, among which an
@@ -270,11 +309,14 @@ export interface CaseOperationProgram {
 }
 
 export interface ApplySubmissionArgs {
+	readonly webActivity?: WebFormActivityEntry;
 	/** Empty when the requested location was unavailable; absent when the form requested none. */
 	readonly submissionLocation?: DeviceLocation | null;
 	readonly connect?: ConnectSubmissionProgram;
 	readonly appId: string;
 	readonly ordinary: OrdinarySubmissionAction;
+	/** Server-derived only after verifying a bounded flat close's signed opening. */
+	readonly boundedFlatClose?: true;
 	readonly operations?: CaseOperationProgram;
 	/**
 	 * Every submission claims this durable entry receipt before an ordinary or
@@ -333,9 +375,11 @@ export interface OperationEffectRecord {
 	readonly selection: number;
 	readonly action: CaseOperation["action"];
 	readonly caseId: string;
-	/** False when the instance's conditions evaluated false — no effect
-	 * applied, recorded so tests can pin skip semantics. */
+	/** Whether the device applied an action from this case block. */
 	readonly executed: boolean;
+	/** A submitted block without a recognized action. HQ records the form
+	 * against the case, while the device leaves its case state alone. */
+	readonly childlessBlock?: true;
 }
 
 /** One concrete child a receipt written before child cases were operations

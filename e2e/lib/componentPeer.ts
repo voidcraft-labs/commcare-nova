@@ -41,11 +41,13 @@ export async function componentPeer(
 			JSON.parse(readFileSync(".next/required-server-files.json", "utf8")),
 		);
 	const outputDirectory = resolve(".component-peer-assets");
-	// An ordinary browser peer cannot authenticate a server-side Search opening
-	// or a Preview search settings save, and bundling either Server Action
-	// would pull the server's whole module graph into the browser. A peer that
-	// needs one supplies its own service boundary.
+	// An ordinary component peer has no Next Server Action transport. Bundling
+	// these actions would pull their server dependency graph into the browser.
+	// A peer that needs an action supplies its own service boundary.
 	const moduleAliases = {
+		"@/lib/preview/engine/formOpeningAction": resolve(
+			"e2e/lib/form-opening-boundary.ts",
+		),
 		"@/lib/preview/engine/openSearchRangesAction": resolve(
 			"e2e/lib/search-range-opening-boundary.ts",
 		),

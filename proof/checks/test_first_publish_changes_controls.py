@@ -47,6 +47,8 @@ from types import SimpleNamespace
 import pytest
 
 from proof.checks import changes, parity, source
+from proof.checks.compare.trace import compare_traces
+from proof.checks.compare.xml_tree import compare_xml
 from proof.checks.differences import Difference
 
 RESIDUE = "forms-and-settings-rewritten"
@@ -925,6 +927,149 @@ def _built(artifact, path, at, kind="changed"):
     return Difference("proof2", "hq-planted", artifact, path, at, kind, None, None)
 
 
+@pytest.mark.parametrize("build_element", ("remote-request", "entry"))
+@pytest.mark.parametrize(("change", "original"), (
+    ("search-order-direction-signs-respelled", "++priority:exact"),
+    ("search-order-unused-suffix-removed", "+priority:exact:obsolete"),
+))
+def test_search_order_change_covers_original_filter_and_exact_built_and_sent_values(build_element, change, original):
+    canonical = "+priority:exact"
+    before, after = f"'{original}'", f"'{canonical}'"
+    document = _document(RESIDUE, (change, ["/menu/0/search_config/default_properties/0/defaultValue"]))
+    sites = changes.Sites(
+        builds={("suite.xml", f"{build_element}[1]"): ("menu", "0")},
+        steps={(0, 0): ("menu", "0", "search_config")},
+    )
+
+    def app(first, second):
+        return {
+            "modules": [{
+                "search_config": {"default_properties": [
+                    {"property": "commcare_sort", "defaultValue": first},
+                    {"property": "region", "defaultValue": second},
+                ]},
+            }],
+        }
+
+    def suite(first, second):
+        return (
+            f'<suite><{build_element}><session><query>'
+            f'<data key="commcare_sort" ref="{first}"/><data key="commcare_sort" ref="{second}"/>'
+            '<data key="region" ref="&apos;north&apos;"/>'
+            f'</query></session></{build_element}></suite>'
+        )
+
+    def run(first, second):
+        params = {"commcare_sort": [first, second], "region": ["north"]}
+        return {
+            "end": "incomplete",
+            "script": [],
+            "trace": [{"screen": "search", "params": params, "requests": [{"kind": "search", "params": params}]}],
+        }
+
+    order_sites = changes.search_order_sites(app(before, "'north'"))
+    sites = changes.merged_sites(sites, order_sites)
+    changed = source.compare_sources("hq-planted", app(before, "'north'"), app(after, "'south'"))
+    assert len(changed) == 2
+    assert [_held_by(document, item, sites) for item in changed] == [{change}, frozenset()]
+
+    built = compare_xml(
+        suite(before, "'-name'"), suite(after, "'-name'"),
+        check="proof2", document="hq-planted", artifact="suite.xml",
+    )
+    assert [item.path for item in built] == [
+        f"/suite/{build_element}[*]/session[*]/query[*]/data[@key=commcare_sort][*]/@ref",
+    ]
+    assert _held_by(document, built[0], sites) == {change}
+
+    position_swapped = compare_xml(
+        suite(after, "'-name'"), suite("'-name'", after),
+        check="proof2", document="hq-planted", artifact="suite.xml",
+    )
+    assert len(position_swapped) == 2
+    assert all(not _held_by(document, item, sites) for item in position_swapped)
+    assert not _held_by(document, replace(built[0], after="'-priority'"), sites)
+
+    sent = compare_traces(
+        {"runs": [run(original, "-name")]}, {"runs": [run(canonical, "-name")]},
+        check="proof3", document="hq-planted", artifact="trace@B", rules=(),
+    )
+    assert {item.path for item in sent} == {
+        "/runs/*/trace/*/params/commcare_sort/*",
+        "/runs/*/trace/*/requests/*/params/commcare_sort/*",
+    }
+    assert all(_held_by(document, item, sites) == {change} for item in sent)
+
+
+@pytest.mark.parametrize(("before", "after"), [
+    ("+priority::obsolete", "+priority:exact"),
+    ("++priority:exact:obsolete", "+priority:exact"),
+    ("+priority:unknown:obsolete", "+priority:unknown"),
+    ("+location_id:exact:obsolete", "+location_id:exact"),
+    ("+external-id:exact:obsolete", "+external-id:exact"),
+    ("+date-opened:exact:obsolete", "+date-opened:exact"),
+    ("+" + "p" * 256 + ":exact:obsolete", "+" + "p" * 256 + ":exact"),
+    ("+status:exact:obsolete", "+status:exact"),
+    ("+priority:exact:", "+priority:exact"),
+    ("+priority:exact:obsolete:old", "+priority:exact"),
+    ("+priority:exact:obsolete", "+priority:numeric"),
+    ("+priority:exact:obsolete", "-priority:exact"),
+    ("+priority:exact:obsolete,-date_opened:date", "-date_opened:date,+priority:exact"),
+])
+def test_unused_sort_suffix_does_not_cover_other_sort_changes(before, after):
+    difference = Difference("proof3", "hq-planted", "trace@B", "/params/commcare_sort/*",
+                            "/params/commcare_sort/0", "changed", before, after)
+    assert not changes.search_order_unused_suffix_removed(difference)
+
+
+def test_next_publish_authorizes_only_the_reported_default_sort_row_and_its_wire_occurrence():
+    change = changes.SEARCH_ORDER_SUFFIX
+    expected = "/menu/0/search_config/default_properties/1/defaultValue"
+    registered = SimpleNamespace(
+        id="hq-planted", next_publish=(change,), search_order_suffix_places=(expected,),
+    )
+    missing = SimpleNamespace(id="hq-planted", next_publish=(change,), search_order_suffix_places=())
+    unsorted = {"property": "district", "defaultValue": "'north'"}
+    literal = {"property": "commcare_sort", "defaultValue": "'+priority:exact:obsolete'"}
+    raw = {"modules": [
+        {"search_config": {"default_properties": [unsorted, literal, literal]}},
+        {"search_config": {"default_properties": [literal]}},
+    ]}
+    sites = changes.merged_sites(changes.search_order_sites(raw), changes.Sites(
+        builds={("suite.xml", "remote-request[1]"): ("menu", "0"),
+                ("suite.xml", "remote-request[2]"): ("menu", "1")},
+        steps={(0, 0): ("menu", "0", "search_config"), (1, 0): ("menu", "1", "search_config")},
+    ))
+
+    def source_row(menu, index):
+        path = f"/modules/{menu}/search_config/default_properties/{index}/defaultValue"
+        return replace(_source(path), before="'+priority:exact:obsolete'", after="'+priority:exact'")
+
+    def suite_row(request, occurrence):
+        at = f"/suite/remote-request[{request}]/session[1]/query[1]/data[@key=commcare_sort][{occurrence}]/@ref"
+        path = "/suite/remote-request[*]/session[*]/query[*]/data[@key=commcare_sort][*]/@ref"
+        return replace(_built("suite.xml", path, at), before="'+priority:exact:obsolete'", after="'+priority:exact'")
+
+    def trace_row(run, occurrence):
+        at = f"/runs/{run}/trace/0/requests/0/params/commcare_sort/{occurrence}"
+        path = "/runs/*/trace/*/requests/*/params/commcare_sort/*"
+        return replace(_trace(at, path), before="+priority:exact:obsolete", after="+priority:exact")
+
+    for reported, sibling, wrong_menu in [
+        (source_row(0, 1), source_row(0, 2), source_row(1, 0)),
+        (suite_row(1, 1), suite_row(1, 2), suite_row(2, 1)),
+        (trace_row(0, 0), trace_row(0, 1), trace_row(1, 0)),
+    ]:
+        declared, held = changes.declared(registered, reported.check, [reported, sibling, wrong_menu], sites=sites)
+        assert held == {change}
+        assert declared == [reported]
+        assert not _held_by(missing, reported, sites)
+
+    stale = replace(trace_row(0, 0), before="+priority:exact:stale")
+    assert not _held_by(registered, stale, sites)
+
+
+
 def test_a_menu_s_change_holds_no_other_menu_s_build_difference():
     # The review's second defect: each of its scenarios, over the register's own rows.
     sites = changes.Sites(
@@ -1471,3 +1616,189 @@ def test_a_native_blank_label_is_filled_only_from_the_first_language_of_that_sam
         assert not proof3.first_language_fill(altered, place, app, read)
     for altered in ((), (*place[:-2], "hin", "default"), (*place[:4], "unrelated", *place[5:])):
         assert not proof3.first_language_fill(difference, altered, app, read)
+
+
+def test_legacy_related_case_text_requires_its_exact_column_and_unchanged_text():
+    change = changes.LEGACY_RELATED_CASE_TEXT
+    register = changes.load()
+    place = "/menu/0/case_details/short/columns/1"
+    header_path = "/m*.*.*_*_*.header"
+    before = replace(
+        _built("app_strings:en", header_path, "/m0.case_short.case_parent~1zone_2.header", "removed"),
+        before="Parent area",
+        after=None,
+    )
+    after = replace(
+        _built("app_strings:en", header_path, "/m0.case_short.case_calculated_property_2.header", "added"),
+        before=None,
+        after="Parent area",
+    )
+    applying = {change: (place,)}
+    assert changes.holders(after, register, applying, siblings=(before, after)) == [change]
+    changed = replace(after, after="A different title")
+    assert changes.holders(changed, register, applying, siblings=(before, changed)) == []
+    assert changes.holders(after, register, applying, siblings=(before, after, after)) == []
+    assert changes.holders(after, register, {change: (place[:-1] + "0",)}, siblings=(before, after)) == []
+
+    header = replace(
+        _built(
+            "suite.xml", "/suite/detail[@id=*]/field[*]/header[*]/text[*]/locale[*]/@id",
+            "/suite/detail[@id=m0_case_short]/field[2]/header[1]/text[1]/locale[1]/@id",
+        ),
+        before="m0.case_short.case_parent/zone_2.header",
+        after="m0.case_short.case_calculated_property_2.header",
+    )
+    assert changes.holders(header, register, applying) == [change]
+    assert changes.holders(header, register, {change: (place[:-1] + "0",)}) == []
+
+
+def test_legacy_related_case_text_allows_only_the_same_stored_projection():
+    from proof.checks import source
+
+    change = changes.LEGACY_RELATED_CASE_TEXT
+    place = "/menu/0/case_details/short/columns/0"
+    apply = {change: (place,)}
+    register = changes.load()
+    before = {
+        "model": "case", "format": "translatable-enum", "field": "parent/village", "useXpathExpression": False,
+        "enum": [{"key": "north", "value": {"en": "North village", "es": "Pueblo del norte"}}],
+    }
+    after = {
+        **before,
+        "field": "instance('casedb')/casedb/case[@case_id = current()/index/parent]/village",
+        "useXpathExpression": True,
+        "enum": [{**before["enum"][0], "key": "case_text_9ab95772fa3351eabc620be9ec96300b"}],
+    }
+
+    def stored(column):
+        return {"modules": [{"case_details": {"short": {"columns": [column]}}}]}
+
+    compared = source.compare_sources("legacy", stored(before), stored(after))
+    assert {d.at.rsplit("/", 1)[-1] for d in compared} == {"field", "key", "useXpathExpression"}
+    assert all(changes.holders(d, register, apply, siblings=compared) == [change] for d in compared)
+    for difference in compared:
+        assert changes.naming(difference, register, {}) == change
+        for altered in (replace(difference, kind="added", before=None), replace(difference, kind="removed", after=None)):
+            assert changes.naming(altered, register, {}) != change
+            assert not changes.holders(altered, register, apply, siblings=compared)
+    assert all(changes.holders(d, register, {change: (place[:-1] + "1",)}, siblings=compared) == []
+               for d in compared)
+    for damaged in (
+        {**after, "field": after["field"].replace("/parent]", "/uncle]")},
+        {**after, "field": after["field"].replace("/village", "/town")},
+        {**after, "enum": [{**after["enum"][0], "value": {"en": "Changed words"}}]},
+    ):
+        differences = source.compare_sources("legacy", stored(before), stored(damaged))
+        assert any(changes.held(d) for d in differences)
+        assert all(not changes.holders(d, register, apply, siblings=differences) for d in differences)
+
+
+@pytest.mark.parametrize("change", ["media-paths-joined", "media-files-renamed"])
+def test_the_built_lookup_image_move_is_bound_to_the_stored_icon(change):
+    place = "/menu/0/case_details/short/lookup_image"
+    document = _document(RESIDUE, (change, [place]))
+
+    def suite(menu, path):
+        return f'<suite><detail id="m{menu}_case_short"><lookup image="{path}"/></detail></suite>'
+
+    def difference(menu):
+        found, = compare_xml(
+            suite(menu, "jr://file/b.png"), suite(menu, "jr://file/a.png"),
+            check="proof2", document="hq-planted", artifact="suite.xml",
+        )
+        return found
+
+    assert _held_by(document, difference(0)) == {change}
+    assert _held_by(document, difference(1)) == frozenset()
+    unrelated = _document(RESIDUE, (change, ["/menu/0/case_details/short/columns/0/header"]))
+    assert _held_by(unrelated, difference(0)) == frozenset()
+    assert _held_by(document, replace(difference(0), kind="removed", after=None)) == frozenset()
+
+
+def test_legacy_search_group_wording_requires_the_exact_source_pair_and_owning_row():
+    change = changes.LEGACY_SEARCH_GROUP_WORDING
+    register = changes.load()
+    old, new = "search_property.m0.g", "search_property.m0.group_header_0"
+    wording = "Find a client"
+
+    def app(group, key, wording=wording, *, field_group=None, extra=None):
+        rows = [
+            {"is_group": True, "name": group, "group_key": group, "label": {"en": "Personal details"}},
+            {"name": "first_name", "group_key": field_group or group, "hidden": True},
+        ]
+        return {
+            "langs": ["en"],
+            "modules": [{"search_config": {"properties": rows}}],
+            "translations": {"en": {key: wording, **(extra or {})}},
+        }
+
+    a, b = app("g", old), app("group_header_0", new)
+    places = (
+        f"/app/translations/en/{old}",
+        f"/app/translations/en/{new}",
+        "/menu/0/search_config/properties/0/group_key",
+    )
+    applying = {change: places}
+
+    def compare(before, after):
+        return source.compare_sources("search", before, after)
+
+    def held(compared, applied=applying):
+        return [d.at for d in compared if changes.holders(d, register, applied, siblings=compared)]
+
+    paired = compare(a, b)
+    assert held(paired) == [f"/translations/en/{old}", f"/translations/en/{new}"]
+    duplicate = compare(app("g", old, extra={new: wording}), b)
+    assert held(duplicate) == [f"/translations/en/{old}"]
+    assert not held(duplicate, {change: places[::2]})
+    assert not held([row for row in duplicate if not row.at.endswith("/group_key")])
+    dormant_before = app("g", old, extra={new: "Dormant words"})
+    replaced = compare(dormant_before, b)
+    assert held(replaced) == held(paired)
+    assert not held([row for row in replaced if row.at == f"/translations/en/{new}"])
+
+    in_use = app("g", old, extra={new: "Dormant words"})
+    in_use["modules"][0]["search_config"]["properties"].append({"name": "another", "group_key": "group_header_0"})
+    assert not held(compare(in_use, b))
+    sibling_old = "search_property.m0.unrelated"
+    sibling_new = "search_property.m0.group_header_42"
+    with_siblings = compare(
+        app("g", old, extra={sibling_old: wording}),
+        app("group_header_0", new, extra={sibling_new: wording}),
+    )
+    assert held(with_siblings, {
+        change: (*places, f"/app/translations/en/{sibling_old}", f"/app/translations/en/{sibling_new}"),
+    }) == held(paired)
+
+    assert not held(paired, {change: changes.EVERYWHERE})
+    assert not held(paired, {change: places[:2]})
+    required = {
+        f"/translations/en/{old}",
+        f"/translations/en/{new}",
+        "/modules/0/search_config/properties/0/name",
+        "/modules/0/search_config/properties/0/group_key",
+    }
+    for path in required:
+        assert not held([row for row in paired if row.at != path]), path
+
+    orphan_before = app("g", old)
+    orphan_after = app("group_header_0", new)
+    for orphan in (orphan_before, orphan_after):
+        orphan["modules"][0]["search_config"]["properties"].pop()
+    for before, after in (
+        (a, app("group_header_0", new, "Different words")),
+        (a, app("group_header_0", new, extra={old: wording})),
+        (a, app("group_header_0", new.replace(".m0.", ".m1."))),
+        (a, app("group_header_0", new.replace("group_header_0", "unrelated"))),
+        (a, app("group_header_0", new, field_group="different_group")),
+        (a, app("g", new)),
+        (orphan_before, orphan_after),
+    ):
+        found = compare(before, after)
+        assert not held(found)
+        assert not any(changes.naming(row, register, {}) == change for row in found)
+
+    document = SimpleNamespace(
+        kind="corpus", next_publish=(change,), legacy_search_group_wording_places=places,
+    )
+    assert changes.placed(document, register) == applying

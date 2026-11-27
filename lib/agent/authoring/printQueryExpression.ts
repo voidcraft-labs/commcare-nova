@@ -5,6 +5,7 @@ import {
 import type { RecordQueryContext } from "@/lib/domain/expression/context";
 import { DISTANCE_UNITS } from "@/lib/domain/expression/distance";
 import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
+import { searchChoiceLengthColumn } from "@/lib/domain/expression/ruleSets";
 import { expressionRowScope } from "@/lib/domain/expression/typeChecker";
 import {
 	type Expression,
@@ -193,6 +194,8 @@ export function queryPrinter(context: QueryPrintContext) {
 			}
 			case "case-type":
 				return quote(value.caseType);
+			case "search-result-field":
+				return call("result-field", quote(value.name));
 			case "case-row-type":
 				return "record-type()";
 			case "input":
@@ -263,6 +266,12 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "acting-user":
 			case "unowned":
 				return call(value.kind);
+			case "call":
+				if (value.fn === "position")
+					return call(value.fn, ...value.args.map(expression));
+				throw new Error(
+					`The saved ${value.fn}() call has no record value spelling.`,
+				);
 			case "case-text":
 				return call("case-text", quote(value.textUuid));
 			case "id-of":
@@ -402,8 +411,18 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "gt":
 			case "gte":
 			case "lt":
-			case "lte":
-				return `(${comparand(value.left, value.right)} ${comparisonOperators[value.kind]} ${comparand(value.right, value.left)})`;
+			case "lte": {
+				const length = searchChoiceLengthColumn(
+					value.kind,
+					value.left,
+					value.right,
+				);
+				const right =
+					length === undefined
+						? comparand(value.right, value.left)
+						: call("string-length", term(length));
+				return `(${comparand(value.left, value.right)} ${comparisonOperators[value.kind]} ${right})`;
+			}
 			case "match-all":
 				return "true()";
 			case "match-none":

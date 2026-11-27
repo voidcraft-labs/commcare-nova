@@ -296,7 +296,7 @@ describe("the claims a reading counts", () => {
 		]);
 	});
 
-	it("keys a Hidden Value's bind type by the bind type's own key", async () => {
+	it("claims the Hidden Value’s bind attribute and its native string type at the same site", async () => {
 		const outcome = await readEdited(SURVEY, (app) =>
 			editForm(app, (xml) => {
 				const nodeset = 'nodeset="/data/made"';
@@ -318,7 +318,11 @@ describe("the claims a reading counts", () => {
 				one.entry ===
 					`${Q}/hidden-value-data-node-bind-no-control-with-calculate-or-default`,
 		);
-		expect(type.map((one) => one.key)).toEqual(["xform:model/bind@type"]);
+		expect(type.map((one) => one.key).sort()).toEqual([
+			"jr-type:string",
+			"xform:model/bind@type",
+		]);
+		expect(new Set(type.map((one) => one.where)).size).toBe(1);
 		expect(
 			records(outcome).some(
 				(one) => one.where.endsWith("/@type") && one.key === "mug:DataBindOnly",

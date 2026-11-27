@@ -534,45 +534,47 @@ export function ChromeFixture() {
 		}),
 	);
 	return (
-		<BlueprintDocProvider>
-			<BuilderLocalizationProvider>
-				<Button onClick={() => setCompact((value) => !value)}>
-					Toggle compact chrome
-				</Button>
-				<div style={{ width: "100%", maxWidth: 1800 }}>
-					<BuilderPageNavigation
-						hasData
-						canGoBack
-						onBack={() => setDestination("back")}
-						compactWorkspaceBreadcrumb={compact}
-						parts={[
-							{
-								key: "home",
-								label: "Home",
-								onClick: () => setDestination("home"),
-							},
-							{
-								key: "module",
-								label: "Community nutrition and longitudinal care",
-								onClick: () => setDestination("module"),
-							},
-							{
-								key: "screen",
-								label:
-									"Follow-up visits that need a complete authored name in every workspace",
-								onClick: () => setDestination("leaf"),
-							},
-						]}
+		<BuilderSessionProvider>
+			<BlueprintDocProvider>
+				<BuilderLocalizationProvider>
+					<Button onClick={() => setCompact((value) => !value)}>
+						Toggle compact chrome
+					</Button>
+					<div style={{ width: "100%", maxWidth: 1800 }}>
+						<BuilderPageNavigation
+							hasData
+							canGoBack
+							onBack={() => setDestination("back")}
+							compactWorkspaceBreadcrumb={compact}
+							parts={[
+								{
+									key: "home",
+									label: "Home",
+									onClick: () => setDestination("home"),
+								},
+								{
+									key: "module",
+									label: "Community nutrition and longitudinal care",
+									onClick: () => setDestination("module"),
+								},
+								{
+									key: "screen",
+									label:
+										"Follow-up visits that need a complete authored name in every workspace",
+									onClick: () => setDestination("leaf"),
+								},
+							]}
+						/>
+					</div>
+					<PresenceRosterView
+						compact={compact}
+						peers={peers}
+						onFollow={(person) => setDestination(person.userId)}
 					/>
-				</div>
-				<PresenceRosterView
-					compact={compact}
-					peers={peers}
-					onFollow={(person) => setDestination(person.userId)}
-				/>
-				<output aria-label="Chrome destination">{destination}</output>
-			</BuilderLocalizationProvider>
-		</BlueprintDocProvider>
+					<output aria-label="Chrome destination">{destination}</output>
+				</BuilderLocalizationProvider>
+			</BlueprintDocProvider>
+		</BuilderSessionProvider>
 	);
 }
 

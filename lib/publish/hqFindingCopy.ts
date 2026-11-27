@@ -77,6 +77,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"case-preloads": "Loading case values into questions",
 	"case-property-names": "Case property names",
 	"case-sharing": "Case sharing",
+	"case-tile-group-index": "Case tile grouping index",
 	"case-tiles": "Case tiles",
 	"case-types": "Case types",
 	"child-cases": "Child cases",
@@ -124,6 +125,7 @@ export const SUBJECT_LABELS: Readonly<Record<Subject, string>> = {
 	"search-default-filters": "Search filters",
 	"search-expressions": "Search expressions",
 	"search-fields": "Search fields",
+	"search-group-display-key": "Search heading and field label",
 	"search-setup": "Search setup",
 	"shadow-forms": "Shadow forms",
 	"supply-features": "CommCare Supply",
@@ -174,14 +176,9 @@ export const FINDING_COPY: Readonly<
 	"app-settings": {
 		never: "This uses an app setting, which Nova doesn't bring in.",
 	},
-	"auto-select": {
-		"not-yet":
-			"This uses a setting that chooses a case for the worker, which Nova can't hold yet.",
-	},
+	"auto-select": {},
 	"blank-form": {},
-	"build-profiles": {
-		"not-yet": "This uses build profiles, which Nova can't hold yet.",
-	},
+	"build-profiles": {},
 	"call-center-indicators": {
 		never: "This uses call center indicators, which Nova doesn't bring in.",
 	},
@@ -227,6 +224,7 @@ export const FINDING_COPY: Readonly<
 		"not-yet": "A case property name here is one Nova can't hold yet.",
 	},
 	"case-sharing": {},
+	"case-tile-group-index": {},
 	"case-tiles": {
 		never:
 			"A case tile here is missing a field one of its positions needs, or shows the case above a form in a way CommCare can't settle, which Nova doesn't bring in.",
@@ -324,7 +322,6 @@ export const FINDING_COPY: Readonly<
 	},
 	"question-appearance": {
 		never: "This uses a display style, which Nova doesn't bring in.",
-		"not-yet": "A question here has a display style Nova can't hold yet.",
 	},
 	"question-choices": {
 		"not-yet":
@@ -335,17 +332,9 @@ export const FINDING_COPY: Readonly<
 			"Two questions here share one place in the form's data, so Nova can't tell them apart.",
 	},
 	"question-logic": {},
-	"question-media": {
-		"not-yet":
-			"A question here carries a kind of media or label form Nova can't hold yet.",
-	},
-	"question-text": {
-		"not-yet": "This uses a kind of question text, which Nova can't hold yet.",
-	},
-	"question-types": {
-		"not-yet":
-			"A question here is of a kind, or is set up in a way, that Nova can't hold yet.",
-	},
+	"question-media": {},
+	"question-text": {},
+	"question-types": {},
 	repeats: {},
 	"save-to-case": {
 		"not-yet": "This uses a Save to Case question, which Nova can't hold yet.",
@@ -360,7 +349,13 @@ export const FINDING_COPY: Readonly<
 		"not-yet": "This uses a search expression, which Nova can't hold yet.",
 	},
 	"search-fields": {
+		never:
+			"Nova couldn’t read this Search group or its heading. In CommCare HQ, give the group a heading and check that each field is assigned to the right group. Then bring the app in again.",
 		"not-yet": "A search field here is set up in a way Nova can't hold yet.",
+	},
+	"search-group-display-key": {
+		never:
+			"One label is used for both a Search heading and a field here. You can recreate the heading in CommCare HQ, check the headings and field labels, then bring the app in again.",
 	},
 	"search-setup": {
 		never: "This uses a search setting, which Nova doesn't bring in.",
@@ -398,6 +393,7 @@ export const FINDING_COPY: Readonly<
 
 /** What is set up, ending in its verb: "Case sharing is", "A question's choices are". */
 export const FIX_IN_HQ_STEMS: Readonly<Partial<Record<Subject, string>>> = {
+	"advanced-menus": "This menu’s Advanced form entry is",
 	"advanced-forms": "The cases this advanced form loads or opens are",
 	"after-submit": "Where this form goes after it is sent is",
 	"android-app-dependencies": "The Android apps this app depends on are",
@@ -443,6 +439,7 @@ export const FIX_IN_HQ_STEMS: Readonly<Partial<Record<Subject, string>>> = {
 	"search-fields": "A search field is",
 	"search-setup": "The search is",
 	"shadow-forms": "A shadow form is",
+	"translation-overrides": "An overriding translation is",
 	"worker-record": "A use of the worker's own record is",
 };
 
@@ -471,6 +468,23 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		"hq-refuses":
 			"An answer here is kept under a group CommCare HQ's form designer can't keep it under: at the top level of the form for a question inside a group, which the designer reports as invalid each time it opens the form, or under another group for a whole group, whose answers its next save loses. Keeping the answer with its question in the form designer's Data Parent setting fixes it.",
 	},
+	"case-tile-group-index": {
+		"breaks-when-run":
+			"The case tile’s parent case index name starts with a hyphen. CommCare can’t use it to open the grouped case list. In CommCare HQ’s Case List settings, you can choose an existing index that starts with a letter or underscore, then bring the app in again.",
+	},
+	"writer-types": {
+		"breaks-when-run":
+			"An answer here sends a date as the case owner. CommCare can’t find the assigned owner using that date. Choose how to assign the case in CommCare HQ, then bring the app in again.",
+	},
+	"case-list-callout": {
+		"breaks-when-run":
+			"The Android case list opens before the worker chooses a case, so the lookup cannot read a field from that case. In CommCare HQ’s Case List settings, use quoted text if the lookup should send a fixed value, then check the app again.",
+	},
+	"build-profiles": {
+		"hq-refuses":
+			"An installation needs a default language. On the app’s Releases page, open Application Profiles and choose each language once from the app’s languages.",
+	},
+
 	"app-document": {
 		"hq-refuses":
 			"Part of how this app is stored is something CommCare HQ can't save or build.",
@@ -571,6 +585,34 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
  * get past it. `findingLine` adds the name itself ("In CommCare HQ: …").
  */
 export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
+	"case-search/name-check-allows-both-quote-delimiters":
+		"CommCare HQ rejects a Search name that includes both single and double quotation marks. In CommCare HQ, you can add a check to the Name prompt that explains which characters workers can use.",
+	"forms-and-case-writes/repeat-open-index-unavailable-on-either-worker":
+		"This repeat creates a case link with a name Web Apps cannot save and Android cannot read. In CommCare HQ, you can use ordinary letters, digits or underscores for the link name.",
+	"forms-and-case-writes/basic-update-key-with-a-roman-numeral":
+		"The form builder marks this Case Property name as an error because it contains a Roman numeral character. In CommCare HQ, you can choose a name with ordinary letters or digits. If existing cases use this property, move its values before switching the mapping.",
+	"forms-and-case-writes/whole-number-starting-answer-from-free-text":
+		"A follow-up saves free text to the property this whole-number question starts from. A word saved there can stop the form from opening. In CommCare HQ, you can store the free text in a different property or change where the number starts.",
+	"menus-and-case-lists/standalone-search-result-list-answer-without-web-apps":
+		"Android keeps the Search results without the answers that produced them. Remove this calculated column in CommCare HQ, or use this feature in a Web Apps-only app.",
+	"menus-and-case-lists/detail-max-select-value-above-101-on-android-only-app":
+		"Android cannot open the form from this several-case list. In CommCare HQ’s Case List settings, you can let workers choose one case at a time, or open the workflow in Web Apps if they need to choose several.",
+	"menus-and-case-lists/case-tile-group-path-through-a-scalar-index":
+		"A case tile’s group tries to read inside a case connection. Choose the connection itself in CommCare HQ’s Case List settings, save, then bring the app in again.",
+	"forms-and-case-writes/basic-update-key-with-an-accented-latin-name":
+		"The form builder marks this question’s accented Case Property name as an error. You can choose a property with unaccented letters in CommCare HQ. If existing cases use the accented property, move those values before switching the mapping.",
+	"application-and-settings/translations-generated-menu-audio-outside-installation-languages":
+		"A translated menu title uses a recording that a named installation leaves out. You can include the language that supplies the recording, or attach it in a language the installation already includes.",
+	"application-and-settings/translations-generated-menu-icon-outside-installation-languages":
+		"A translated menu icon uses a file that a named installation leaves out. You can include the language that supplies the file in that installation, or attach the icon in the language the installation already includes.",
+	"application-and-settings/translations-generated-menu-icon-only-in-media-map":
+		"A translation points to a menu icon that CommCare HQ leaves out of the release. You can attach the intended icon in that language, or clear the translation to use the menu’s usual icon.",
+	"expressions-and-data/bare-fingerprint-query-without-a-supplier":
+		"This Hidden Value reads a lookup count the form never receives, so the form cannot open on Android. In CommCare HQ, you can remove the calculation or check for a result before reading the count.",
+	"application-and-settings/translations-generated-menu-icon-without-mapping":
+		"A translation points to a missing menu icon file. You can attach the intended icon in that language, or clear the translation to use the menu’s usual icon.",
+	"questions/video-inline-as-the-only-content-of-a-help-text":
+		"The inline video in this question’s help cannot play. Add help text and attach the file as a regular video, or move the inline video to the question label.",
 	"expressions-and-data/non-ascii-lookup-name-in-a-condition-hq-checks":
 		"A menu or form display condition here reads a lookup table or column whose name holds a letter outside unaccented a to z, and CommCare HQ checks those conditions with a reader that can't read it, so it won't build the app. Renaming the table or column in CommCare HQ to unaccented letters, digits, _, . and -, or changing the condition, fixes it.",
 	"expressions-and-data/non-ascii-lookup-name-in-a-search-option-hq-checks":
@@ -581,6 +623,19 @@ export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
 		"A form here reads a lookup table tagged __proto__. CommCare HQ's form builder drops that table from the form when it saves it, and CommCare HQ then won't build the form. Reading the table from a case list, a column or a display condition instead keeps it working.",
 	"expressions-and-data/non-ascii-lookup-name-a-form-reads":
 		"A form here reads a lookup table whose export tag holds a letter outside unaccented a to z. CommCare HQ's form builder loses that table from the form when it saves, and CommCare HQ then won't build the form. Renaming the tag in CommCare HQ to unaccented letters, digits, _, . and - fixes it.",
+	"menus-and-case-lists/advanced-inline-search-without-entry-query":
+		"Opening this Advanced form skips the Search prompts and opens an ordinary case list. In CommCare HQ, make Search a separate step before opening the form.",
+};
+
+const NOT_YET_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
+	"forms-and-case-writes/update-key-whose-index-segments-include-user-each-parent-host-or":
+		"This change follows a case link named user. A direct user link can carry this change when the app declares one ordinary destination case type. You can check the case-opening form and its links in CommCare HQ.",
+	"forms-and-case-writes/index-path-through-a-case-type-the-app-does-not-fix":
+		"This change follows a case link. You can set one destination case type for each step in the case-opening form or parent case selection in CommCare HQ, then check the app again.",
+	"forms-and-case-writes/loadupdateaction-case-properties-key-with-on-a-load-with-no-case":
+		"This change saves through a link from a loaded record. Nova can carry it when the form starts by choosing the record and the app declares which case type the supported link reaches.",
+	"menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum":
+		"This case list sends a saved calculation to its Android companion. Depending on how Android is set up, the companion receives the calculation as written or its result. Nova can't hold both behaviors yet.",
 };
 
 /** The sentence a `fix-in-hq` finding of this subject and cause reads. */
@@ -656,12 +711,15 @@ export function findingLine(finding: Finding): {
 		};
 	}
 	return {
-		sentence: manifestSentence(
-			finding.subject,
-			finding.standing,
-			finding.cause,
-			finding.code,
-		),
+		sentence:
+			finding.code === "questions/android-app-callout-that-cannot-be-recreated"
+				? "The Android app connection here needs a change in CommCare HQ. You can recreate it on the question that opens the app, choose where its results go, save the form and try again."
+				: manifestSentence(
+						finding.subject,
+						finding.standing,
+						finding.cause,
+						finding.code,
+					),
 		named: finding.detail.name ?? null,
 	};
 }
@@ -681,7 +739,9 @@ function manifestSentence(
 			);
 		return fixInHqSentence(subject, cause);
 	}
-	const sentence = FINDING_COPY[subject][standing];
+	const sentence =
+		(standing === "not-yet" ? NOT_YET_ENTRY_SENTENCES[code] : undefined) ??
+		FINDING_COPY[subject][standing];
 	if (sentence === undefined)
 		throw new Error(
 			`A finding of the subject "${subject}" with the standing "${standing}" has no sentence to read (it came from "${code}"). Every pair a manifest entry gives needs its sentence in FINDING_COPY, in lib/publish/hqFindingCopy.ts.`,
@@ -823,6 +883,11 @@ export const CIRCUMSTANCE_COPY: Readonly<
 		title: "CommCare HQ can't summarize this menu",
 		body: "CommCare HQ returned an error where its own summary of this menu's forms should be, so Nova has nothing sure to check its reading against.",
 		next: "Opening each of the menu's forms in CommCare HQ's form builder usually shows which one is broken. Once it saves cleanly, you can check again.",
+	},
+	"installation-profile-key-unusable": {
+		title: "An installation profile needs a new ID",
+		body: "A worker following this installation link in CommCare HQ would miss the intended profile. Its ID cannot select a separate set of installation files.",
+		next: "On the app’s Releases page in CommCare HQ, open Application Profiles. Recreate the affected profile with the same languages and practice worker, remove the old entry, then check again.",
 	},
 	"app-unreadable-in-hq": {
 		title: "CommCare HQ can't summarize this app",

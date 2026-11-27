@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import sharp from "sharp";
+import type { submitFormAction } from "@/lib/preview/engine/caseDataBinding";
+import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import { buildUrl } from "@/lib/routing/location";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
@@ -48,9 +50,9 @@ let platformsPeer: Awaited<ReturnType<typeof componentPeer>>;
 let searchPeer: Awaited<ReturnType<typeof componentPeer>>;
 let navigationPeer: Awaited<ReturnType<typeof componentPeer>>;
 
-test.beforeAll(async () => {
+function openPlatformsPeer(browserDefines?: Readonly<Record<string, string>>) {
 	const boundary = resolve("e2e/lib/preview-section-paging-boundary.ts");
-	platformsPeer = await componentPeer(
+	return componentPeer(
 		"e2e/lib/preview-platforms-client.tsx",
 		[],
 		{
@@ -64,7 +66,12 @@ test.beforeAll(async () => {
 			"@/lib/doc/platformChangePreflight": boundary,
 			"@/lib/preview/app-tests/actions": boundary,
 		},
+		browserDefines,
 	);
+}
+
+test.beforeAll(async () => {
+	platformsPeer = await openPlatformsPeer();
 	searchPeer = await componentPeer("e2e/lib/preview-search-client.tsx");
 	const navigation = resolve("e2e/lib/preview-navigation-boundary.ts");
 	navigationPeer = await componentPeer(
@@ -317,9 +324,210 @@ async function photoSize(page: Page, android: boolean) {
 	await expect.poll(() => answer(page, PLATFORM_IDS.image)).toBe("large.png");
 }
 
+async function checkAndroidDatetimePicker(page: Page) {
+	await page.clock.setFixedTime(new Date("2025-11-02T06:00:00Z"));
+	await openScenario(page, "datetime-picker-android");
+	const clock = page.getByRole("textbox", { name: "Time", exact: true });
+	await expect(clock).toBeVisible();
+	const applied = await page.evaluate(
+		(uuid) =>
+			window.previewPlatforms.setAnswer(uuid, "2025-11-02T06:24:47.125Z"),
+		PLATFORM_IDS.datetime,
+	);
+	expect(applied).toBe(true);
+	const calendarTrigger = page.getByRole("button", {
+		name: "Date",
+		exact: true,
+	});
+	await expect(calendarTrigger).toContainText("November 1, 2025");
+	await expect(clock).toHaveValue("11:24 PM");
+	const original = await answer(page, PLATFORM_IDS.datetime);
+	await clock.fill("");
+	await clock.blur();
+	await expect(clock).toHaveValue("");
+	await expect.poll(() => answer(page, PLATFORM_IDS.datetime)).toBe(original);
+	await page.getByRole("button", { name: "Next", exact: true }).click();
+	await expect(
+		page.getByRole("textbox", { name: /Review visit/ }),
+	).toBeVisible();
+	await expect
+		.poll(() => answer(page, PLATFORM_IDS.datetime))
+		.toBe("2025-11-01T23:24:00.000-07:00");
+	await page.getByRole("button", { name: "Back", exact: true }).click();
+	await expect(clock).toHaveValue("11:24 PM");
+	await clock.fill("11:26:48 PM");
+	await clock.press("Tab");
+	await expect
+		.poll(() => answer(page, PLATFORM_IDS.datetime))
+		.toBe("2025-11-01T23:26:00.000-07:00");
+
+	const calendar = page.locator('[data-slot="calendar"]');
+	await calendarTrigger.click();
+	await calendar
+		.getByRole("button", { name: /November 1(?:st)?,? 2025/ })
+		.click({ timeout: 10_000 });
+	await expect
+		.poll(() => answer(page, PLATFORM_IDS.datetime))
+		.toBe("2025-11-01T23:26:00.000-07:00");
+	await calendarTrigger.click();
+	const nextDay = calendar.getByRole("button", {
+		name: /November 2(?:nd)?,? 2025/,
+	});
+	await expect(nextDay).toBeVisible();
+	await nextDay.click();
+	await expect
+		.poll(() => answer(page, PLATFORM_IDS.datetime))
+		.toBe("2025-11-02T23:26:00.000-08:00");
+}
+
+async function checkWebAppsDatetimePicker(page: Page) {
+	await page.clock.setFixedTime(new Date("2025-11-02T06:00:00Z"));
+	await openScenario(page, "datetime-picker-web-apps");
+	const clock = page
+		.locator('[data-instance-path$="/arrival_stamp_time"]')
+		.getByRole("textbox");
+	const calendarTrigger = page
+		.locator('[data-instance-path$="/arrival_stamp_date"]')
+		.getByRole("button");
+	await expect(clock).toHaveValue("");
+	await expect(calendarTrigger).toContainText("Pick a date");
+	await calendarTrigger.click();
+	await page
+		.locator('[data-slot="calendar"]')
+		.getByRole("button", { name: /November 1(?:st)?,? 2025/ })
+		.click({ timeout: 10_000 });
+	await clock.fill("11:26:48 PM");
+	await clock.press("Tab");
+	await expect(clock).toHaveValue("23:26:48");
+	await expect
+		.poll(() => answer(page, PLATFORM_IDS.datetime))
+		.toBe("2025-11-01T23:26:48.000-07:00");
+}
+
 const PREVIEW_PLATFORM_CHECKS: Readonly<
 	Record<PreviewPlatformScenarioId, (page: Page) => Promise<void>>
 > = {
+	"datetime-picker-android": checkAndroidDatetimePicker,
+	"datetime-picker-web-apps": checkWebAppsDatetimePicker,
+	async "face-photo-android"(page) {
+		await page.addInitScript(() => {
+			const streams: MediaStream[] = [];
+			Object.defineProperty(window, "photoTestStreams", { value: streams });
+			Object.defineProperty(window, "FaceDetector", {
+				value: undefined,
+				configurable: true,
+			});
+			Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+				value: async () => {
+					const canvas = document.createElement("canvas");
+					canvas.width = 800;
+					canvas.height = 600;
+					const stream = canvas.captureStream(0);
+					const track =
+						stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack;
+					const context = canvas.getContext("2d");
+					if (!context) throw new Error("The test sensor needs a canvas.");
+					context.fillStyle = "blue";
+					const render = () => {
+						if (track.readyState !== "live") return;
+						context.fillRect(0, 0, canvas.width, canvas.height);
+						track.requestFrame();
+						requestAnimationFrame(render);
+					};
+					render();
+					streams.push(stream);
+					return stream;
+				},
+			});
+		});
+		await acceptAttachments(page);
+		await openScenario(page, "face-photo-android");
+		await expect(
+			page.getByRole("button", { name: "Choose image" }),
+		).toHaveCount(0);
+		const open = page
+			.getByRole("button", { name: "Take picture", exact: true })
+			.and(page.locator('[aria-haspopup="dialog"]'));
+		await open.click();
+		const dialog = page.getByRole("dialog");
+		await expect(
+			dialog.getByRole("button", { name: "Take picture" }),
+		).toBeEnabled();
+		await dialog.getByRole("button", { name: "Switch camera" }).click();
+		await expect(
+			dialog.getByRole("button", { name: "Take picture" }),
+		).toBeEnabled();
+		await dialog.getByRole("button", { name: "Cancel" }).click();
+		await expect(dialog).toBeHidden();
+		const closed = () =>
+			page.evaluate(() => {
+				const streams =
+					(window as Window & { photoTestStreams?: MediaStream[] })
+						.photoTestStreams ?? [];
+				return streams.map((s) => s.getVideoTracks()[0]?.readyState);
+			});
+		await expect.poll(closed).toEqual(["ended", "ended"]);
+		await open.click();
+		const pending = page.waitForRequest((request) =>
+			request.url().endsWith("/capture-upload"),
+		);
+		await dialog.getByRole("button", { name: "Take picture" }).click();
+		const bytes = (await pending).postDataBuffer();
+		if (!bytes) throw new Error("The submitted photo held no bytes.");
+		const sizeOf = (input: Buffer) =>
+			page.evaluate(async (base64) => {
+				const data = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+				const image = await createImageBitmap(
+					new Blob([data], { type: "image/jpeg" }),
+				);
+				try {
+					return [image.width, image.height];
+				} finally {
+					image.close();
+				}
+			}, input.toString("base64"));
+		expect(await sizeOf(bytes)).toEqual([660, 580]);
+		await expect(dialog).toBeHidden();
+		await expect.poll(closed).toEqual(["ended", "ended", "ended"]);
+		await page.evaluate(() => {
+			let observation = 0;
+			class PreviewCameraDetector {
+				async detect() {
+					observation++;
+					if (observation === 1) return [];
+					const x = observation === 2 ? 100 : 300;
+					return [{ boundingBox: new DOMRect(x, 200, 120, 100) }];
+				}
+			}
+			Object.defineProperty(window, "FaceDetector", {
+				value: PreviewCameraDetector,
+			});
+		});
+		const detected = page.waitForRequest((request) =>
+			request.url().endsWith("/capture-upload"),
+		);
+		await open.click();
+		const detectedBytes = (await detected).postDataBuffer();
+		if (!detectedBytes) throw new Error("The face camera sent no photo.");
+		expect(await sizeOf(detectedBytes)).toEqual([140, 200]);
+		await expect.poll(closed).toEqual(["ended", "ended", "ended", "ended"]);
+	},
+	async "face-photo-web-apps"(page) {
+		await acceptAttachments(page);
+		await openScenario(page, "face-photo-web-apps");
+		await expect(
+			page.getByRole("button", { name: "Take picture" }),
+		).toHaveCount(0);
+		const uploaded = page.waitForRequest((request) =>
+			request.url().endsWith("/capture-upload"),
+		);
+		await page.locator('input[type="file"]').setInputFiles({
+			name: "portrait.png",
+			mimeType: "image/png",
+			buffer: PIXEL,
+		});
+		expect((await uploaded).postDataBuffer()).toEqual(PIXEL);
+	},
 	async "visit-display-web-apps"(page) {
 		await openScenario(page, "visit-display-web-apps");
 		const question = (id: string) =>
@@ -335,7 +543,7 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await expect(address).toHaveAttribute("readonly", "");
 		await expect(address).toHaveValue("");
 		await expect(question("address")).toContainText(
-			"no map provider is set up",
+			"Preview can search for addresses once a map provider is set up.",
 		);
 		await expect(question("address")).toContainText("Geocoder plan feature");
 		/* Web Apps ignores a compact group: the hint shows under its label. */
@@ -675,7 +883,9 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await first
 			.getByRole("button", { name: "Add a new Visits?", exact: true })
 			.click();
-		await expect(header).toHaveText("Visits (1) > Details");
+		await expect(header).toHaveText("Visits (1) > Details", {
+			useInnerText: true,
+		});
 		await expect(page.getByRole("textbox", { name: /Note/ })).toBeVisible();
 		/* Android draws no card for a group: its label is the header line. */
 		await expect(
@@ -689,7 +899,9 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await prompt
 			.getByRole("button", { name: "Add another Visits?", exact: true })
 			.click();
-		await expect(header).toHaveText("Visits (2) > Details");
+		await expect(header).toHaveText("Visits (2) > Details", {
+			useInnerText: true,
+		});
 	},
 	async "label-texts-android"(page) {
 		/* The browser's speech, recorded: what it was asked to read and when
@@ -921,6 +1133,145 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await expect(largeLine).toBeVisible();
 		await expect.poll(() => answer(page, PLATFORM_IDS.image)).not.toBe("");
 	},
+	async "android-app-answers"(page) {
+		await acceptAttachments(page);
+		const upload = Promise.withResolvers<void>();
+		await page.route(
+			`${platformsPeer.origin}/capture-upload`,
+			async (route) => {
+				await upload.promise;
+				await route.fallback();
+			},
+		);
+		await openScenario(page, "android-app-answers");
+		const buttons = page.getByRole("button", { name: "Open Android app" });
+		const dialog = page.getByRole("dialog");
+		await buttons.first().click();
+		await expect(dialog.getByText("prior", { exact: true })).toBeVisible();
+		await expect(dialog.getByText("litres")).toBeVisible();
+		await expect(dialog.getByText("gallons")).toHaveCount(0);
+		await dialog
+			.getByRole("checkbox", { name: "Return an answer to Meter" })
+			.check();
+		await dialog
+			.getByRole("textbox", { name: "Meter", exact: true })
+			.fill("captured");
+		await dialog.getByRole("checkbox", { name: "Return quantity" }).check();
+		await dialog
+			.getByRole("textbox", { name: "quantity", exact: true })
+			.fill("008");
+		await dialog.getByRole("checkbox", { name: "Return photo" }).check();
+		await dialog.getByLabel("File for photo").setInputFiles({
+			name: "meter.png",
+			mimeType: "image/png",
+			buffer: PIXEL,
+		});
+		try {
+			await dialog.getByRole("button", { name: "Return to form" }).click();
+			await expect(
+				dialog.getByRole("button", { name: "Cancel", exact: true }),
+			).toBeDisabled();
+			await page.keyboard.press("Escape");
+			await expect(dialog).toBeVisible();
+		} finally {
+			upload.resolve();
+		}
+		await expect(page.getByText("captured", { exact: true })).toBeVisible();
+		await expect(page.getByRole("textbox", { name: /Quantity$/ })).toHaveValue(
+			"8",
+		);
+		await expect(
+			page.getByRole("textbox", { name: /Reading as text$/ }),
+		).toHaveValue("008");
+		await expect(page.getByText("large.png", { exact: true })).toBeVisible();
+		await buttons.nth(1).click();
+		await expect(dialog.getByText("7", { exact: true })).toBeVisible();
+		await dialog
+			.getByRole("checkbox", { name: "Return an answer to Check meter" })
+			.check();
+		await dialog
+			.getByRole("textbox", { name: "Check meter", exact: true })
+			.fill("009");
+		await dialog.getByRole("button", { name: "Return to form" }).click();
+		await expect(page.getByText("9", { exact: true })).toBeVisible();
+		await expect(page.getByText("captured", { exact: true })).toBeVisible();
+		await page.getByRole("button", { name: "Next", exact: true }).click();
+		await expect(page.getByRole("textbox", { name: /Quantity$/ })).toHaveValue(
+			"5",
+		);
+		await expect(
+			page.getByRole("textbox", { name: /Reading as text$/ }),
+		).toHaveValue("five");
+		await expect(page.getByText("large.png", { exact: true })).toHaveCount(0);
+		await buttons.first().click();
+		await expect(dialog.getByText("prior", { exact: true })).toBeVisible();
+		await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+	},
+	async "android-app-required"(page) {
+		const submissions: Parameters<typeof submitFormAction>[] = [];
+		await page.route(`${platformsPeer.origin}/submission`, async (route) => {
+			submissions.push(route.request().postDataJSON());
+			await route.fulfill({
+				json: {
+					kind: "survey",
+					caseDatabasePatch: { rows: [], indices: [] },
+				} satisfies SubmissionResult,
+			});
+		});
+		await openScenario(page, "android-app-required");
+		const open = page.getByRole("button", { name: "Open Android app" });
+		const dialog = page.getByRole("dialog");
+		await open.click();
+		await dialog
+			.getByRole("checkbox", { name: "Return an answer to Meter" })
+			.check();
+		await dialog
+			.getByRole("textbox", { name: "Meter", exact: true })
+			.fill("completed");
+		await dialog.getByRole("button", { name: "Return to form" }).click();
+		await open.click();
+		await expect(dialog.getByText("completed", { exact: true })).toBeVisible();
+		await dialog.getByRole("combobox", { name: "Result type" }).click();
+		await page.getByRole("option", { name: "Identity registration" }).click();
+		await dialog.getByLabel("Sample template for face").setInputFiles({
+			name: "sample.bin",
+			mimeType: "application/octet-stream",
+			buffer: Buffer.alloc(1024 * 1024),
+		});
+		await dialog.getByRole("button", { name: "Return to form" }).click();
+		await expect(dialog.getByRole("alert")).toContainText(
+			"too large for one Android result",
+		);
+
+		await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+		await expect.poll(() => answer(page, PLATFORM_IDS.meter)).toBe("completed");
+		const finish = page.getByRole("button", { name: "Finish", exact: true });
+		await finish.click();
+		await expect.poll(() => submissions.length).toBe(1);
+		expect(submissions[0]?.[0]).toMatchObject({
+			kind: "survey",
+			formUuid: PLATFORM_IDS.form,
+		});
+		await openScenario(page, "android-app-required");
+		await open.click();
+		await dialog
+			.getByRole("checkbox", { name: "Return an answer to Meter" })
+			.check();
+		await dialog
+			.getByRole("textbox", { name: "Meter", exact: true })
+			.fill("another result");
+		await dialog.getByRole("button", { name: "Return to form" }).click();
+		await expect
+			.poll(() => answer(page, PLATFORM_IDS.meter))
+			.toBe("another result");
+		await open.click();
+		await dialog.getByRole("button", { name: "Return to form" }).click();
+		await expect.poll(() => answer(page, PLATFORM_IDS.meter)).toBe("");
+		await finish.click();
+		await expect(open).toBeVisible();
+		await page.evaluate(() => window.previewPlatforms.settled());
+		expect(submissions).toHaveLength(1);
+	},
 	async "barcode-scan-android"(page) {
 		/* Whether a browser ships BarcodeDetector varies by host (Chromium has
 		 * one on macOS and none on Linux), so the test decides: first a browser
@@ -996,7 +1347,9 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await addNew
 			.getByRole("button", { name: "Add a new Visits?", exact: true })
 			.click();
-		await expect(header).toHaveText("Visits (1) > Details");
+		await expect(header).toHaveText("Visits (1) > Details", {
+			useInnerText: true,
+		});
 		await note.fill("First");
 		await next.click();
 		await expect(prompt).toBeVisible();
@@ -1012,7 +1365,9 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		/* Go back closes the prompt on the screen before it. */
 		await prompt.getByRole("button", { name: "Go back", exact: true }).click();
 		await expect(prompt).toHaveCount(0);
-		await expect(header).toHaveText("Visits (1) > Details");
+		await expect(header).toHaveText("Visits (1) > Details", {
+			useInnerText: true,
+		});
 		await expect(note).toHaveValue("First");
 		await next.click();
 		await prompt
@@ -1029,13 +1384,17 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await expect(name).toBeVisible();
 		await name.fill("Ada");
 		await next.click();
-		await expect(header).toHaveText("Visits (1) > Details");
+		await expect(header).toHaveText("Visits (1) > Details", {
+			useInnerText: true,
+		});
 		await next.click();
 		await expect(prompt).toBeVisible();
 		/* A group shown on one screen inside a repeat is one screen per
 		 * entry. */
 		await addAnother.click();
-		await expect(header).toHaveText("Visits (2) > Details");
+		await expect(header).toHaveText("Visits (2) > Details", {
+			useInnerText: true,
+		});
 		await expect(note).toHaveValue("");
 		await next.click();
 		await expect(prompt).toBeVisible();
@@ -1043,7 +1402,7 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 			.getByRole("button", { name: "Do not add", exact: true })
 			.click();
 		/* A group shown on one screen is one screen of all its questions. */
-		await expect(header).toHaveText("Household");
+		await expect(header).toHaveText("Household", { useInnerText: true });
 		await expect(page.getByRole("textbox", { name: /Adults/ })).toBeVisible();
 		await expect(page.getByRole("textbox", { name: /Children/ })).toBeVisible();
 		/* An unlabeled group's questions are one screen each. */
@@ -1072,7 +1431,9 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await firstItem
 			.getByRole("button", { name: "Add a new Items?", exact: true })
 			.click();
-		await expect(header).toHaveText("Stock > Items (1)");
+		await expect(header).toHaveText("Stock > Items (1)", {
+			useInnerText: true,
+		});
 		await expect(page.getByRole("textbox", { name: /Item/ })).toBeVisible();
 		await expect(page.getByRole("button", { name: /^Add / })).toHaveCount(0);
 		await next.click();
@@ -1096,18 +1457,146 @@ for (const [id, scenario] of Object.entries(PREVIEW_PLATFORM_SCENARIOS) as [
 	PreviewPlatformScenarioId,
 	(typeof PREVIEW_PLATFORM_SCENARIOS)[PreviewPlatformScenarioId],
 ][]) {
-	test(`${id}: ${scenario.describe}`, async ({ page }) => {
+	const addCheck = () => {
+		test(`${id}: ${scenario.describe}`, async ({ page }) => {
+			try {
+				await PREVIEW_PLATFORM_CHECKS[id](page);
+			} finally {
+				if (!page.isClosed())
+					await page.evaluate(async () => {
+						await window.previewPlatforms?.dispose();
+						window.previewSearchAudit?.dispose();
+					});
+			}
+		});
+	};
+	if (scenario.fixture === "datetime-picker") {
+		test.describe("worker date and time", () => {
+			test.use({ timezoneId: "America/Los_Angeles" });
+			addCheck();
+		});
+	} else {
+		addCheck();
+	}
+}
+
+test("Web Apps address search commits only the current choice and updates the form receiver", async ({
+	page,
+}) => {
+	const peer = await openPlatformsPeer({
+		"process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY": JSON.stringify("proof-key"),
+		"process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID": JSON.stringify("proof-map"),
+	});
+	try {
+		// Supply only the external Places library. The address control, receiver and XPath worker run unmodified.
+		await page.addInitScript(() => {
+			const pending = Promise.withResolvers<void>();
+			let deferRiver = true;
+			Reflect.set(window, "finishOldPlace", pending.resolve);
+			Reflect.set(window, "google", {
+				maps: {
+					async importLibrary(name: string) {
+						if (name !== "places")
+							throw new Error(`Unexpected Maps library ${name}`);
+						return {
+							AutocompleteSessionToken: class {},
+							AutocompleteSuggestion: {
+								async fetchAutocompleteSuggestions({
+									input,
+								}: {
+									input: string;
+								}) {
+									const river = input.startsWith("River");
+									const street = river ? "River Road" : "Harbor Way";
+									const city = river ? "River Town" : "Harbor Town";
+									return {
+										suggestions: [
+											{
+												placePrediction: {
+													placeId: street,
+													text: { text: street },
+													toPlace: () => ({
+														async fetchFields() {
+															if (river && deferRiver) {
+																deferRiver = false;
+																Reflect.set(window, "oldPlaceRequested", true);
+																await pending.promise;
+															}
+														},
+														formattedAddress: `18 ${street}, ${city}`,
+														location: { lat: () => -1.9, lng: () => 35.12 },
+														addressComponents: [
+															{
+																longText: city,
+																shortText: city,
+																types: ["locality"],
+															},
+														],
+													}),
+												},
+											},
+										],
+									};
+								},
+							},
+						};
+					},
+				},
+			});
+		});
+		await page.goto(`${peer.origin}/?scenario=visit-display-web-apps`);
+		await expect(
+			page.locator('[data-preview-engine-ready="true"]'),
+		).toBeVisible({ timeout: 20_000 });
+		const address = page.getByRole("combobox", {
+			name: "Private meeting place",
+		});
+		const city = page.locator('[data-instance-path$="/city"] input');
+		const cityCopy = () => answer(page, PLATFORM_IDS.addressCityCopy);
+		const storedAddress = () => answer(page, PLATFORM_IDS.address);
+		const choose = async (query: string, choice: string) => {
+			await address.fill(query);
+			await page.getByRole("option", { name: choice, exact: true }).click();
+		};
+
+		await choose("River", "River Road");
+		await expect
+			.poll(() => page.evaluate(() => Reflect.get(window, "oldPlaceRequested")))
+			.toBe(true);
+		await address.fill("Harbor");
+		await page.evaluate(() => Reflect.get(window, "finishOldPlace")());
+		await expect(address).toHaveValue("Harbor");
+		await expect(city).toHaveValue("");
+		await page.getByRole("option", { name: "Harbor Way", exact: true }).click();
+		await expect(address).toHaveValue("18 Harbor Way, Harbor Town");
+		await expect(city).toHaveValue("Harbor Town");
+		await expect.poll(cityCopy).toBe("Harbor Town");
+		expect(JSON.parse((await storedAddress()) ?? "")).toMatchObject({
+			city: "Harbor Town",
+		});
+
+		await address.fill("River");
+		await expect.poll(storedAddress).toBe("");
+		await expect(city).toHaveValue("Harbor Town");
+		await page.getByRole("option", { name: "River Road", exact: true }).click();
+		await expect.poll(cityCopy).toBe("River Town");
+		await page.getByRole("button", { name: "Clear the address" }).click();
+		await expect(address).toHaveValue("");
+		await expect(city).toHaveValue("");
+		await expect.poll(cityCopy).toBe("");
+		await expect.poll(storedAddress).toBe("");
+	} finally {
 		try {
-			await PREVIEW_PLATFORM_CHECKS[id](page);
-		} finally {
 			if (!page.isClosed())
 				await page.evaluate(async () => {
+					Reflect.get(window, "finishOldPlace")?.();
 					await window.previewPlatforms?.dispose();
-					window.previewSearchAudit?.dispose();
 				});
+		} finally {
+			await peer.close();
 		}
-	});
-}
+	}
+});
 
 /** Open the navigation peer's fixture as `platform`, on the app's menu. */
 async function openNavigation(

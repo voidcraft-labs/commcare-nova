@@ -32,6 +32,7 @@ export type FormStructureChoices =
 			}[];
 	  }
 	| { readonly kind: "cases"; readonly caseType: string }
+	| { readonly kind: "available-cases" }
 	| { readonly kind: "lookup"; readonly tableId: LookupTableId };
 
 /** The declarations a form expression can bind, without expression text or a
@@ -67,7 +68,9 @@ export interface FormStructure extends FormBehaviorTexts {
 	readonly moduleUuid: Uuid;
 	readonly type: FormType;
 	readonly fields: ReadonlyMap<Uuid, FormStructureField>;
+	/** Submitted data order. Worker controls follow controlOrder where it differs. */
 	readonly fieldOrder: ReadonlyMap<Uuid, readonly Uuid[]>;
+	readonly controlOrder?: ReadonlyMap<Uuid, readonly Uuid[]>;
 	/** Every link of the form (`forms.ts::formLinkEntries`): its
 	 *  destinations, and the otherwise when it is a link (`role:
 	 *  "otherwise"`, which has no condition slot). */
@@ -100,12 +103,16 @@ export function formStructure(
 	if (form === undefined || moduleUuid === undefined) return undefined;
 	const layout = submissionLayout(formUuid, doc.fields, doc.fieldOrder);
 	const fields = new Map<Uuid, FormStructureField>();
+	const controlOrder = layout.independent
+		? new Map<Uuid, readonly Uuid[]>()
+		: undefined;
 
 	const visiting = new Set<Uuid>();
 	const visit = (parent: Uuid): void => {
 		if (visiting.has(parent)) return;
 		visiting.add(parent);
 		const ordered = ownRecordValue(doc.fieldOrder, parent) ?? [];
+		controlOrder?.set(parent, ordered);
 
 		for (const uuid of ordered) {
 			const field = ownRecordValue(doc.fields, uuid);
@@ -172,7 +179,9 @@ export function formStructure(
 									? { kind: "inline" as const, options: choices.options }
 									: choices.kind === "cases"
 										? { kind: "cases" as const, caseType: choices.caseType }
-										: { kind: "lookup" as const, tableId: choices.tableId },
+										: choices.kind === "lookup"
+											? { kind: "lookup" as const, tableId: choices.tableId }
+											: { kind: "available-cases" as const },
 						}),
 			});
 			if (["group", "section", "repeat"].includes(field.kind)) visit(uuid);
@@ -187,6 +196,7 @@ export function formStructure(
 		...formBehaviorTextsOf(form),
 		fields,
 		fieldOrder: layout.children,
+		...(controlOrder !== undefined && { controlOrder }),
 		links: new Map(
 			formLinkEntries(form).map(({ role, link }) => [
 				link.uuid,

@@ -5,6 +5,7 @@ import {
 	caseChoiceDoc,
 	caseChoiceInput,
 	caseChoiceSnapshot,
+	choiceRow,
 	choiceUuid,
 	memberId,
 } from "@/lib/__tests__/caseChoiceFixture";
@@ -20,7 +21,10 @@ import {
 	prop,
 	tableColumn,
 	tableLookup,
+	term,
+	typeOf,
 } from "@/lib/domain/expression";
+import { slotContext } from "@/lib/domain/expression/context";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
@@ -58,6 +62,149 @@ function workerFor(engine: FormEngine) {
 }
 
 describe("case choices in the captured device world", () => {
+	it.each([
+		{ stagedAsync: false, status: undefined },
+		{ stagedAsync: true, status: undefined },
+		{ stagedAsync: false, status: "open" },
+		{ stagedAsync: true, status: "open" },
+		{ stagedAsync: false, status: "closed" },
+		{ stagedAsync: true, status: "closed" },
+		{
+			stagedAsync: false,
+			status: undefined,
+			propertyMatch: { property: "survey_ready", text: "yes" },
+		},
+		{
+			stagedAsync: true,
+			status: "open",
+			propertyMatch: { property: "survey_ready", text: "yes" },
+		},
+		{
+			stagedAsync: true,
+			status: "open",
+			propertyMatch: {
+				property: "survey_ready",
+				text: "yes",
+				alternateText: "pending",
+			},
+		},
+	] as const)(
+		"filters the restored choices where asked and keeps opaque IDs (worker=$stagedAsync status=$status)",
+		async (arm) => {
+			const { stagedAsync, status } = arm;
+			const propertyMatch =
+				"propertyMatch" in arm ? arm.propertyMatch : undefined;
+			const form = choiceUuid("all-visible");
+			const question = choiceUuid("all-cases-question");
+			const copy = choiceUuid("copy-unrefined-id");
+			const doc = assertAdmittedPreviewDoc(
+				buildDoc({
+					modules: [
+						{
+							name: "Directory",
+							forms: [
+								{
+									uuid: form,
+									name: "Choose a case",
+									type: "survey",
+									fields: [
+										f({
+											uuid: question,
+											kind: "single_select",
+											id: "case_choice",
+											label: "Case",
+											optionsSource: {
+												kind: "available-cases",
+												...(status !== undefined && { status }),
+												...(propertyMatch !== undefined && { propertyMatch }),
+											},
+										}),
+										f({
+											uuid: copy,
+											kind: "hidden",
+											id: "id_copy",
+											calculate: term(formField(question)),
+										}),
+									],
+								},
+							],
+						},
+					],
+				}),
+			);
+			const rows = [
+				{
+					...choiceRow("old service key", "former", "Former service"),
+					properties: { survey_ready: "yes" },
+				},
+				{
+					...choiceRow("closed host key", "former", "Closed host"),
+					status: "closed" as const,
+				},
+				choiceRow("worker-profile-key", "commcare-user", "Worker profile"),
+				{
+					...choiceRow("pending-service", "outpost", "Pending service"),
+					properties: { survey_ready: "pending" },
+				},
+				{
+					...choiceRow("current outpost", "outpost", "Outpost"),
+					properties: { survey_ready: "yes" },
+				},
+			];
+			const available = rows.filter(
+				(row) =>
+					(status === undefined || row.status === status) &&
+					(propertyMatch === undefined ||
+						row.properties?.survey_ready === propertyMatch.text ||
+						("alternateText" in propertyMatch &&
+							row.properties?.survey_ready === propertyMatch.alternateText)),
+			);
+			const selectedId =
+				status === "closed" ? "closed host key" : "old service key";
+			const context = slotContext(
+				doc,
+				{ entity: "field", uuid: copy, slot: "calculate" },
+				new Map(),
+			);
+			if (context === undefined)
+				throw new Error("Expected the calculated field context.");
+			expect(
+				typeOf(term(formField(question)), context)?.caseIdOf,
+			).toBeUndefined();
+			expect(caseDatabaseRequirements(doc).required).toBe(true);
+			const engine = new FormEngine(
+				caseChoiceInput(doc, form),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ rows, indices: [] },
+				{ stagedAsync },
+			);
+			const { runtime, evaluateAsync } = workerFor(engine);
+			try {
+				if (stagedAsync) await engine.initializeAsync(evaluateAsync);
+				expect(engine.getState("/data/case_choice").choices).toEqual(
+					available.map((row) => ({
+						key: row.case_id,
+						value: row.case_id,
+						label: row.case_name,
+					})),
+				);
+				if (stagedAsync)
+					await engine.setValueAsync(
+						"/data/case_choice",
+						selectedId,
+						evaluateAsync,
+					);
+				else engine.setValue("/data/case_choice", selectedId);
+				expect(engine.getState("/data/case_choice").value).toBe(selectedId);
+				expect(engine.getState("/data/id_copy").value).toBe(selectedId);
+			} finally {
+				runtime.dispose();
+			}
+		},
+	);
 	it.each([false, true])(
 		"keeps a stable 30-member roster across back navigation and collects final membership (worker=%s)",
 		async (stagedAsync) => {
@@ -119,16 +266,32 @@ describe("case choices in the captured device world", () => {
 		},
 	);
 	it.each([false, true])(
-		"recomputes membership, retains exact IDs, and cascades removed selections (worker=%s)",
+		"sorts offered rows by their saved text, keeps ties, and recomputes membership (worker=%s)",
 		async (stagedAsync) => {
-			const doc = assertAdmittedPreviewDoc(caseChoiceDoc());
+			const doc = caseChoiceDoc();
+			const members = doc.fields[choiceUuid("members")];
+			if (
+				members.kind !== "multi_select" ||
+				members.optionsSource.kind !== "cases"
+			)
+				throw new Error("Expected member case choices.");
+			members.optionsSource.sortProperty = "attendance";
+			assertAdmittedPreviewDoc(doc);
+			const snapshot = caseChoiceSnapshot();
+			const firstInOrder = new Set<string>([memberId(0), memberId(1)]);
+			const rankedRows = snapshot.rows.map((row) => ({
+				...row,
+				properties: {
+					attendance: firstInOrder.has(row.case_id) ? "10" : "2",
+				},
+			}));
 			const engine = new FormEngine(
 				caseChoiceInput(doc),
 				undefined,
 				undefined,
 				undefined,
 				undefined,
-				caseChoiceSnapshot(),
+				{ ...snapshot, rows: rankedRows },
 				{ stagedAsync },
 			);
 			const { runtime, evaluateAsync } = workerFor(engine);

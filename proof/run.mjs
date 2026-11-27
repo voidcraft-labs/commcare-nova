@@ -77,6 +77,7 @@
 
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
+import { once } from "node:events";
 import { existsSync } from "node:fs";
 import {
 	copyFile,
@@ -93,6 +94,8 @@ import {
 } from "node:fs/promises";
 import { constants } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import { Writable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { startCheckpoints } from "./ci/checkpoints.mjs";
 import { hostCommands } from "./ci/hostCommands.mjs";
@@ -164,6 +167,59 @@ function execute(command, args, options = {}) {
 		child.on("error", reject);
 		child.on("exit", (code, signal) => resolveCode(childExit(code, signal)));
 	});
+}
+
+function forwardOutput(input, output, signal) {
+	// Await writes without ending the shared process stream.
+	const sink = new Writable({
+		write: (chunk, _encoding, done) => output.write(chunk, done),
+	});
+	const failed = (error) => sink.destroy(error);
+	output.on("error", failed);
+	return pipeline(input, sink, { signal }).finally(() =>
+		output.off("error", failed),
+	);
+}
+
+/**
+ * Hosted Docker attaches to private output pipes. Inheriting a saturated,
+ * nonblocking runner descriptor can give Compose EAGAIN and end the attach.
+ * @param {string} command
+ * @param {readonly string[]} args
+ * @param {{ env?: NodeJS.ProcessEnv, stdout?: Writable, stderr?: Writable }} [options]
+ */
+export async function executeWithOutputPipes(
+	command,
+	args,
+	{ env, stdout = process.stdout, stderr = process.stderr } = {},
+) {
+	const child = spawn(command, args, {
+		env,
+		stdio: ["inherit", "pipe", "pipe"],
+	});
+	const forwarding = new AbortController();
+	const work = [
+		once(child, "close"),
+		forwardOutput(child.stdout, stdout, forwarding.signal),
+		forwardOutput(child.stderr, stderr, forwarding.signal),
+	];
+	try {
+		const [[code, signal]] = await Promise.all(work);
+		return childExit(code, signal);
+	} catch (error) {
+		// Another log stream can be waiting on a full runner pipe. Cancel
+		// both forwarders and reap the child before Compose cleanup starts.
+		forwarding.abort();
+		child.kill("SIGTERM");
+		const force = setTimeout(() => child.kill("SIGKILL"), 5_000);
+		force.unref();
+		try {
+			await Promise.allSettled(work);
+		} finally {
+			clearTimeout(force);
+		}
+		throw error;
+	}
 }
 
 /** Runs a command and resolves its exit code and what it printed on standard output. */
@@ -341,12 +397,14 @@ async function checkoutFiles(root) {
 
 /**
  * What a CI shard's container and the surface extraction read of the
- * checkout: the harness and the surface, and the files that pin its
- * dependencies (a shard's checkout holds no more, proof/CLAUDE.md).
+ * checkout: the harness, surface, shared name ranges and dependency pins
+ * (the container reads only these paths, proof/CLAUDE.md).
  */
 export const HARNESS_PATHS = [
 	"proof/",
 	"lib/commcare/surface/",
+	"lib/domain/portableNameRanges.json",
+	"lib/domain/androidNameRanges.json",
 	".nvmrc",
 	"package.json",
 	"package-lock.json",
@@ -1058,8 +1116,9 @@ async function runServer({
 	process.once("SIGTERM", interrupted);
 	const stopWatching = output ? watchMemory(output, project) : async () => {};
 	const hosted = serve.includes("--deadline-at");
+	const run = hosted ? executeWithOutputPipes : execute;
 	try {
-		return await execute(
+		return await run(
 			"docker",
 			[
 				...compose,
@@ -1082,6 +1141,12 @@ async function runServer({
 			],
 			{ env },
 		);
+	} catch (error) {
+		if (!hosted) throw error;
+		console.error(
+			`The hosted proof process could not complete: ${error.message}`,
+		);
+		return 2;
 	} finally {
 		process.off("SIGINT", interrupted);
 		process.off("SIGTERM", interrupted);

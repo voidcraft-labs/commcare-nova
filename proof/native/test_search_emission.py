@@ -26,6 +26,11 @@ CORPORA = {
         "browse",
         "multiple",
         "parent",
+        "named-parent",
+        "mixed-records",
+        "grouped-prompts",
+        "remote-grouped-prompts",
+        "remote-address-picker",
         "registration-link",
         "hidden-link",
         "automatic",
@@ -116,3 +121,29 @@ def test_hq_entries_and_remote_requests_equal_novas(native, family):
             "flag off.",
         },
     )
+
+
+def test_hq_build_requires_every_search_field_to_belong_to_a_heading(hq):
+    from corehq.apps.app_manager.helpers.validators import ModuleBaseValidator
+    from corehq.apps.app_manager.models import Application, CaseSearchProperty, Module
+
+    from proof.hq.check import hq_check
+    from proof.hq.configuration import Configuration
+
+    with hq_check(Configuration(case_search_enabled=True)) as (state, _):
+        app = Application.new_app(state.domain, "Outreach")
+        menu = app.add_module(Module.new_module("Clients", "en"))
+        menu.case_type = "patient"
+        key = "group_header_0"
+        menu.search_config.properties = [
+            CaseSearchProperty(name=key, label={"en": "Identity"}, group_key=key, is_group=True),
+            CaseSearchProperty(name="village", label={"en": "Village"}, group_key=key),
+            CaseSearchProperty(name="region", label={"en": "Region"}, group_key=key),
+        ]
+        validator = ModuleBaseValidator(menu)
+        assert list(validator.validate_search_config()) == []
+
+        menu.search_config.properties[2].group_key = None
+        assert [(error["type"], error["property"]) for error in validator.validate_search_config()] == [
+            ("invalid grouping from ungrouped search property", "region"),
+        ]

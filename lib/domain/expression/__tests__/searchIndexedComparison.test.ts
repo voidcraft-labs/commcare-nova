@@ -111,4 +111,60 @@ describe("searchIndexedComparison", () => {
 			),
 		).toBeUndefined();
 	});
+
+	it("uses the exact text index for a custom date compared with a supported numeric literal", () => {
+		const dob = term(prop("client", "dob"));
+		const three = term(literal(3));
+		expect(searchIndexedComparison(true, dob, "date", three, "int")).toBe(
+			"exact-text",
+		);
+		expect(searchIndexedComparison(false, dob, "date", three, "int")).toBe(
+			"number",
+		);
+		expect(
+			searchIndexedComparison(false, dob, "date", answer, "int"),
+		).toBeUndefined();
+		expect(
+			searchIndexedComparison(true, dob, "date", answer, "int"),
+		).toBeUndefined();
+		expect(
+			searchIndexedComparison(
+				false,
+				dob,
+				"date",
+				term(literal(3.5)),
+				"decimal",
+			),
+		).toBe("number");
+		expect(
+			searchIndexedComparison(true, dob, "date", term(literal(3.5)), "decimal"),
+		).toBe("exact-text");
+		expect(
+			searchIndexedComparison(
+				true,
+				dob,
+				"date",
+				term(literal(0.00001)),
+				"decimal",
+			),
+		).toBe("exact-text");
+		expect(
+			searchIndexedComparison(
+				true,
+				dob,
+				"date",
+				term(literal(2147483648)),
+				"int",
+			),
+		).toBeUndefined();
+		expect(
+			searchIndexedComparison(
+				true,
+				term(prop("client", "date_opened")),
+				"date",
+				three,
+				"int",
+			),
+		).toBeUndefined();
+	});
 });

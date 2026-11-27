@@ -1,6 +1,10 @@
 import { lookupReadSteps } from "@/lib/commcare/lookup/read";
 import { declaresWebApps } from "@/lib/domain/platforms";
-import { caseOptionsNodeset, fieldTakesCaseChoices } from "../caseOptions";
+import {
+	availableCasesNodeset,
+	caseOptionsNodeset,
+	fieldTakesCaseChoices,
+} from "../caseOptions";
 import { caseTypeHopMap } from "../caseTypeDepths";
 import { assertAnswerDataReachesReceiver } from "./submittedData";
 /**
@@ -114,6 +118,7 @@ import {
 	type ProseAtomPart,
 	type ProseTemplate,
 	proseTemplateIsEmpty,
+	type SelectOption,
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
@@ -123,9 +128,11 @@ import type {
 	DatumRef,
 	Expression,
 	FormNodeRef,
+	ProseSlotRef,
 } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { formWireName } from "@/lib/domain/formWireName";
+import type { FIELD_EXTENDED_TEXT_SLOTS } from "@/lib/domain/labelForms";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
@@ -145,6 +152,7 @@ import { w } from "../xpath/wire/builders";
 import { InstanceSink, sessionInstance } from "../xpath/wire/instances";
 import { casePropertyStep } from "../xpath/wire/rowScope";
 import type { WireExpr } from "../xpath/wire/tree";
+import { androidAppHeadElements } from "./androidApp";
 import { fieldBindType } from "./bindType";
 import {
 	bindCarriesConstraint,
@@ -182,8 +190,8 @@ interface ItextRegistration {
 /** A label's other text, written as one more form of the label's entry
  *  (`lib/domain/labelForms.ts`). */
 interface LabelTextForm {
-	readonly field: Uuid;
-	readonly slot: LabelTextSlot;
+	readonly form: LabelTextSlot;
+	readonly ref: ProseSlotRef;
 }
 type AddItext = (
 	id: string,
@@ -421,6 +429,8 @@ function buildActivityParts(
 export interface BuildXFormOptions {
 	/** A reading compares even a form whose submitted answers are being refused. The export and device paths check the emitted primary data. */
 	readonly readingComparison?: true;
+	/** Device builds may install an ordered subset of the app languages. */
+	readonly installationProfileUuid?: Uuid;
 	xmlns: string;
 	/**
 	 * The owning module's case type — the form's own loaded case. Drives the
@@ -439,6 +449,9 @@ export interface BuildXFormOptions {
 	 */
 	searchAnswers?: {
 		readonly instanceId: `search-input:${string}`;
+		readonly answers?: ReadonlyMap<Uuid, `search-input:${string}`>;
+		readonly instances?: ReadonlyMap<Uuid, `results:${string}`>;
+		readonly resultsInstanceId?: `results:${string}`;
 		readonly names: ReadonlyMap<Uuid, string>;
 	};
 	/** Canonical authored ownership before a wire-only menu placement. */
@@ -697,7 +710,7 @@ export function buildXFormSource(
 	formUuid: Uuid,
 	opts: BuildXFormOptions,
 ): XFormSource {
-	const localization = commCareLocalization(doc);
+	const localization = commCareLocalization(doc, opts.installationProfileUuid);
 
 	// The case types this form can READ, name → the index walk from its own
 	// case (own = no hop, parent = one, …). Built from the owning module's case
@@ -748,6 +761,9 @@ export function buildXFormSource(
 				? {}
 				: {
 						searchInputInstanceId: opts.searchAnswers.instanceId,
+						searchAnswerInstances: opts.searchAnswers.answers,
+						searchResultInstances: opts.searchAnswers.instances,
+						searchResultInstance: opts.searchAnswers.resultsInstanceId,
 						searchInputNames: opts.searchAnswers.names,
 					}),
 			datumId: (ref) => {
@@ -858,16 +874,22 @@ export function buildXFormSource(
 		// drops only an item empty in every form). A language's blank is filled
 		// from another's first (`translationFill.ts`), as the form builder's
 		// save fills it (`ItextForm.getValueOrDefault`).
-		const otherForms = labelTexts.map(({ field, slot }) => {
-			const slotRef = { entity: "field", uuid: field, slot } as const;
-			const unit = makeTranslationUnitId("field", field, slot);
+		const otherForms = labelTexts.map(({ form, ref }) => {
+			const unit =
+				"member" in ref
+					? makeTranslationUnitId(
+							"field",
+							ref.uuid,
+							"option_extended_text",
+							ref.member.optionUuid,
+						)
+					: makeTranslationUnitId("field", ref.uuid, ref.slot);
 			return {
-				form: LABEL_TEXT_WIRE_FORMS[slot],
+				form: LABEL_TEXT_WIRE_FORMS[form],
 				templates: localization.languages.map((language) =>
 					localization.prose(language, unit),
 				),
-				lower: (part: ProseAtomPart): WireExpr =>
-					expressions.prose(part, slotRef),
+				lower: (part: ProseAtomPart): WireExpr => expressions.prose(part, ref),
 			};
 		});
 		if (
@@ -877,14 +899,18 @@ export function buildXFormSource(
 			otherForms.length === 0
 		)
 			return { registered: false };
+		const extended = otherForms.find((extra) => extra.form === "long");
 		const protectedMessage = protectConstraint
 			? protectConstraintMessage(
 					id,
 					localization.languages.map((language, index) => ({
 						language,
-						template: localizedTemplates[index] ?? sourceTemplate,
+						template:
+							extended?.templates[index] ??
+							localizedTemplates[index] ??
+							sourceTemplate,
 					})),
-					lowerProse,
+					extended?.lower ?? lowerProse,
 				)
 			: undefined;
 		if (BEHAVIOR_WIRE_IDS.has(id)) {
@@ -994,6 +1020,7 @@ export function buildXFormSource(
 
 	// Assemble the model: primary instance (the data tree), then the
 	// accumulated secondary instances, binds, setvalues, and the itext block.
+	const androidAppActions = androidAppHeadElements(doc, expressions, context);
 	// Element ORDER within the model is significant to JavaRosa's parse, so it
 	// mirrors the prior emitter's sequence exactly: instance → secondary
 	// instances → binds → setvalues → itext.
@@ -1082,6 +1109,7 @@ export function buildXFormSource(
 	const headChildren: ChildNode[] = [
 		el("h:title", {}, [text(wireName)]),
 		el("model", {}, modelChildren),
+		...androidAppActions,
 	];
 	const body = el("h:body", {}, bodyElements);
 	if (caseOperations !== null) {
@@ -1124,14 +1152,7 @@ export function buildXFormSource(
  * Read the inline arm of a select field's final options-source union.
  * Lookup-backed selects emit an itemset and therefore have no inline choices.
  */
-function readOptions(field: Field):
-	| Array<{
-			value: string;
-			label: ProseTemplate;
-			media?: Media;
-			plainLabel?: true;
-	  }>
-	| undefined {
+function readOptions(field: Field): SelectOption[] | undefined {
 	if (
 		(field.kind !== "single_select" && field.kind !== "multi_select") ||
 		field.optionsSource.kind !== "inline"
@@ -1208,6 +1229,12 @@ function buildFieldParts(
 		);
 	}
 	const nodePath = parentPath.child(field.id);
+	if (field.kind === "case_change") {
+		// The case-operation emitter fills this node in-place after the
+		// submitted tree has been built.
+		dataElements.push(el(field.id, {}));
+		return;
+	}
 	if (field.kind === "connect_activity") {
 		buildActivityParts(
 			field,
@@ -1285,11 +1312,25 @@ function buildFieldParts(
 		textForm,
 		"plainHelp" in field ? field : {},
 	);
-	const labelTexts = fieldKindCarriesLabelTexts(field.kind)
+	const labelTexts: LabelTextForm[] = fieldKindCarriesLabelTexts(field.kind)
 		? LABEL_TEXT_SLOTS.filter(
 				(slot) => labelTextOf(field, slot) !== undefined,
-			).map((slot) => ({ field: fieldUuid, slot }))
+			).map((slot) => ({
+				form: slot,
+				ref: { entity: "field", uuid: fieldUuid, slot },
+			}))
 		: [];
+	const extendedText = (
+		slot: (typeof FIELD_EXTENDED_TEXT_SLOTS)[keyof typeof FIELD_EXTENDED_TEXT_SLOTS],
+	): LabelTextForm[] =>
+		carrier[slot] === undefined
+			? []
+			: [
+					{
+						form: "extended_text",
+						ref: { entity: "field", uuid: fieldUuid, slot },
+					},
+				];
 	const hasLabel =
 		field.kind !== "hidden" &&
 		itext(
@@ -1303,18 +1344,41 @@ function buildFieldParts(
 		).registered;
 	const hasHint =
 		field.kind !== "hidden" &&
-		itext(textId("hint"), hint, undefined, false, false, false).registered;
+		itext(
+			textId("hint"),
+			hint,
+			undefined,
+			false,
+			false,
+			false,
+			extendedText("extended_hint"),
+		).registered;
 	const hasHelp =
 		field.kind !== "hidden" &&
-		itext(textId("help"), help, helpMedia, false, false, helpMarkdown)
-			.registered;
+		itext(
+			textId("help"),
+			help,
+			helpMedia,
+			false,
+			false,
+			helpMarkdown,
+			extendedText("extended_help"),
+		).registered;
 	// A message no constraint can fail is never shown, so none is written.
 	const validationMessage = bindCarriesConstraint(
 		field.kind,
 		validate,
 		scalarGuard,
 	)
-		? itext(textId("constraintMsg"), validateMsg, undefined, false, true, false)
+		? itext(
+				textId("constraintMsg"),
+				validateMsg,
+				undefined,
+				false,
+				true,
+				false,
+				extendedText("extended_validate_msg"),
+			)
 		: { registered: false };
 	const hasValidationMessage = validationMessage.registered;
 
@@ -1656,6 +1720,19 @@ function buildFieldParts(
 				true,
 				false,
 				!labelShowsAsTyped(textForm, opt),
+				opt.extended_text === undefined
+					? []
+					: [
+							{
+								form: "extended_text",
+								ref: {
+									entity: "field",
+									uuid: fieldUuid,
+									slot: "option_extended_text",
+									member: { optionUuid: opt.uuid },
+								},
+							},
+						],
 			);
 		});
 	}
@@ -1704,37 +1781,59 @@ function buildFieldParts(
 		: undefined;
 	let caseItemset: Element | undefined;
 	if (caseSource) {
-		const nodeset = caseOptionsNodeset(
-			caseSource,
-			expressions.context({
-				entity: "field",
-				uuid: fieldUuid,
-				slot: "lookup_options_source",
-			}),
-			{
-				formFields: lookupSelects?.filterFieldPaths(nodePath),
-				formCaseProperty: lookupSelects?.formCaseProperty,
-				userPropertySlugs: userPropertySlugsByUuid(doc),
-				...(lookupSelects?.naming && {
-					lookup: {
-						naming: lookupSelects.naming,
-						instanceScope: "xform" as const,
-					},
-				}),
-			},
-			expressions.projection,
-		);
+		const nodeset =
+			caseSource.kind === "available-cases"
+				? availableCasesNodeset(caseSource)
+				: caseOptionsNodeset(
+						caseSource,
+						expressions.context({
+							entity: "field",
+							uuid: fieldUuid,
+							slot: "lookup_options_source",
+						}),
+						{
+							formFields: lookupSelects?.filterFieldPaths(nodePath),
+							formCaseProperty: lookupSelects?.formCaseProperty,
+							userPropertySlugs: userPropertySlugsByUuid(doc),
+							...(lookupSelects?.naming && {
+								lookup: {
+									naming: lookupSelects.naming,
+									instanceScope: "xform" as const,
+								},
+							}),
+						},
+						expressions.projection,
+					);
 		caseItemset = xel("itemset", { xpath: { nodeset } }, context, [
 			xel(
 				"label",
 				{
 					xpath: {
-						ref: w.context([casePropertyStep(caseSource.labelProperty)]),
+						ref: w.context([
+							casePropertyStep(
+								caseSource.kind === "cases"
+									? caseSource.labelProperty
+									: "case_name",
+							),
+						]),
 					},
 				},
 				context,
 			),
 			xel("value", { xpath: { ref: w.context([w.attr("case_id")]) } }, context),
+			...(caseSource.kind !== "cases" || caseSource.sortProperty === undefined
+				? []
+				: [
+						xel(
+							"sort",
+							{
+								xpath: {
+									ref: w.context([casePropertyStep(caseSource.sortProperty)]),
+								},
+							},
+							context,
+						),
+					]),
 		]);
 	}
 	const itemset =
@@ -1760,6 +1859,7 @@ function buildFieldParts(
 			hasValidationMessage &&
 				validationMessage.protectedConstraint === undefined,
 			context,
+			fieldAppearance(field, doc.fields),
 			itemset,
 		),
 	);
@@ -1950,6 +2050,7 @@ function buildLeafControl(
 	hasHelp: boolean,
 	hasValidationMessage: boolean,
 	context: WireElementContext,
+	appearance: string | undefined,
 	itemset?: Element,
 ): Element {
 	// The shared head of every control: the label reference, then the optional
@@ -1999,7 +2100,6 @@ function buildLeafControl(
 		);
 	}
 	const ref = nodePath.toWire();
-	const appearance = fieldAppearance(field);
 	const attributes: Record<string, string> =
 		appearance === undefined ? {} : { appearance };
 

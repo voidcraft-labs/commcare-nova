@@ -1,0 +1,82 @@
+[
+	{
+		"id": "district-chosen-from-the-table",
+		"entry": "questions/lookup-table-select-selectdynamic-mselectdynamic-itemset-nodeset",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/district",
+					"value": "2"
+				}
+			],
+			"expressions": ["/data/district"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "d2"
+			}
+		]
+	},
+	{
+		"id": "assigned-village-in-district-1",
+		"entry": "questions/itemset-filter-lifting-into-predicate",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/district",
+					"value": "1"
+				},
+				{
+					"path": "/data/village",
+					"value": "1"
+				}
+			],
+			"expressions": ["/data/village"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "v1"
+			}
+		]
+	},
+	{
+		"id": "assigned-village-in-district-2",
+		"entry": "questions/itemset-filter-lifting-into-predicate",
+		"form": {
+			"menu": 0,
+			"form": 0
+		},
+		"restore": "restore.xml",
+		"request": {
+			"answers": [
+				{
+					"path": "/data/district",
+					"value": "2"
+				},
+				{
+					"path": "/data/village",
+					"value": "1"
+				}
+			],
+			"expressions": ["/data/village"]
+		},
+		"expect": [
+			{
+				"pointer": "/values/0/value",
+				"value": "v3"
+			}
+		]
+	}
+]

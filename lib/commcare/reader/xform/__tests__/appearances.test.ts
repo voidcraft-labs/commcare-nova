@@ -154,9 +154,7 @@ describe("classifyAppearance", () => {
 
 	it("reads an intent value against the form's intents and callout questions", () => {
 		const intents = { intents: new Set(["scan"]), callouts: new Set(["scan"]) };
-		expect(verdict(text, "xsd:string", "intent:scan", intents)).toBe(
-			Q("intent-id-on-any-input-other-than-an-intent-typed-one-where-id"),
-		);
+		expect(verdict(text, "xsd:string", "intent:scan", intents)).toBe("held");
 		expect(
 			verdict(text, "xsd:string", "intent:scan", {
 				intents: new Set(["scan"]),
@@ -250,6 +248,43 @@ describe("a trigger's appearance, read through the form's stages", () => {
 });
 
 describe("the head's odkx:intent an input names", () => {
+	it("claims the action, extra, and response at their Android intent source sites", async () => {
+		const reading = await readForm(
+			xformSource({
+				data: "<scan/><result/>",
+				model:
+					'<bind nodeset="/data/scan" type="intent"/><bind nodeset="/data/result" type="xsd:int"/>',
+				head: `<odkx:intent id="scan" class="org.example.SCAN"><extra key="unit" ref="'litres'"/><response key="measurement" ref="/data/result"/></odkx:intent>`,
+				body: '<input ref="/data/scan" appearance="intent:scan"/><input ref="/data/result"/>',
+			}),
+			{ mint: true },
+		);
+		expect(formFindings(reading)).toEqual([]);
+		const entry = Q(
+			"android-app-callout-input-appearance-intent-id-bind-type-intent",
+		);
+		const records = [...reading.closed.claims.records()]
+			.filter(
+				(record) =>
+					record.entry === entry && record.key?.startsWith("xform:intent"),
+			)
+			.map(({ key, where }) => [key, where]);
+		const intent = "/h:html/h:head[1]/odkx:intent[1]";
+		expect(records).toHaveLength(8);
+		expect(records).toEqual(
+			expect.arrayContaining([
+				["xform:intent@id", `${intent}/@id`],
+				["xform:intent@class", `${intent}/@class`],
+				["xform:intent/extra", `${intent}/extra[1]`],
+				["xform:intent/extra@key", `${intent}/extra[1]/@key`],
+				["xform:intent/extra@ref", `${intent}/extra[1]/@ref`],
+				["xform:intent/response", `${intent}/response[1]`],
+				["xform:intent/response@key", `${intent}/response[1]/@key`],
+				["xform:intent/response@ref", `${intent}/response[1]/@ref`],
+			]),
+		);
+	});
+
 	it("joins the finding of the question that names it, and leaves nothing unrecognized", async () => {
 		const reading = await readForm(
 			xformSource({
@@ -261,7 +296,7 @@ describe("the head's odkx:intent an input names", () => {
 			}),
 		);
 		expect(codesAt(reading, "scan")).toEqual([
-			Q("android-app-callout-input-appearance-intent-id-bind-type-intent"),
+			Q("android-app-callout-that-cannot-be-recreated"),
 		]);
 		expect(codesAt(reading, "other")).toEqual([
 			Q("intent-id-naming-an-odkx-intent-that-no-callout-question-writes"),

@@ -34,13 +34,43 @@ def advanced_menu_with_a_narrowed_case_list_item(authoring, app_id):
 
 
 def auto_select_on_a_multi_select_list(authoring, app_id):
-    """Households' list choosing several households, every one chosen at once."""
+    """The existing Household follow-up applies a new shared answer, without a scalar case preload."""
+    def shared_start(root, _form):
+        start, = root.xpath("//*[local-name()='setvalue'][@ref='/data/members']")
+        start.getparent().remove(start)
+
+    ops.set_form_source(authoring, app_id, 0, 1, shared_start, what="shared members answer")
     _set_each(
         authoring,
         app_id,
         ("/modules/0/case_details/short/multi_select", True),
         ("/modules/0/case_details/short/auto_select", True),
     )
+
+
+def clickable_icon_for_a_visit(authoring, app_id):
+    """A list icon opens its ordinary follow-up with the exact automatic-submission label."""
+    def mark_label(root, _form):
+        text, = root.xpath("//*[local-name()='itext']/*[local-name()='translation']/*[@id='visit_note-label']")
+        label, = root.xpath("//*[local-name()='label'][@ref=$ref]", ref="jr:itext('visit_note-label')")
+        text.set("id", "Pragma-Submit-Automatically")
+        label.set("ref", "jr:itext('Pragma-Submit-Automatically')")
+
+    ops.set_form_source(authoring, app_id, 1, 0, mark_label, what="automatic follow-up label")
+    ops.set_json(authoring, app_id, "/modules/1/forms/0/session_endpoint_id", "record-visit")
+    ops.set_json(authoring, app_id, "/modules/1/case_details/short/columns/1", {
+        "doc_type": "DetailColumn",
+        "model": "case",
+        "field": "name",
+        "format": "clickable-icon",
+        "header": {"en": "Record visit"},
+        "endpoint_action_id": "record-visit",
+        "enum": [{
+            "doc_type": "MappingItem",
+            "key": "true()",
+            "value": {"en": "jr://file/commcare/image/register_household.png"},
+        }],
+    })
 
 
 def case_list_deep_link_on_display_only_menu(authoring, app_id):
@@ -256,6 +286,96 @@ def form_condition_reading_the_case_on_the_first_menu(authoring, app_id):
     )
 
 
+def limit_101_outside_flat_close(authoring, app_id):
+    """The same list with an ordinary Case Management close HQ does not execute."""
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+
+    def ordinary_source(_root, held):
+        xform = XFormBuilder(held.default_name())
+        xform.new_question("outcome", None, None, calculate="'done'")
+        xml = xform.tostring(xml_declaration=True).decode("utf-8")
+        return xml.replace(xform.xmlns, held.xmlns, 1)
+
+    ops.set_form_source(authoring, app_id, 0, 0, ordinary_source, what="ordinary close without a form-owned block")
+    ops.set_json(authoring, app_id, "/modules/0/forms/0/actions/close_case/condition/type", "always")
+    # The upload keeps the previous designer cache. The ordinary source owns no Save to Case rows.
+    ops.set_json(authoring, app_id, "/modules/0/forms/0/case_references_data/save", {})
+
+
+def limit_101_with_visible_question(authoring, app_id):
+    """The bounded follow-up's only question records text without a case write."""
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+
+    def ordinary_source(_root, held):
+        xform = XFormBuilder(held.default_name())
+        xform.new_question("outcome", "Outcome")
+        xml = xform.tostring(xml_declaration=True).decode("utf-8")
+        return xml.replace(xform.xmlns, held.xmlns, 1)
+
+    limit_101_outside_flat_close(authoring, app_id)
+    ops.set_form_source(authoring, app_id, 0, 0, ordinary_source, what="ordinary interactive question")
+
+
+def limit_101_with_two_visible_questions(authoring, app_id):
+    """The bounded follow-up collects two independent Text answers."""
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+
+    def ordinary_source(_root, held):
+        xform = XFormBuilder(held.default_name())
+        xform.new_question("outcome", "Outcome")
+        xform.new_question("recommendation", "Recommendation")
+        xml = xform.tostring(xml_declaration=True).decode("utf-8")
+        return xml.replace(xform.xmlns, held.xmlns, 1)
+
+    limit_101_outside_flat_close(authoring, app_id)
+    ops.set_form_source(authoring, app_id, 0, 0, ordinary_source, what="two independent interactive questions")
+
+
+def limit_101_with_required_text(authoring, app_id):
+    limit_101_with_two_visible_questions(authoring, app_id)
+
+    def require_answer(root, _form):
+        (bind,) = root.xpath("//*[local-name()='bind'][@nodeset='/data/recommendation']")
+        bind.set("required", "true()")
+
+    ops.set_form_source(authoring, app_id, 0, 0, require_answer, what="require one answer")
+
+
+def limit_101_with_conditionally_required_text(authoring, app_id):
+    limit_101_with_two_visible_questions(authoring, app_id)
+
+    def require_answer(root, _form):
+        (bind,) = root.xpath("//*[local-name()='bind'][@nodeset='/data/recommendation']")
+        bind.set("required", "/data/outcome = 'followup'")
+
+    ops.set_form_source(authoring, app_id, 0, 0, require_answer, what="conditionally require one answer")
+
+
+def limit_101_with_conditional_visibility(authoring, app_id):
+    limit_101_with_two_visible_questions(authoring, app_id)
+
+    def conditional_visibility(root, _form):
+        (bind,) = root.xpath("//*[local-name()='bind'][@nodeset='/data/recommendation']")
+        bind.set("relevant", "/data/outcome = 'followup'")
+
+    ops.set_form_source(authoring, app_id, 0, 0, conditional_visibility, what="show one answer conditionally")
+
+
+def limit_101_with_compound_visibility(authoring, app_id):
+    limit_101_with_two_visible_questions(authoring, app_id)
+
+    def compound_visibility(root, _form):
+        (bind,) = root.xpath("//*[local-name()='bind'][@nodeset='/data/recommendation']")
+        bind.set("relevant", "/data/outcome = 'followup' or /data/outcome = 'complete'")
+
+    ops.set_form_source(authoring, app_id, 0, 0, compound_visibility, what="show an answer for either of two values")
+
+
+def limit_500_read_only_followup(authoring, app_id):
+    limit_101_with_two_visible_questions(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/max_select_value", 500)
+
+
 def multi_select_above_a_hundred(authoring, app_id):
     """Patients' list choosing up to 500 patients."""
     _set_each(
@@ -263,6 +383,21 @@ def multi_select_above_a_hundred(authoring, app_id):
         app_id,
         ("/modules/0/case_details/short/multi_select", True),
         ("/modules/0/case_details/short/max_select_value", 500),
+    )
+
+
+def multi_select_web_apps_above_read_only_limit(authoring, app_id):
+    limit_101_with_two_visible_questions(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/max_select_value", 501)
+
+
+def multi_select_exceeds_runtime_integer(authoring, app_id):
+    """Patients' list holds the first maximum outside Core's signed integer range."""
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/0/case_details/short/multi_select", True),
+        ("/modules/0/case_details/short/max_select_value", 2_147_483_648),
     )
 
 
@@ -286,18 +421,150 @@ def multi_select_unbounded(authoring, app_id):
     )
 
 
-def named_callout(authoring, app_id):
-    """Patients' list given a callout as HQ's Case List page saves one: an action, a name, an extra and a response,
-    which is one thing a person adds."""
+def named_callout(authoring, app_id, *, value="scan"):
+    """Patients' list with a lookup extra that reads a relative XPath rather than fixed text."""
     _set_each(
         authoring,
         app_id,
         ("/modules/0/case_details/short/lookup_enabled", True),
         ("/modules/0/case_details/short/lookup_action", "org.example.SCAN"),
         ("/modules/0/case_details/short/lookup_name", "Scan a card"),
-        ("/modules/0/case_details/short/lookup_extras", [{"key": "mode", "value": "scan"}]),
+        ("/modules/0/case_details/short/lookup_extras", [{"key": "mode", "value": value}]),
         ("/modules/0/case_details/short/lookup_responses", [{"key": "patient_id"}]),
     )
+
+
+def calculated_callout(authoring, app_id):
+    """The same lookup sends a calculated number, outside the current admitted arguments."""
+    named_callout(authoring, app_id, value="1 + 2")
+
+
+def callout_with_a_multi_step_field_argument(authoring, app_id):
+    """The ordinary Android session has no main instance for this relative path."""
+    named_callout(authoring, app_id, value="properties/mode")
+
+
+def explicitly_evaluated_callout(authoring, app_id):
+    """A whole-number sum should also be evaluated by a legacy-mode worker."""
+    calculated_callout(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_extras", [
+        {"key": "mode", "value": "1 + 2"},
+        {"key": "force_xpath_parsing", "value": "yes"},
+    ])
+
+
+def callout_with_unspaced_integer_sum(authoring, app_id):
+    """The legacy worker mode sends the exact saved calculation spelling."""
+    named_callout(authoring, app_id, value="1+2")
+
+
+def fixed_text_callout(authoring, app_id):
+    """Patients' list with a named companion, literal text arguments and ordered fallback response names."""
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/0/case_details/short/lookup_enabled", True),
+        ("/modules/0/case_details/short/lookup_action", "org.example.SCAN"),
+        ("/modules/0/case_details/short/lookup_name", "Scan a card"),
+        ("/modules/0/case_details/short/lookup_extras", [
+            {"key": "mode", "value": "'scan'"},
+            {"key": "source", "value": "concat('home', ' visit')"},
+        ]),
+        ("/modules/0/case_details/short/lookup_responses", [{"key": "patient_id"}, {"key": "fallback"}]),
+    )
+
+
+def fixed_text_callout_with_worker_name(authoring, app_id):
+    """Patients' lookup passes the signed-in worker's username beside a fixed argument."""
+    fixed_text_callout(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_extras", [
+        {"key": "mode", "value": "'scan'"},
+        {"key": "worker", "value": "instance('commcaresession')/session/context/username"},
+    ])
+
+
+def fixed_text_callout_with_count(authoring, app_id, *, indexed=True):
+    """A follow-up reads the guarded count from its one case list in an Android-only app."""
+    from lxml import etree
+
+    from proof.matrix.variants.expressions_and_data import _declare
+
+    fixed_text_callout(authoring, app_id)
+    ops.set_json(authoring, app_id, "/cloudcare_enabled", False)
+
+    def edit(root, _held):
+        _declare(root, "commcaresession", "jr://instance/session")
+        model, = root.xpath("//*[local-name()='model']")
+        data, = model.xpath("./*[local-name()='instance'][not(@id)]/*")
+        data.append(etree.Element(f"{{{etree.QName(data).namespace}}}lookup_count"))
+        bind = etree.Element(f"{{{etree.QName(model).namespace}}}bind")
+        bind.set("nodeset", "/data/lookup_count")
+        result = "instance('commcaresession')/session/data/fingerprintquery"
+        read = f"{result}[1]" if indexed else result
+        bind.set("calculate", f"if(count({result}) = 1, number({read}), '')")
+        model.append(bind)
+
+    ops.set_form_source(authoring, app_id, 0, 1, edit, what="guarded companion lookup count")
+
+
+def fixed_text_callout_with_unindexed_count(authoring, app_id):
+    """The same numeric guard converts the whole nodeset only after finding one value."""
+    fixed_text_callout_with_count(authoring, app_id, indexed=False)
+
+
+def fixed_text_callout_with_confidence(authoring, app_id):
+    """Patients' lookup matches the returned IDs to the cases and has a visible confidence heading."""
+    fixed_text_callout(authoring, app_id)
+    _set_each(
+        authoring, app_id,
+        ("/modules/0/case_details/short/lookup_display_results", True),
+        ("/modules/0/case_details/short/lookup_field_template", "@case_id"),
+        ("/modules/0/case_details/short/lookup_field_header", {"en": "Confidence"}),
+    )
+
+
+def fixed_text_callout_with_name_confidence(authoring, app_id):
+    """The companion's return value matches each record's native case_name child."""
+    fixed_text_callout_with_confidence(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_field_template", "case_name")
+
+
+def fixed_text_callout_with_property_confidence(authoring, app_id):
+    """Patients' lookup matches the companion's key to each row's custom property."""
+    fixed_text_callout_with_confidence(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_field_template", "scan_id")
+
+
+def fixed_text_callout_with_wrapped_property_confidence(authoring, app_id):
+    """Core converts the cell's key to text before attaching a score."""
+    fixed_text_callout_with_confidence(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_field_template", "concat(scan_id, '')")
+
+
+def case_id_callout_without_result_heading(authoring, app_id):
+    """A row lookup with the heading map HQ would hold before a language has a saved heading."""
+    fixed_text_callout_with_confidence(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_field_header", {})
+
+
+def property_callout_without_result_heading(authoring, app_id):
+    """The lookup emits a header with no text child for a property key too."""
+    case_id_callout_without_result_heading(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_field_template", "scan_id")
+
+
+def fixed_text_callout_with_icon(authoring, app_id):
+    """Patients' lookup button uses a picture the HQ picker uploaded."""
+    fixed_text_callout(authoring, app_id)
+    path = "jr://file/commcare/image/case-lookup.png"
+    _pages.upload_picture(authoring, app_id, path)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_image", path)
+
+
+def automatic_fixed_text_callout(authoring, app_id):
+    """The same companion configuration with automatic lookup enabled."""
+    fixed_text_callout(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/lookup_autolaunch", True)
 
 
 def parent_selection_of_a_list_with_no_columns(authoring, app_id):
@@ -1025,47 +1292,78 @@ def tile_cell_without_a_size(authoring, app_id):
 
 
 def tile_grouped_by_a_hyphenated_index(authoring, app_id):
-    """Follow-ups' list laid out as a tile, grouped by an index name holding a hyphen."""
+    """The original one-cell tile leaves no per-case body below its two-row heading."""
+    _tile_grouped_by_index(authoring, app_id, "my-parent", with_body=False)
+
+
+def tile_grouped_by_a_hyphenated_index_with_a_body(authoring, app_id):
+    _tile_grouped_by_index(authoring, app_id, "my-parent", with_body=True)
+
+
+def tile_grouped_by_an_invalid_index(authoring, app_id):
+    _tile_grouped_by_index(authoring, app_id, "-my-parent", with_body=True)
+
+
+def tile_grouped_by_a_dotted_index(authoring, app_id):
+    _tile_grouped_by_index(authoring, app_id, "my.parent", with_body=True)
+
+
+def tile_grouped_by_a_spaced_index(authoring, app_id):
+    _tile_grouped_by_index(authoring, app_id, "my parent", with_body=True)
+
+
+def tile_grouped_by_an_index_path(authoring, app_id):
+    _tile_grouped_by_index(authoring, app_id, "parent/parent", with_body=True)
+
+
+def tile_grouped_by_a_wildcard_index(authoring, app_id):
+    _tile_grouped_by_index(authoring, app_id, "parent/*", with_body=True)
+
+
+def tile_grouped_by_an_index_attribute(authoring, app_id):
+    _tile_grouped_by_index(authoring, app_id, "parent/@case_type", with_body=True)
+
+
+def _tile_grouped_by_index(authoring, app_id, identifier, *, with_body):
+    header = {
+        "model": "case",
+        "field": "name",
+        "header": {"en": "Name"},
+        "format": "plain",
+        "useXpathExpression": False,
+        "grid_x": 0,
+        "grid_y": 0,
+        "enum": [],
+        "graph_configuration": {
+            "config": {},
+            "locale_specific_config": {},
+            "annotations": [],
+            "series": [],
+            "doc_type": "GraphConfiguration",
+        },
+        "late_flag": 30,
+        "time_ago_interval": 365.25,
+        "date_format": "%d/%m/%y",
+        "doc_type": "DetailColumn",
+        "width": 12,
+        "height": 1,
+        "horizontal_align": "left",
+        "vertical_align": "start",
+        "font_size": "medium",
+        "show_border": False,
+        "show_shading": False,
+    }
     _set_each(
         authoring,
         app_id,
         ("/modules/1/case_details/short/case_tile_template", "custom"),
         (
             "/modules/1/case_details/short/columns",
-            [
-                {
-                    "model": "case",
-                    "field": "name",
-                    "header": {"en": "Name"},
-                    "format": "plain",
-                    "useXpathExpression": False,
-                    "grid_x": 0,
-                    "grid_y": 0,
-                    "enum": [],
-                    "graph_configuration": {
-                        "config": {},
-                        "locale_specific_config": {},
-                        "annotations": [],
-                        "series": [],
-                        "doc_type": "GraphConfiguration",
-                    },
-                    "late_flag": 30,
-                    "time_ago_interval": 365.25,
-                    "date_format": "%d/%m/%y",
-                    "doc_type": "DetailColumn",
-                    "width": 12,
-                    "height": 1,
-                    "horizontal_align": "left",
-                    "vertical_align": "start",
-                    "font_size": "medium",
-                    "show_border": False,
-                    "show_shading": False,
-                }
-            ],
+            [header, {**header, "field": "notes", "header": {"en": "Notes"}, "grid_y": 1}] if with_body else [header],
         ),
         (
             "/modules/1/case_details/short/case_tile_group",
-            {"doc_type": "CaseTileGroupConfig", "header_rows": 2, "index_identifier": "my-parent"},
+            {"doc_type": "CaseTileGroupConfig", "header_rows": 1 if with_body else 2, "index_identifier": identifier},
         ),
     )
 
@@ -1717,3 +2015,11 @@ def calculation_loading_faster(authoring, app_id):
         ("/modules/0/show_case_list_optimization_options", True),
         ("/modules/0/case_details/short/columns/4/optimization", "cache_and_lazy_load"),
     )
+
+
+def advanced_inline_search_with_automatic_start(authoring, app_id):
+    """An automatic inline Search differs from a direct prompted Advanced entry."""
+    from proof.matrix.registry import load_variants
+
+    original = next(row for row in load_variants() if row.id == "hq-advanced/advanced-menu-whose-forms-read-the-search")
+    ops.set_json(authoring, app_id, original.change["pointer"], {**original.change["value"], "default_search": True})

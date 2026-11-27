@@ -28,3 +28,41 @@ def test_formplayer_submits_a_registration_under_its_own_root(hq, core_runner, f
     assert case is not None and case.get("case_id")
     assert case.findtext("{*}create/{*}case_name") == "Chen"
     assert root.findtext("{*}meta/{*}instanceID")
+
+
+UNICODE_ROOT = "survéy"
+
+
+def set_named_answer_root(published, name):
+    """Keep the stock registration and change only its primary XML root and references."""
+    from proof.hq import operations
+
+    model = operations.held_app(published.unit, published.app_id)
+    form = model.modules[0].forms[0]
+    tree = etree.fromstring(form.source.encode())
+    root, = tree.xpath("//*[local-name()='model']/*[local-name()='instance' and not(@id)]/*")
+    assert etree.QName(root).localname == "survey"
+    root.tag = f"{{{etree.QName(root).namespace}}}{name}"
+    for element in tree.iter():
+        for key, value in list(element.attrib.items()):
+            if "/survey/" in value:
+                element.set(key, value.replace("/survey/", f"/{name}/"))
+    write = form.actions.open_case.name_update
+    assert write.question_path.startswith("/survey/")
+    write.question_path = write.question_path.replace("/survey/", f"/{name}/", 1)
+    form.source = etree.tostring(tree, encoding="unicode")
+    model.save()
+
+
+def test_formplayer_cannot_open_a_unicode_primary_root(hq, core_runner, formplayer_documents, formplayer_runner, evidence):
+    doc = formplayer_documents["targeted-named-answer-root"]
+    with apps.published(doc, core_runner) as published:
+        set_named_answer_root(published, UNICODE_ROOT)
+        with apps.served(published, formplayer_runner) as served:
+            with served.run("unicode-answer-root"):
+                web = apps.web(formplayer_runner, served)
+                form = web.navigate(["0", "0"])
+                assert form.get("status") == "error", form
+                assert "SAXParseException" in form.get("exception", ""), form
+                assert not served.hq.submissions
+                evidence("unicode-answer-root-cannot-open", {"root": UNICODE_ROOT, "error": form["exception"]})

@@ -13,6 +13,7 @@ import {
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	type Uuid,
 } from "@/lib/domain";
+import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
@@ -22,15 +23,26 @@ import type {
 	SearchFilter,
 } from "@/lib/domain/modules";
 import { recordFromEntries } from "@/lib/domain/records";
-import { CASE_NODE_ATTRIBUTE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
+import {
+	CASE_NODE_ATTRIBUTE_PROPERTIES,
+	isDeviceOnlyCaseProperty,
+} from "@/lib/domain/standardCaseProperties";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
 import { circumstanceFinding } from "@/lib/publish/hqFindings";
+import {
+	isProjectSearchId,
+	isProjectSearchParameter,
+} from "../../hq/projectSearch";
 import { searchButtonUndeclaredInstances } from "../../suite/case-search/buttonCondition";
 import { readSearchFilterTarget } from "../../suite/case-search/nativeFilters";
 import {
 	readDedicatedOrder,
+	readDiscardedOrderText,
+	readIndexResetOrderText,
 	readRequestOrderText,
-	requestOrderTextNamesReserved,
+	requestOrderText,
+	requestOrderTextRefusal,
+	unmappedSingleOrderComparison,
 } from "../../suite/case-search/requestOrder";
 import { simpleArmNeedsXPathQueryEmission } from "../../suite/case-search/simpleArmDerivation";
 import { rethrowWorkStop } from "../../workMeter";
@@ -93,6 +105,7 @@ import {
 	holdsText,
 	hqAutoSelects,
 	ownersWithoutClauseRegistration,
+	readSearchResultsName,
 	readSearchSettings,
 	registerListOwner,
 	runtimeGuardEndings,
@@ -112,6 +125,18 @@ const MARKERS = MARKERS_HELD;
 
 export const SEARCH_CLAIMS = defineClaims("search", {
 	configShared: take(ROUND_TRIP, "schema:ShadowModule.search_config"),
+	parameterRows: take(
+		`${S}case-search-endpoint-id`,
+		"schema:CaseSearch.default_properties",
+	),
+	parameter: take(
+		`${S}case-search-endpoint-id`,
+		"schema:DefaultCaseSearchProperty",
+	),
+	parameterName: take(
+		`${S}case-search-endpoint-id`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
 	configModule: take(ROUND_TRIP, "schema:Module.search_config"),
 	configAdvanced: take(ROUND_TRIP, "schema:AdvancedModule.search_config"),
 	inactive: derived(ROUND_TRIP, "schema:CaseSearch"),
@@ -155,8 +180,24 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 		`${S}default-filter-orders-the-records-the-search-sends`,
 		"schema:DefaultCaseSearchProperty.defaultValue",
 	),
+	defaultOrderFallback: take(
+		`${S}default-filter-resets-order-with-index-fallback`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
+	defaultOrderFallbackValue: take(
+		`${S}default-filter-resets-order-with-index-fallback`,
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
 	sortReserved: refuse(
 		`${S}a-server-order-naming-a-property-nova-reserves`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
+	sortDeviceOnly: refuse(
+		`${S}a-server-order-naming-a-property-only-devices-hold`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
+	unmappedOrderComparison: refuse(
+		`${S}default-order-with-an-unmapped-comparison`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
 	sortKey: refuse(
@@ -171,7 +212,27 @@ export const SEARCH_CLAIMS = defineClaims("search", {
 		`${S}an-x-commcare-custom-related-case-property-entry-together-with`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
-	caseTypeKey: refuse(
+	requestRelatedPropertyDeviceOnly: refuse(
+		`${S}a-related-record-property-only-devices-hold`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
+	requestRelatedProperty: take(
+		`${S}default-related-record-id-property`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
+	requestRelatedPropertyValue: take(
+		`${S}default-related-record-id-property`,
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	requestRelatedRecords: take(
+		`${S}default-related-record-inclusion`,
+		"schema:DefaultCaseSearchProperty.property",
+	),
+	requestTypeValue: take(
+		`${S}default-properties-entry-keyed-case-type`,
+		"schema:DefaultCaseSearchProperty.defaultValue",
+	),
+	caseTypeKey: take(
 		`${S}default-properties-entry-keyed-case-type`,
 		"schema:DefaultCaseSearchProperty.property",
 	),
@@ -245,6 +306,7 @@ interface SearchReading {
 	readonly rows: readonly SearchRow[];
 	readonly formsReadSearch: boolean;
 	readonly zeroInput: boolean;
+	readonly usesProjectSearch: boolean;
 	/** Whether the default filters are only HQ's two markers, on a menu with no prompt. */
 	readonly markersOnly: boolean;
 	readonly whole: boolean;
@@ -295,13 +357,24 @@ function keyFinding(
 		return C.relatedTwice;
 	if (key === "commcare_blacklisted_owner_ids")
 		return ownersExpression ? C.ownersTwice : undefined;
-	if (key === "case_type") return C.caseTypeKey;
+	if (
+		key === "case_type" ||
+		key === "x_commcare_include_all_related_cases" ||
+		key === "x_commcare_custom_related_case_property"
+	)
+		return undefined;
 	if (key === "x_commcare_endpoint_id") return C.endpointKey;
 	if (key === "x_commcare_data_registry") return C.registryKey;
 	if (key === "commcare_sort" || key.startsWith("x_commcare_"))
 		return C.sortKey;
 	return undefined;
 }
+
+const BUILT_IN_ORDER_REQUEST_OVERRIDES: ReadonlySet<string> = new Set([
+	"commcare_sort",
+	"x_commcare_endpoint_id",
+	"x_commcare_data_registry",
+]);
 
 /** The default filters: each `_xpath_query` row kept, the markers read, every other key refused. */
 function readDefaultFilters(
@@ -313,6 +386,9 @@ function readDefaultFilters(
 	ok: boolean;
 	rows: SearchRow[];
 	filters: SearchFilter[];
+	requestTypes: string[];
+	coveredSettings: Set<string>;
+	relatedIdProperty?: string;
 	/** Each key a default filter other than a row names, with the pointer of each such filter's
 	 *  `property`. */
 	names: Map<string, string[]>;
@@ -323,6 +399,67 @@ function readDefaultFilters(
 	const filters: SearchFilter[] = [];
 	const stored = cursor.peek("default_properties");
 	const entries = objectMembers(stored) ?? [];
+	const dedicatedOrder = cursor.peek("custom_sort_properties");
+	const prompts = cursor.peek("properties");
+	const builtInOrderOnly =
+		module.json.peek("doc_type") === "Module" &&
+		!cursor.peek("case_search_endpoint_id") &&
+		!cursor.peek("data_registry") &&
+		// Answers can replace the sort or send it to a different HQ receiver.
+		(prompts === undefined ||
+			(Array.isArray(prompts) &&
+				!(objectMembers(prompts) ?? []).some(
+					(prompt) =>
+						prompt.is_group !== true &&
+						typeof prompt.name === "string" &&
+						BUILT_IN_ORDER_REQUEST_OVERRIDES.has(prompt.name),
+				))) &&
+		(dedicatedOrder === undefined ||
+			(Array.isArray(dedicatedOrder) && dedicatedOrder.length === 0)) &&
+		entries.every(
+			(entry) =>
+				entry.property === "commcare_sort" || entry.property === "_xpath_query",
+		);
+	const orderEntries = entries.filter(
+		(entry) => entry.property === "commcare_sort",
+	);
+	const singleBuiltInOrder = builtInOrderOnly && orderEntries.length === 1;
+	const literalSortText = (value: unknown): string | undefined => {
+		if (typeof value !== "string") return undefined;
+		const syntax = readFormSyntax(value);
+		return syntax.ok && syntax.node?.kind === "string"
+			? syntax.node.value
+			: undefined;
+	};
+	const blankList = (value: unknown) =>
+		value === undefined || (Array.isArray(value) && value.length === 0);
+	const literalOrders = orderEntries.map((entry) =>
+		literalSortText(entry.defaultValue),
+	);
+	const resetPositions = literalOrders.flatMap((text, index) =>
+		text !== undefined && readIndexResetOrderText(text) ? [index] : [],
+	);
+	const resetPosition = resetPositions[0] ?? -1;
+	const carriesIndexReset =
+		builtInOrderOnly &&
+		Array.isArray(stored) &&
+		stored.length === entries.length &&
+		blankList(prompts) &&
+		blankList(cursor.peek("additional_case_types")) &&
+		blankList(cursor.peek("additional_registry_cases")) &&
+		!holdsText(cursor, "custom_related_case_property") &&
+		cursor.peek("include_all_related_cases") !== true &&
+		cursor.peek("auto_launch") === true &&
+		cursor.peek("default_search") === true &&
+		cursor.peek("inline_search") !== true &&
+		resetPositions.length === 1 &&
+		literalOrders.every(
+			(text, index) =>
+				text !== undefined &&
+				(readRequestOrderText(text) ||
+					readIndexResetOrderText(text) ||
+					(index < resetPosition && readDiscardedOrderText(text))),
+		);
 	const markersOnly =
 		!hasPrompts &&
 		entries.length > 0 &&
@@ -347,6 +484,9 @@ function readDefaultFilters(
 	);
 	const relatedPropertySet = holdsText(cursor, "custom_related_case_property");
 	const rows: SearchRow[] = [];
+	const requestTypes: string[] = [];
+	let relatedIdProperty: string | undefined;
+	const coveredSettings = new Set<string>();
 	const names = new Map<string, string[]>();
 	const addName = (property: string, row: JsonCursor) =>
 		names.set(property, [
@@ -393,18 +533,32 @@ function readDefaultFilters(
 		if (property !== "_xpath_query") {
 			// A literal order is held among the filters, where it arrived; one
 			// naming a property Nova reserves is refused under its own entry.
-			let sortReserved = false;
+			let sortRefusal: ReturnType<typeof requestOrderTextRefusal>;
+			let unmappedComparison = false;
 			if (property === "commcare_sort") {
-				const syntax = readFormSyntax(value);
-				const text =
-					syntax.ok && syntax.node?.kind === "string"
-						? syntax.node.value
+				const text = literalSortText(value);
+				const reset =
+					text !== undefined && carriesIndexReset
+						? readIndexResetOrderText(text)
 						: undefined;
-				const order =
+				const parsedOrder =
 					text === undefined ? undefined : readRequestOrderText(text);
-				sortReserved =
-					text !== undefined && requestOrderTextNamesReserved(text);
+				sortRefusal =
+					text === undefined ? undefined : requestOrderTextRefusal(text);
+				unmappedComparison =
+					text !== undefined &&
+					singleBuiltInOrder &&
+					unmappedSingleOrderComparison(text);
+				const discarded =
+					text !== undefined &&
+					carriesIndexReset &&
+					reset === undefined &&
+					parsedOrder === undefined
+						? readDiscardedOrderText(text)
+						: undefined;
+				const order = reset ?? parsedOrder?.order ?? discarded;
 				if (order !== undefined) {
+					const removedSuffix = parsedOrder?.removedSuffix;
 					const occurrence = names.get(property)?.length ?? 0;
 					addName(property, row);
 					const uuid = accounting.identity(
@@ -419,17 +573,131 @@ function readDefaultFilters(
 						ok = false;
 						return;
 					}
-					row.take("property", C.defaultOrder, String).value;
-					row.take("defaultValue", C.defaultOrderValue, String).value;
+					const keyClaim =
+						reset === undefined && discarded === undefined
+							? C.defaultOrder
+							: C.defaultOrderFallback;
+					const valueClaim =
+						reset === undefined && discarded === undefined
+							? C.defaultOrderValue
+							: C.defaultOrderFallbackValue;
+					row.take("property", keyClaim, String).value;
+					row.take("defaultValue", valueClaim, String).value;
+					accounting.claimEntry(
+						{ json: row, key: "property" },
+						keyClaim.entry,
+						"csql-key:commcare_sort",
+						row.place,
+					);
+					// This filter's native syntax was read as one XPath string literal above.
+					for (const key of [
+						"xpath-expr:XPathStringLiteral",
+						"xpath-token:STR",
+					])
+						accounting.claimEntry(
+							{ json: row, key: "defaultValue" },
+							"expressions-and-data/xpath-operators-and-literals",
+							key,
+							row.place,
+						);
+					if (text !== requestOrderText(order))
+						sameState(
+							ctx,
+							C.defaultOrderValue.entry,
+							`${row.pointer}/defaultValue`,
+							removedSuffix
+								? "search-order-unused-suffix-removed"
+								: "search-order-direction-signs-respelled",
+						);
 					filters.push({ uuid, kind: "order", order });
 					return;
 				}
 			}
 			// The row's value is the filter the refusal names, and stands under its finding.
-			const claim = sortReserved
-				? C.sortReserved
-				: keyFinding(property, value, ownersExpression, relatedPropertySet);
+			const claim =
+				sortRefusal === "reserved"
+					? C.sortReserved
+					: sortRefusal === "device-only"
+						? C.sortDeviceOnly
+						: unmappedComparison
+							? C.unmappedOrderComparison
+							: keyFinding(
+									property,
+									value,
+									ownersExpression,
+									relatedPropertySet,
+								);
 			if (claim === undefined) {
+				if (
+					property === "case_type" ||
+					property === "x_commcare_custom_related_case_property"
+				) {
+					const parsed = readFormSyntax(value);
+					const name =
+						parsed.ok && parsed.node?.kind === "string"
+							? parsed.node.value
+							: undefined;
+					if (
+						property === "x_commcare_custom_related_case_property" &&
+						name !== undefined &&
+						isDeviceOnlyCaseProperty(name)
+					) {
+						const claim = C.requestRelatedPropertyDeviceOnly;
+						const detail = { name };
+						row.refuse("property", claim, detail);
+						accounting.cover(
+							{ json: row, key: "defaultValue" },
+							manifestFindingOf(claim, row.place, detail),
+						);
+						ok = false;
+						return;
+					}
+					const match =
+						property === "case_type" ? C.caseTypeKey : C.requestRelatedProperty;
+					const valid =
+						name !== undefined &&
+						(property === "case_type"
+							? CASE_TYPE_PATTERN.test(name)
+							: authoredCasePropertyNameSchema.safeParse(name).success &&
+								relatedIdProperty === undefined);
+					if (!valid || name === undefined) {
+						accounting.circumstance("unrecognized", row.place, {
+							name: "schema:DefaultCaseSearchProperty.defaultValue",
+						});
+						ok = false;
+						return;
+					}
+					row.take("property", match, String).value;
+					row.take(
+						"defaultValue",
+						property === "case_type"
+							? C.requestTypeValue
+							: C.requestRelatedPropertyValue,
+						String,
+					).value;
+					const occurrence = names.get(property)?.length ?? 0;
+					addName(property, row);
+					const uuid = accounting.identity(
+						ctx.identities.claim(
+							externalKey.searchFilter(module.uniqueId, property, occurrence),
+							`${module.uniqueId}/search/filter/${index}`,
+						),
+						row.place,
+						"schema:DefaultCaseSearchProperty.property",
+					);
+					if (uuid === undefined) {
+						ok = false;
+						return;
+					}
+					if (property === "case_type") {
+						requestTypes.push(name);
+						filters.push({ uuid, kind: "request-record-type", caseType: name });
+					} else {
+						relatedIdProperty = name;
+						filters.push({ uuid, kind: "related-record-id", property: name });
+					}
+					return;
+				}
 				const target = readSearchFilterTarget(property);
 				const occurrence = names.get(property)?.length ?? 0;
 				addName(property, row);
@@ -449,13 +717,15 @@ function readDefaultFilters(
 				const claim =
 					target.kind === "excluded-owners"
 						? C.ownersKey
-						: "ancestors" in target && target.ancestors
-							? C.ancestorKey
-							: target.kind === "record-name" ||
-									target.kind === "attribute" ||
-									target.kind === "property"
-								? C.plainKey
-								: C.projectKey;
+						: target.kind === "include-related-records"
+							? C.requestRelatedRecords
+							: "ancestors" in target && target.ancestors
+								? C.ancestorKey
+								: target.kind === "record-name" ||
+										target.kind === "attribute" ||
+										target.kind === "property"
+									? C.plainKey
+									: C.projectKey;
 				row.take("property", claim, String).value;
 				if (property === "owner_id")
 					accounting.claimEntry(
@@ -504,17 +774,21 @@ function readDefaultFilters(
 					: claim === C.relatedTwice
 						? "custom_related_case_property"
 						: undefined;
-			if (beside !== undefined)
+
+			const finding = manifestFindingOf(claim, row.place, detail);
+			if (claim === C.relatedTwice && beside !== undefined) {
+				if (!coveredSettings.has(beside))
+					accounting.cover({ json: cursor, key: beside }, finding);
+				coveredSettings.add(beside);
+			} else if (beside !== undefined) {
 				accounting.findingAt(
 					claim,
 					row.place,
 					`${cursor.pointer}/${beside}`,
 					detail,
 				);
-			accounting.cover(
-				{ json: row, key: "defaultValue" },
-				manifestFindingOf(claim, row.place, detail),
-			);
+			}
+			accounting.cover({ json: row, key: "defaultValue" }, finding);
 			addName(property, row);
 			ok = false;
 			return;
@@ -538,7 +812,17 @@ function readDefaultFilters(
 			);
 		rows.push({ index, text: value, cursor: row });
 	});
-	return { ok, rows, filters, names, zeroInput, markersOnly };
+	return {
+		ok,
+		rows,
+		filters,
+		requestTypes,
+		relatedIdProperty,
+		coveredSettings,
+		names,
+		zeroInput,
+		markersOnly,
+	};
 }
 
 /** A row's `parent` link in the catalog, where the child has no parent there: both types named,
@@ -610,6 +894,109 @@ function recordInactiveSearchRespellings(
 			);
 }
 
+/** A repeated key is a second value in the request. Its ordinal distinguishes its
+ * expression from the first value, while the service identity is shared across menus. */
+function readProjectSearch(
+	ctx: ReadContext,
+	module: DraftModule,
+	cursor: JsonCursor,
+	endpointId: number,
+	config: Partial<OrdinaryCaseSearchConfig>,
+): ReturnType<typeof readDefaultFilters> {
+	const place = searchPlace(module);
+	let searchUuid = ctx.draft.projectSearches.get(endpointId);
+	if (searchUuid === undefined) {
+		searchUuid = ctx.accounting.identity(
+			ctx.identities.claim(
+				externalKey.projectSearch(endpointId),
+				module.uniqueId,
+			),
+			place,
+			"schema:CaseSearch.case_search_endpoint_id",
+		);
+		if (searchUuid !== undefined) {
+			const uuid = searchUuid;
+			const name =
+				ctx.input.knownProjectSearchNames?.[uuid]?.name ??
+				`${module.module.name || "Project"} search`;
+			ctx.writeDraft(() => {
+				ctx.draft.projectSearches.set(endpointId, uuid);
+				ctx.draft.appSettings.projectSearches ??= recordFromEntries([]);
+				ctx.draft.appSettings.projectSearches[uuid] = { name };
+			});
+		}
+	}
+	cursor.take("case_search_endpoint_id", SETTING_CLAIMS.endpoint, Number).value;
+	const defaults: NonNullable<
+		OrdinaryCaseSearchConfig["projectSearch"]
+	>["defaults"] = [];
+	const names = new Map<string, string[]>();
+	let ok = searchUuid !== undefined;
+	for (const row of cursor.list(
+		"default_properties",
+		"DefaultCaseSearchProperty",
+		C.parameterRows,
+	)) {
+		const name = row.peek("property");
+		const value = row.peek("defaultValue");
+		if (
+			typeof name !== "string" ||
+			!isProjectSearchParameter(name) ||
+			typeof value !== "string" ||
+			!value.trim()
+		) {
+			// Leave the exact unread key for accounting. A malformed service request cannot be adopted.
+			ok = false;
+			continue;
+		}
+		const sites = names.get(name) ?? [];
+		const ordinal = sites.length;
+		sites.push(`${row.pointer}/property`);
+		names.set(name, sites);
+		const uuid = ctx.accounting.identity(
+			ctx.identities.claim(
+				externalKey.projectSearchParameter(module.uniqueId, name, ordinal),
+				row.pointer,
+			),
+			place,
+			"schema:DefaultCaseSearchProperty.property",
+		);
+		if (!uuid) {
+			ok = false;
+			continue;
+		}
+		row.takeClass(C.parameter).value;
+		row.take("property", C.parameterName, String).value;
+		ctx.pending.register(
+			{
+				ref: {
+					entity: "module",
+					uuid: module.uuid,
+					slot: "project_search_parameter",
+					member: { parameterUuid: uuid },
+				},
+				text: value,
+				mode: { target: "hq-json", interpolation: "none" },
+				place,
+				key: "schema:DefaultCaseSearchProperty.defaultValue",
+			},
+			{ json: row, key: "defaultValue" },
+		);
+		defaults.push({ uuid, name, value: pendingPlaceholder("value") });
+	}
+	if (searchUuid !== undefined) config.projectSearch = { searchUuid, defaults };
+	return {
+		ok,
+		rows: [],
+		names,
+		filters: [],
+		requestTypes: [],
+		coveredSettings: new Set(),
+		zeroInput: false,
+		markersOnly: false,
+	};
+}
+
 /** Before any expression binds: every menu's search, read from its `search_config`, and the type each date
  *  Search field declares written into the draft's catalog before any expression binds. */
 export function readSearches(ctx: ReadContext, app: DraftApp): void {
@@ -631,7 +1018,17 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		// claimed as inactive, and one it offers is left unclaimed, which the accounting names.
 		if (module.module.caseType === undefined) {
 			if (!offers) {
-				deriveInactiveSearch(module, cursor, new Set());
+				const name = readSearchResultsName(
+					ctx,
+					module,
+					cursor,
+					searchPlace(module),
+				);
+				deriveInactiveSearch(
+					module,
+					cursor,
+					name.claimed ? new Set(["instance_name"]) : new Set(),
+				);
 				recordInactiveSearchRespellings(ctx, cursor);
 			}
 			continue;
@@ -660,25 +1057,42 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		const hasPrompts =
 			Array.isArray(cursor.peek("properties")) &&
 			(cursor.peek("properties") as unknown[]).length > 0;
-		const filters = readDefaultFilters(ctx, module, cursor, hasPrompts);
+		const endpoint = cursor.peek("case_search_endpoint_id");
+		const usesProjectSearch = isProjectSearchId(endpoint);
+		const filters = usesProjectSearch
+			? readProjectSearch(ctx, module, cursor, endpoint, config)
+			: readDefaultFilters(ctx, module, cursor, hasPrompts);
 		const caseType = module.module.caseType;
-		const prompts = readSearchPrompts(ctx, module, cursor, filters.names);
+		const { prompts, groups, groupRefused } = readSearchPrompts(
+			ctx,
+			module,
+			cursor,
+			filters.names,
+			usesProjectSearch,
+		);
 		// A property the search's rows read, and a simple Search field's, is a property of the
 		// catalog, as every expression's is. A record attribute an order names (`@case_type`,
 		// `@status`) is the record's own, never a property (`requestOrder.ts::ATTRIBUTE_KEYS`).
+		const propertySource =
+			filters.relatedIdProperty ?? cursor.peek("custom_related_case_property");
+		const orderedProperties = [
+			...filters.filters.flatMap((row) => ("order" in row ? row.order : [])),
+			...(readDedicatedOrder(cursor.peek("custom_sort_properties")) ?? []),
+		]
+			.filter((term) => term.comparison !== "discarded")
+			.map((term) => term.property)
+			.filter((property) => !CASE_NODE_ATTRIBUTE_PROPERTIES.has(property));
 		const properties = [
 			...filters.filters.flatMap((row) =>
-				"order" in row
-					? row.order.map((term) => term.property)
-					: row.target.kind === "property" && !row.target.ancestors
-						? [row.target.property]
-						: [],
-			),
-			...(readDedicatedOrder(cursor.peek("custom_sort_properties")) ?? []).map(
-				(term) => term.property,
+				"target" in row &&
+				row.target.kind === "property" &&
+				!row.target.ancestors
+					? [row.target.property]
+					: [],
 			),
 			...filters.rows.flatMap((row) => searchRowProperties(row.text)),
 			...prompts.flatMap((prompt) =>
+				!usesProjectSearch &&
 				!prompt.refused &&
 				prompt.input.kind === "simple" &&
 				prompt.input.via === undefined
@@ -708,13 +1122,60 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 				(one) => one.links.length > 0 || one.properties.length > 0,
 			) ||
 			properties.length > 0 ||
-			holeReads.length > 0;
+			orderedProperties.length > 0 ||
+			(typeof propertySource === "string" && propertySource !== "") ||
+			holeReads.length > 0 ||
+			filters.requestTypes.length > 0;
 		if (related && app.caseTypes != null)
 			ctx.writeDraft(() => {
 				app.caseTypes = produce(app.caseTypes ?? [], (draft) => {
 					const told = ctx.input.knownCaseTypes;
+					for (const name of filters.requestTypes) {
+						if (
+							!draft.some((type) => type.name === name) &&
+							name !== USERCASE_CASE_TYPE
+						)
+							draft.push({ name, properties: [] });
+					}
+					const extras = cursor.peek("additional_case_types");
+					const requested = new Set([
+						caseType,
+						...filters.requestTypes,
+						...(Array.isArray(extras) ? extras : []),
+					]);
+					if (
+						typeof propertySource === "string" &&
+						authoredCasePropertyNameSchema.safeParse(propertySource).success &&
+						!isDeviceOnlyCaseProperty(propertySource)
+					) {
+						if (
+							!draft.some(
+								(type) =>
+									requested.has(type.name) &&
+									type.properties.some(
+										(property) => property.name === propertySource,
+									),
+							)
+						) {
+							noteProperty(draft, caseType, propertySource, told);
+						}
+					}
 					for (const property of properties)
 						noteProperty(draft, caseType, property, told);
+					for (const property of orderedProperties) {
+						const owners = [...requested].filter(
+							(name): name is string =>
+								typeof name === "string" &&
+								(draft.some(
+									(type) =>
+										type.name === name &&
+										type.properties.some((one) => one.name === property),
+								) ||
+									told?.declaredTypeOf(name, property) !== undefined),
+						);
+						for (const owner of owners.length ? owners : [caseType])
+							noteProperty(draft, owner, property, told);
+					}
 					for (const { links, properties: reads } of relations) {
 						for (const link of links) declareParent(draft, link);
 						for (const read of reads)
@@ -725,7 +1186,14 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 				});
 			});
 		const workflow = readSearchWorkflow(ctx, module, cursor);
-		const settings = readSearchSettings(ctx, module, cursor, true, config);
+		const settings = readSearchSettings(
+			ctx,
+			module,
+			cursor,
+			true,
+			config,
+			filters.coveredSettings,
+		);
 		const search: OrdinaryCaseSearchConfig = { ...config, ...(workflow ?? {}) };
 		// Search fields turn the search on with Nova's own settings, as a settings object that holds
 		// none does (`effectiveCaseSearchConfig`), so a search with fields and no setting is read
@@ -739,7 +1207,12 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 		ctx.writeDraft(() => {
 			const list = module.module.caseListConfig as CaseListConfig | undefined;
 			if (list !== undefined) {
-				list.searchInputs = prompts.map((prompt) => prompt.input);
+				list.searchInputs = prompts.map(({ input }) => {
+					if (!groupRefused || input.group === undefined) return input;
+					const { group: _group, ...ungrouped } = input;
+					return ungrouped;
+				});
+				if (groups.length > 0 && !groupRefused) list.searchInputGroups = groups;
 				if (filters.filters.length) list.searchFilters = filters.filters;
 			}
 			const target = module.module as { caseSearchConfig?: CaseSearchConfig };
@@ -759,13 +1232,15 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 			rows: filters.rows,
 			formsReadSearch: workflow?.formsReadSearch === true,
 			zeroInput: filters.zeroInput,
+			usesProjectSearch,
 			markersOnly: filters.markersOnly,
 			whole:
 				filters.ok &&
 				settings.ok &&
 				ownersHeld &&
 				workflow !== undefined &&
-				prompts.length === declared &&
+				!groupRefused &&
+				prompts.length + groups.length === declared &&
 				prompts.every((prompt) => !prompt.refused),
 		});
 	}
@@ -1233,14 +1708,15 @@ function settleEachSearch(ctx: ReadContext, app: DraftApp): void {
 			coverUnsettledRows(ctx, reading);
 			continue;
 		}
-		classifySearchRows(ctx, module, {
-			rows: reading.rows,
-			prompts: reading.prompts,
-			formsReadSearch: reading.formsReadSearch,
-			zeroInput: reading.zeroInput,
-			markersOnly: reading.markersOnly,
-		});
-		fieldsOverAnotherType(ctx, reading);
+		if (!reading.usesProjectSearch)
+			classifySearchRows(ctx, module, {
+				rows: reading.rows,
+				prompts: reading.prompts,
+				formsReadSearch: reading.formsReadSearch,
+				zeroInput: reading.zeroInput,
+				markersOnly: reading.markersOnly,
+			});
+		if (!reading.usesProjectSearch) fieldsOverAnotherType(ctx, reading);
 		placed.push(reading);
 	}
 	settleUntoldChecks(ctx, placed);
@@ -1326,7 +1802,8 @@ function settleUntoldChecks(
 				}),
 			);
 			const usesNativeMessage =
-				rule !== undefined && codes.every((code) => stored[code] === "");
+				(ending.whole || rule !== undefined) &&
+				codes.every((code) => (stored[code] ?? "") === "");
 			let kept =
 				usesNativeMessage ||
 				(ending.whole
@@ -1382,7 +1859,7 @@ function settleUntoldChecks(
 					module.uuid
 				]?.caseListConfig?.searchInputs.find((one) => one.uuid === prompt.uuid);
 				if (!input || input.kind === "hidden") return;
-				if (ending.whole) delete input.validation;
+				if (ending.whole && !usesNativeMessage) delete input.validation;
 				else if (input.validation) {
 					if (usesNativeMessage) delete input.validation.message;
 					else input.validation.message = ownMessages[source];

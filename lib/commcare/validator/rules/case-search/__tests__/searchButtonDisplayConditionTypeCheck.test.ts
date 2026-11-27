@@ -11,6 +11,7 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import {
+	count,
 	eq,
 	exists,
 	gt,
@@ -62,7 +63,15 @@ describe("Search action condition admission", () => {
 		},
 		{
 			condition: gt(sessionContext("username"), literal("M")),
-			codes: [typeError],
+			codes: [notOnTheList],
+		},
+		{
+			condition: gt(sessionContext("userid"), literal("M")),
+			codes: [notOnTheList],
+		},
+		{
+			condition: gt(sessionContext("deviceid"), literal("M")),
+			codes: [notOnTheList],
 		},
 		{
 			condition: eq(sessionContext("username"), literal("A")),
@@ -97,6 +106,33 @@ describe("Search action condition admission", () => {
 		const typed = errors.find((error) => error.code === typeError);
 		expect(typed?.message).toMatch(/Search field/i);
 		expect(typed?.message).not.toContain(testUuid("ghost"));
+	});
+	it("admits scoped records on the device but checks the session used inside the count", () => {
+		const included = eq(prop("patient", "case_name"), literal("Pending"));
+		const caseType = eq(
+			{ kind: "case-row-type" },
+			{ kind: "case-type", caseType: "patient" },
+		);
+		const condition = (where: Expression[]) =>
+			gt(
+				count({ kind: "cases", source: "casedb", where: [caseType, ...where] }),
+				literal(1),
+			);
+		expect(
+			findings(
+				candidate({ searchButtonDisplayCondition: condition([included]) }),
+			),
+		).toEqual([]);
+		const missing = findings(
+			candidate({
+				searchButtonDisplayCondition: condition([
+					eq(prop("patient", "owner_id"), sessionContext("userid")),
+				]),
+			}),
+		);
+		expect(missing).toMatchObject([
+			{ code: notOnTheList, details: { instances: "commcaresession" } },
+		]);
 	});
 	it.each([undefined, {}])("admits the absent condition %j", (config) =>
 		expect(findings(candidate(config))).toEqual([]),

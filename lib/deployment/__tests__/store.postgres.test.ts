@@ -20,10 +20,14 @@ import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { restoreApp, softDeleteApp } from "@/lib/db/apps";
 import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
+import { hqConnectionDigest } from "@/lib/db/settings";
+import type { LookupTableId } from "@/lib/domain";
+import { authorizeAssignmentExport } from "@/lib/export/privateAssignments";
 import { normalizeHqAppSource } from "../hqSourceBaseline";
 import { activeRemoteApp } from "../resources";
 import { deploymentDisplaysAsReached } from "../stateMachine";
 import {
+	admitWorkbookWrite,
 	admitWorkerWrite,
 	applyDeploymentObservation,
 	type DeploymentScope,
@@ -37,12 +41,14 @@ import {
 	readEntryPointEvidence,
 	readReachedDeploymentTargets,
 	readResourceBaselines,
+	readSiblingLookupMappings,
 	readTargetIdentity,
 	recordCreatedRemoteApp,
 	recordEntryPointObservation,
 	recordProvisionedWorkers,
 	recordPushedResources,
 	recordRemoteResource,
+	settleRemoteWrites,
 } from "../store";
 import type {
 	AppBaselineWrite,
@@ -763,6 +769,103 @@ describe("pushed Project data", () => {
 		);
 	});
 
+	it("admits and settles a large workbook atomically and reads sibling mappings past the SQL parameter boundary", async () => {
+		const scope = await seed();
+		await create(scope);
+		const tables = await sql<{
+			id: LookupTableId;
+			tag: string;
+		}>`INSERT INTO lookup_tables(project_id,name,tag,definition_revision,rows_revision,column_count,created_by,updated_by)
+   SELECT ${scope.projectId}, 'Table ' || n,'table_' || n,0,0,1,${scope.actorUserId},${scope.actorUserId} FROM generate_series(1,6600) AS n RETURNING id,tag`.execute(
+			h.db(),
+		);
+		await sql`INSERT INTO lookup_columns(project_id,table_id,wire_name,label,data_type,order_key)
+   SELECT project_id,id,'value','Value','text','a1' FROM lookup_tables WHERE project_id=${scope.projectId}`.execute(
+			h.db(),
+		);
+		const ids = tables.rows.map((r) => r.id);
+		const sessionId = crypto.randomUUID();
+		const database = h.db();
+		await sql`INSERT INTO auth_session(id,token,"userId","createdAt","updatedAt","expiresAt")
+			VALUES (${sessionId},${sessionId},${scope.actorUserId},now(),now(),now()+interval '1 day')`.execute(
+			database,
+		);
+		const connection = await database
+			.insertInto("user_settings")
+			.values({
+				user_id: scope.actorUserId,
+				commcare_server: TARGET.server,
+				commcare_username: "test-publisher",
+				commcare_api_key: "fixture-ciphertext",
+				approved_domains: JSON.stringify([
+					{ name: TARGET.domain, displayName: "Test space" },
+				]),
+				updated_at: new Date(),
+			})
+			.returning("connection_epoch")
+			.executeTakeFirstOrThrow();
+		const connectionDigest = hqConnectionDigest(
+			"test-publisher",
+			connection.connection_epoch,
+			TARGET.server,
+			TARGET.domain,
+		);
+		const grant = { kind: "session", sessionId } as const;
+		const grantBinding = await h.withTransaction((tx) =>
+			authorizeAssignmentExport(
+				tx,
+				scope,
+				grant,
+				TARGET,
+				"publish",
+				connectionDigest,
+			),
+		);
+		const stored = await admitWorkbookWrite(scope, TARGET, {
+			...NEVER_ENDED,
+			tableIds: ids,
+			authority: {
+				grant,
+				connectionDigest,
+				grantBinding,
+				tables: new Map(
+					tables.rows.map(({ id, tag }) => [
+						id,
+						{
+							tag,
+							definitionRevision: "0",
+							rowsRevision: "0",
+							isGlobal: true,
+						},
+					]),
+				),
+			},
+		});
+		if (stored.kind !== "admitted")
+			throw new Error("Expected an admitted workbook");
+		expect(new Set(stored.writeIds).size).toBe(6600);
+		await settleRemoteWrites(stored.writeIds, { kind: "settled" });
+		const count = await h
+			.db()
+			.selectFrom("hq_remote_writes")
+			.select((eb) => eb.fn.countAll<number>().as("n"))
+			.where("settled_at", "is not", null)
+			.executeTakeFirstOrThrow();
+		expect(Number(count.n)).toBe(6600);
+		const [kept] = ids;
+		await pushTable(scope, { novaResourceId: kept });
+		const candidates = [
+			...ids,
+			...Array.from({ length: 60_000 }, () => crypto.randomUUID()),
+		];
+		expect(
+			await readSiblingLookupMappings(
+				{ ...scope, appId: "sibling" },
+				TARGET,
+				candidates,
+			),
+		).toMatchObject([{ remoteId: "hq-districts" }]);
+	}, 60_000);
 	it("records both tables and the completed resources phase", async () => {
 		const scope = await seed();
 		await create(scope);
@@ -1886,7 +1989,7 @@ describe("entry point release evidence", () => {
 	it("a superseded completion invalidates a newer manifest instead of blessing uncertain remote write order", async () => {
 		const scope = await seed();
 		await publish(scope, "hq-1", 1);
-		const { generation: first } = await admitEntryPointImport(
+		const { generation: first, writeId } = await admitEntryPointImport(
 			scope,
 			TARGET,
 			NEVER_ENDED,
@@ -1924,6 +2027,7 @@ describe("entry point release evidence", () => {
 					dependencies: [],
 				},
 				NEVER_ENDED,
+				{ writeIds: [writeId], settle: [] },
 			),
 		).toBe(false);
 		expect((await readEntryPointEvidence(scope, TARGET)).manifest).toBeNull();

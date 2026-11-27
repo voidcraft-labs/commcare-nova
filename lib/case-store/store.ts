@@ -101,6 +101,15 @@ export type PrivateCaseColumn =
 	| "project_id"
 	| "index_history_complete"
 	| "cleared_index_identifiers";
+/** One completed search and the records the worker chose from it. Its query
+ * is composed on the server from the authorized document and worker. */
+export interface SearchClaimSelection {
+	/** An earlier datum must still be a selectable record. It authorizes no claim of its own. */
+	readonly prerequisite?: true;
+	readonly query: QueryArgs;
+	readonly caseIds: readonly string[];
+}
+
 /**
  * One case row as a reader receives it. `location_id` is optional because a
  * durable submission receipt's `caseDatabasePatch` written before the column
@@ -347,6 +356,7 @@ export interface SearchPopulation {
  */
 export interface SelectedParentCases {
 	readonly caseType: string;
+	readonly additionalCaseTypes?: readonly string[];
 	readonly caseIds: readonly string[];
 	/**
 	 * The case index identifier the child names its parent under. Absent, a
@@ -385,6 +395,8 @@ export interface SelectedParentCases {
 export interface QueryArgs {
 	appId: string;
 	caseType: string;
+	/** Other record types this menu's datum allows the worker to select. */
+	additionalCaseTypes?: readonly string[];
 	/**
 	 * What the predicate and the compiled columns stand for. Every read names
 	 * it, because it decides how `date_opened` and `last_modified` read, whether
@@ -425,6 +437,8 @@ export interface QueryArgs {
 	knownInputs?: readonly SearchInputDecl[];
 	predicate?: DomainExpression;
 	sort?: SortKey[];
+	/** A session datum's case instance order before a list's display sort. */
+	datumOrder?: true;
 	calculated?: ReadonlyArray<
 		| CalculatedColumn
 		| {
@@ -509,6 +523,9 @@ export interface SearchResultsPage {
 	readonly offset: number;
 	readonly rows: readonly CaseRowWithCalculated[];
 	readonly grouped?: GroupedQueryResult;
+	readonly instance?: SearchResultInstance;
+	/** The selected page's eligible primary cases, without its query's supporting rows. */
+	readonly offeredPrimaryIds?: readonly string[];
 }
 
 export interface GroupedQueryResult {
@@ -563,6 +580,7 @@ export type CountArgs =
 	| {
 			appId: string;
 			caseType: string;
+			additionalCaseTypes?: readonly string[];
 			/** Same contract as `QueryArgs.reading`'s filter half. */
 			reading: CaseFilterReading;
 			ownerId?: never;
@@ -1176,6 +1194,7 @@ export interface CaseStore extends SchemaCaseStore {
 	querySearchResults(
 		args: QueryArgs,
 		grouping?: string,
+		capture?: true | "offered-primary-ids",
 	): Promise<SearchResultsPage>;
 	readSearchResultInstance(args: QueryArgs): Promise<SearchResultInstance>;
 
@@ -1212,6 +1231,23 @@ export interface CaseStore extends SchemaCaseStore {
 	 * regardless of whether the query carried calc projections.
 	 */
 	query(args: QueryArgs): Promise<CaseRowWithCalculated[]>;
+
+	/** The selected records a flat close opens on. No full device restore. */
+	readFlatCloseSelection(args: {
+		readonly appId: string;
+		readonly caseIds: readonly string[];
+		readonly caseType: string;
+		readonly restoreScope: RestoreScope;
+		readonly automaticMaximum?: number;
+	}): Promise<DeviceCaseDatabase | undefined>;
+
+	/** An automatic device selection returns its complete set in datum order,
+	 * or only its exact population count when that set exceeds the maximum. */
+	queryAutomaticSelection(
+		args: QueryArgs,
+		maximum: number,
+		boundedFlatClose?: true,
+	): Promise<{ rows: readonly CaseRowWithCalculated[]; totalCount: number }>;
 
 	/**
 	 * DomainExpression- or owner-driven `COUNT(*)`, always scoped to the bound
@@ -1349,6 +1385,9 @@ export interface CaseStore extends SchemaCaseStore {
 	claimCases(args: {
 		readonly appId: string;
 		readonly caseIds: readonly string[];
+		/** Supplied by every search consumer. A separately authorized entry point has its own admission. */
+		readonly fromSearches?: readonly SearchClaimSelection[];
+		readonly expectedAppMutationSeq?: number;
 	}): Promise<{
 		readonly created: readonly string[];
 		readonly alreadyClaimed: readonly string[];

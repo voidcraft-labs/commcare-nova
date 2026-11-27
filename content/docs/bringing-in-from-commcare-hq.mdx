@@ -40,6 +40,12 @@ afresh when you come back.
 
 The page's address names the app, so you can keep it or send it to a teammate.
 
+Nova keeps extended wording on form labels, hints, help, validation messages,
+and choices. You can edit it alongside the ordinary wording in the field panel.
+For an inline choice, open the menu beside the choice to add extended text. Use
+Preview to see which wording workers get on each platform.
+
+
 ## When Nova can bring it in
 
 Nova shows you one review before anything is created.
@@ -51,12 +57,21 @@ forms, questions, languages and case types.
 uses and from its Web App setting in CommCare HQ. You can choose differently
 here or later in App settings.
 
+**Searches supplied by this project space** lists each search ID, the menus that use it, the values they send and the fields their screens read. Your source project space continues to decide which cases workers can find. When you publish to another project space, you can connect each search to the ID your administrator provides there.
+
 **Lookup tables** and **Places**: the tables and places the app reads come in as
 copies that CommCare HQ keeps managing. [Project data](/docs/project-data) and
 [Organization](/docs/organization) say what that means. Nova also checks the levels, parent places and external IDs against a second reading of the same places. If the lists changed during the reading, the review can be run again after the change finishes.
 
+For supported lookup tables with rows assigned to individual workers, groups
+or places, those rows stay in the source project space. Workers still receive
+their assigned rows when the app runs there.
+
 If your Project already has a lookup table by the same name, Nova asks which one
 this app should use and says what each answer does to your other apps.
+
+A question that uses a single fixed row number from a declared lookup table
+keeps that choice when you bring in the app and publish it again.
 
 If a case change gives each case to the place at a level below its owner, that
 rule needs exactly one such place below each owner. Where the places in CommCare
@@ -113,12 +128,15 @@ that use `int()` or `substr()`.
 Two more things are listed with where they sit, since Nova would save or find
 something different from what CommCare HQ does today:
 
-- A hidden value that works out a date and time, saved straight to a case
-  property, or a date and time question saved straight as a case's name,
-  owner or external ID, or to the mobile worker's own record. CommCare HQ keeps
-  only the day there. A date and time question saved straight to any other
-  property comes in: Nova makes that property a date and keeps the day, as
-  CommCare does.
+- A date and time question saved straight as a case's name, owner or external
+  ID, or to the mobile worker's own record. CommCare keeps only the day in
+  these writes. Nova can bring in a direct write to an ordinary case property
+  when its writers all give it a day. This includes a basic follow-up that
+  always saves the answer to an ordinary property on the selected case's
+  parent. This uses the Date and Time question on Android. A hidden value
+  that reads the current date and time can also save
+  the day to a Date property on the case a basic follow-up opens. Other
+  hidden date and time calculations may still appear in the review.
 - A search filter Nova would keep as part of the case list's filter, in a menu
   whose forms read its search, where the phone would read it differently from
   CommCare HQ's search. A filter that compares a case property with `!=` or
@@ -131,6 +149,20 @@ Nova keeps no copy of the list. **Copy the list** lets you take it with you, and
 **Check again** reads the app afresh whenever you like.
 
 Nova doesn't bring in part of an app.
+
+### Saves through a case link
+
+When a form saves through a link such as `parent` or `user`, Nova reads the
+destination case type from the app's case-opening actions or parent case
+selections. A type attached to an existing case describes that case's link.
+The form still needs the app to define which case type the link can reach.
+
+For a `parent` link, you can set the parent case selection in CommCare HQ or
+open the linked child from a form on the parent case. For a custom link such
+as `user`, you can define the link and its destination case type in an
+Advanced case-opening action. Use the same reference ID as the save. If the
+destination varies, you can choose the intended case explicitly in the form
+and save directly to it. **Check again** reads the updated setup.
 
 Where a lookup table holds more than Nova reads at once while bringing in an
 app, the app comes in with the table's columns, and the table's page in Project
@@ -177,12 +209,27 @@ app.
 The list names each change once, in plain words. Among them: each form's title
 takes the form's name, Nova writes each form's case settings and each case
 list's settings in its own way, and a choice with no name leaves a case list's
-Sort by on Android.
+Sort by on Android. Nova also removes extra text that CommCare HQ ignores
+after a search sort's comparison. The order still chooses the same records
+when Search limits the result set. If Nova flags a sort comparison that
+CommCare HQ's Search can't run, you can change the sort in CommCare HQ and
+check the app again.
+
+Nova can keep a text calculation on a Web Apps Results list when it shows a
+text property from each case found by the menu’s inline Search. The column
+stays on Results and uses the same calculation when you publish again.
+
+Nova keeps a saved starting address on a manual Search screen when the address
+is separate from other fields. This includes a fixed prefix followed by the
+signed-in worker’s username. The address picker opens blank for the worker.
 
 A wording saved on CommCare HQ's app translations page, such as a menu's name
 in one language, the app's name workers see on phones and in Web Apps, or a
 case list column's header, comes in as Nova's wording for that text, and
 publishing keeps it as it is. The text it stands in for keeps its own words.
+A translated menu icon can use an image from a form in a different language
+when each installation that shows the icon includes a language carrying its image.
+
 A saved wording that changes nothing, because it is blank, names nothing in
 the app, or matches what CommCare HQ writes there anyway, is removed on the
 first publish, and the list says so.
@@ -207,6 +254,16 @@ picture. A fresh Android installation can stop if the release requires that
 file, even when a worker can still open an earlier version. After you publish
 and build a new release in CommCare HQ, Android can install it without that
 file. You can also choose a replacement icon in Nova before publishing.
+
+An icon named in app translations can still be listed in CommCare HQ after
+its last use on a menu or form was removed. CommCare HQ leaves that file out
+of the release. You can attach it to the menu in that language, or clear the
+translation to use the menu's usual icon, then check again in Nova.
+
+A case list lookup can send a calculation to another Android app. Some
+Android installations send the calculation as written, while others send
+its result. Nova names that lookup during bring-in and keeps those settings
+in CommCare HQ.
 
 If a CommCare Connect app has Auto Capture Location off in CommCare HQ, the
 first publish turns it on for every form. Android asks for location permission

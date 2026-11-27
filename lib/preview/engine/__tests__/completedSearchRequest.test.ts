@@ -44,6 +44,72 @@ const village: SearchInputDef = {
 };
 
 describe("completedSearchRequest", () => {
+	it("sends a parent text answer by its typed request key and Core's delimiter semantics", () => {
+		const parent: SearchInputDef = {
+			uuid: testUuid("parent-village"),
+			name: "parent_village",
+			label: "Parent village",
+			kind: "simple",
+			type: "text",
+			property: "village",
+			matching: "project-space",
+			via: { kind: "ancestor", via: [{ identifier: "parent" }] },
+		};
+		expect(
+			completedSearchRequest(
+				moduleWith([parent]),
+				new Map([["parent_village", "#,#Kibera#,#West#,#"]]),
+			).parameters,
+		).toEqual([
+			{
+				key: "parent/village",
+				field: "Parent village",
+				parentPathPrompt: true,
+				readsAnswers: true,
+				target: {
+					kind: "property",
+					property: "village",
+					ancestors: [{ identifier: "parent" }],
+				},
+				values: ["", "Kibera", "West"],
+			},
+		]);
+		expect(sent([parent], { parent_village: "#,#" })).toEqual([]);
+	});
+
+	it.each([1, 2])(
+		"keeps one calendar day on the native path over %i parent links",
+		(hops) => {
+			const parent: SearchInputDef = {
+				uuid: testUuid("parent-village-date"),
+				name: "parent_village",
+				label: "Parent date",
+				kind: "simple",
+				type: "date",
+				property: "village",
+				matching: "project-space",
+				via: {
+					kind: "ancestor",
+					via: [
+						{ identifier: "parent" },
+						...(hops === 2 ? [{ identifier: "parent" }] : []),
+					],
+				},
+			};
+			expect(sent([parent], { parent_village: "2024-03-10" })).toEqual([
+				[`${"parent/".repeat(hops)}village`, ["2024-03-10"]],
+			]);
+			expect(sent([parent], { parent_village: "" })).toEqual([]);
+			expect(() =>
+				sent([parent], { parent_village: "2024-03-10#,#2024-03-11" }),
+			).toThrow(
+				expect.objectContaining({
+					reason: { kind: "query-value-invalid", field: "Parent date" },
+				}),
+			);
+		},
+	);
+
 	it("sends the blank before the answer where the box is ticked", () => {
 		expect(
 			sent([village], { village: "Kibera", "village:blank": "true" }),

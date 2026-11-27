@@ -60,7 +60,12 @@
    both open and in north, one north and active, and one open elsewhere. HQ
    returns the two in north before the inline detail keeps the open client,
    on both the source and the first publish. The worker opens the retained
-   client and fills the same form.
+   client and fills the same form. The search sends two default order
+   values in sequence. The first uses two leading signs on its first term.
+   HQ keeps the stored text and uses its first sign, so the first publish
+   removes only the redundant sign (``search-order-direction-signs-respelled``).
+   The second keeps its explicit comparison and drops the ignored suffix
+   (``search-order-unused-suffix-removed``).
 5. A referrals menu that searches case attributes, a date, an ancestor and
    the worker's owner ID. Independent rows use both the matched and excluded
    prompts. A separate device filter narrows the worker's list after the
@@ -158,7 +163,7 @@ def field(name, label, **settings):
     return {"name": name, "label": label, "hint": "", "appearance": "", "receiver_expression": "", **settings}
 
 
-def save_search(authoring, app_id, menu, *, fields=(), rows=(), filters=(), **workflow):
+def save_search(authoring, app_id, menu, *, fields=(), rows=(), filters=(), step=None, **workflow):
     """The menu's Search saved as the Case List page saves it (``edit_module_detail_screens``, whose
     ``_gather_and_update_search_properties`` builds the menu's ``CaseSearch`` from ``search_properties``): the
     fields, each row as a default filter of ``_xpath_query``, no title and no description, and ``workflow``'s
@@ -180,7 +185,7 @@ def save_search(authoring, app_id, menu, *, fields=(), rows=(), filters=(), **wo
         "search_button_display_condition": "",
         "blacklisted_owner_ids_expression": "",
     }
-    with authoring.step(f"build:search:{menu}", json.dumps(search, sort_keys=True).encode()):
+    with authoring.step(step or f"build:search:{menu}", json.dumps(search, sort_keys=True).encode()):
         module = operations.held_app(authoring.state, app_id).get_module(menu)
         body, content_type = ops.form_body([("type", json.dumps("case")), ("search_properties", json.dumps(search))])
         ops.post(
@@ -277,7 +282,12 @@ def build(authoring) -> str:
 
     follow_up_menu(authoring, app_id, 2, "Visits", "visit_summary", "Summarize the visit")
     save_list_filter(authoring, app_id, 2, LIST_FILTER)
-    save_search(authoring, app_id, 2, rows=[JOINED_ROW], auto_launch=True, inline_search=True)
+    repeated_signs = ("commcare_sort", "'+-client_code:exact,-dob:date'")
+    save_search(
+        authoring, app_id, 2, rows=[JOINED_ROW],
+        filters=[repeated_signs, ("commcare_sort", "'+name'")],
+        auto_launch=True, inline_search=True,
+    )
     follow_up_menu(authoring, app_id, 3, "Referrals", "referral_note", "What help did the client receive?")
     save_list_filter(authoring, app_id, 3, "standing = 'active'")
 
@@ -308,6 +318,24 @@ def build(authoring) -> str:
         ],
         auto_launch=True,
     )
+    # Edit the existing Visits Search after all menus and forms have their
+    # retained identities. Earlier authoring keeps the same operation keys.
+    save_search(
+        authoring, app_id, 2, rows=[JOINED_ROW],
+        filters=[repeated_signs, ("commcare_sort", "'+name:exact:obsolete'")],
+        auto_launch=True, inline_search=True, step="build:search:unused-order-suffix",
+    )
+    # Add this menu last so the original menus and forms keep their identities.
+    follow_up_menu(authoring, app_id, 4, "Find by address", "address_note", "What did you learn?")
+    save_search(
+        authoring, app_id, 4,
+        fields=[
+            field("village", "Village", receiver_expression="home-city-extra"),
+            field("home", "Home address", appearance="address", exclude=True),
+        ],
+        auto_launch=True,
+        step="build:search:address-receiver-saved-suffix",
+    )
     return app_id
 
 
@@ -316,7 +344,7 @@ BASE = Base(
     build=build,
     configuration=Configuration(
         flags=frozenset({"FOLLOWUP_FORMS_AS_CASE_LIST_FORM", "SYNC_SEARCH_CASE_CLAIM", "CASE_SEARCH_ADVANCED", "CASE_SEARCH_RELATED_LOOKUPS"}),
-        privileges=frozenset({"LOOKUP_TABLES"}),
+        privileges=frozenset({"LOOKUP_TABLES", "GEOCODER"}),
         case_search_enabled=True,
     ),
     cases=(OPEN_IN_NORTH,),
@@ -339,6 +367,7 @@ BASE = Base(
         "case-search/itemset-instance-id-item-list-tag-nodeset-label-value-over",
         "case-search/itemset-sort-over-a-lookup-field",
         "case-search/exclude",
+        "case-search/default-filter-orders-the-records-the-search-sends",
         "case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
         "case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
         "case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project",
@@ -351,5 +380,7 @@ BASE = Base(
         "case-search/case-list-filter-clause-the-search-does-not-restate",
         "case-search/xpath-query-condition-outside-what-nova-types",
         "case-search/several-xpath-query-rows",
+        "case-search/address-picker-on-a-search-screen",
+        "case-search/address-receiver-with-an-unused-suffix",
     ),
 )

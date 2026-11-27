@@ -6,8 +6,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { NEW_APP_SETTINGS } from "@/lib/domain";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
 	lookupColumnIdSchema,
@@ -19,8 +20,11 @@ import {
 	plainColumn,
 } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
+import { serializeXml } from "../../../serializeXml";
+import { buildShortDetail } from "../../../suite/case-list/shortDetail";
 import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import { namingFromHqPages } from "../../__tests__/hqPageNames";
+import { assembleDocument } from "../../assemble";
 import { matchingResolver } from "../../identity";
 import { externalIdentityMap } from "../../identityMap";
 import { readProjectionInputs } from "../../projectionInputs";
@@ -639,6 +643,91 @@ describe("CommCare HQ's column formats", () => {
 		);
 	});
 
+	it.each([
+		[101, "detail-max-select-value-101-outside-flat-close"],
+		[2_147_483_647, "detail-max-select-value-above-100"],
+		[2_147_483_648, "detail-max-select-value-above-2147483647"],
+	] as const)(
+		"distinguishes the Nova limit from Core's integer limit at %s",
+		async (maximum, entry) => {
+			const read = await readDetails((short, _long, app) => {
+				Object.assign(app, { cloudcare_enabled: true });
+				Object.assign(short, { multi_select: true, max_select_value: maximum });
+			}, false);
+			assembleDocument(read.ctx);
+			expect(closedCodes(read)).toContain(`${M}${entry}`);
+		},
+	);
+
+	it("identifies an Android-only several-case list with a valid large HQ limit", async () => {
+		const read = await readDetails((short, _long, app) => {
+			Object.assign(app, { cloudcare_enabled: false });
+			Object.assign(short, { multi_select: true, max_select_value: 500 });
+		}, false);
+		assembleDocument(read.ctx);
+		expect(closedCodes(read)).toContain(
+			`${M}detail-max-select-value-above-101-on-android-only-app`,
+		);
+	});
+
+	it.each([
+		["close", false],
+		["close", true],
+		["followup", false],
+		["followup", true],
+	] as const)(
+		"keeps the bounded %s maximum with auto-select %s",
+		async (type, autoSelect) => {
+			const name = plainColumn(uuid(1), "case_name", "Name");
+			const doc = buildDoc({
+				appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+				caseTypes: [{ name: "patient", properties: [] }],
+				modules: [
+					{
+						name: "Cases",
+						caseType: "patient",
+						caseListConfig: {
+							columns: [name],
+							listColumnOrder: [name.uuid],
+							detailColumnOrder: [name.uuid],
+							searchInputs: [],
+							selection: {
+								kind: "multiple",
+								maximum: 101,
+								...(autoSelect && { autoSelect: true }),
+							},
+						},
+						forms: [
+							{
+								name: "Close selected cases",
+								type,
+								postSubmit: "app_home",
+								fields: [f({ kind: "hidden", id: "done", calculate: "'yes'" })],
+							},
+						],
+					},
+				],
+			});
+			const reading = await readLists(doc, {
+				input: (input) => ({
+					...input,
+					source: { ...input.source, cloudcareEnabled: true },
+				}),
+			});
+			assembleDocument(reading.ctx);
+			expect(reading.ctx.close().findings).toEqual([]);
+			expect(reading.ctx.assembled).toBeDefined();
+			expect(reading.app.modules[0]?.case_details.short.max_select_value).toBe(
+				101,
+			);
+			expect(listOf(reading).selection).toEqual({
+				kind: "multiple",
+				maximum: 101,
+				...(autoSelect && { autoSelect: true }),
+			});
+		},
+	);
+
 	// HQ's build writes no `max-select-value` for a null, and Core then takes 100
 	// (`SessionDatumParser.DEFAULT_MAX_SELECT_VAL`); a text HQ's model refuses as it wraps the app.
 	it("reads a null maximum of a multi-select list as 100, and a text maximum as no entry's", async () => {
@@ -936,7 +1025,7 @@ describe("clickable icons", () => {
 			["short"],
 		);
 		expect(codes(reading)).toContain(
-			`${M}16-clickable-icon-endpoint-action-id-on-the-case-list`,
+			`${M}clickable-icon-with-an-unusable-form-endpoint`,
 		);
 	});
 
@@ -1103,6 +1192,168 @@ describe("a detail's persistence switches", () => {
 });
 
 describe("a detail's callout and tabs", () => {
+	it("brings in fixed text lookup extras and keeps fallback response order", async () => {
+		const reading = await readDetails((short) => {
+			Object.assign(short, {
+				lookup_enabled: true,
+				lookup_action: "org.nova.proof.CASE_LOOKUP",
+				lookup_name: "Find a visit",
+				lookup_autolaunch: true,
+				lookup_extras: [
+					{ key: "mode", value: `concat("Worker's ", '"visit"')` },
+				],
+				lookup_responses: [{ key: "first" }, { key: "second" }],
+			});
+		});
+		expect(closedCodes(reading)).toEqual([]);
+		expect(listOf(reading).deviceLookup).toEqual({
+			action: "org.nova.proof.CASE_LOOKUP",
+			label: "Find a visit",
+			automatic: true,
+			extras: [{ name: "mode", value: `Worker's "visit"` }],
+			responses: ["first", "second"],
+		});
+	});
+
+	it("writes the lookup evaluation control as Android’s unquoted token", async () => {
+		const reading = await readDetails((short) => {
+			Object.assign(short, {
+				lookup_enabled: true,
+				lookup_action: "org.nova.proof.CASE_LOOKUP",
+				lookup_name: "Find a visit",
+				lookup_extras: [
+					{ key: "mode", value: "1 + 2" },
+					{ key: "force_xpath_parsing", value: "yes" },
+				],
+				lookup_responses: [{ key: "first" }],
+			});
+		}, false);
+		expect(closedCodes(reading)).toEqual([]);
+		const lookup = listOf(reading).deviceLookup;
+		expect(lookup?.evaluateExtras).toBe(true);
+		expect(lookup?.extras.map((extra) => extra.name)).toEqual(["mode"]);
+		const doc = reading.ctx.doc;
+		if (!doc) throw new Error("The lookup did not settle.");
+		const module = doc.modules[doc.moduleOrder[0]];
+		const detail = buildShortDetail({ doc, module, moduleIndex: 0 });
+		expect(serializeXml(detail.element)).toContain(
+			'<extra key="force_xpath_parsing" value="yes"',
+		);
+	});
+
+	it("brings in a lookup image through the Project media index", async () => {
+		const path = "jr://file/commcare/image/case-lookup.png";
+		const assetId = testMediaAssetId("case-lookup");
+		const read = await readLists(twoColumns(), {
+			edit: (app) => {
+				Object.assign(app.modules[0].case_details.short, {
+					lookup_enabled: true,
+					lookup_action: "org.example.SCAN",
+					lookup_name: "Scan",
+					lookup_image: path,
+					lookup_extras: [{ key: "mode", value: "'scan'" }],
+					lookup_responses: [{ key: "first" }],
+				});
+			},
+			input: (input) => ({
+				...input,
+				media: {
+					resolve: (ref) =>
+						ref === path
+							? { kind: "asset", assetId, mediaKind: "image" }
+							: { kind: "no-entry" },
+				},
+			}),
+		});
+		expect(closedCodes(read)).toEqual([]);
+		expect(listOf(read).deviceLookup?.icon).toBe(assetId);
+		expect(read.ctx.facts.mediaReferences).toContainEqual(
+			expect.objectContaining({
+				path,
+				assetId,
+				slot: "case_list_lookup_icon",
+				mediaKind: "image",
+			}),
+		);
+	});
+
+	it.each([
+		["@case_id", undefined],
+		["scan_id", "scan_id"],
+	] as const)(
+		"keeps %s keyed confidence and its translated heading",
+		async (template, property) => {
+			const reading = await readDetails((short, _long, app) => {
+				app.langs = ["en", "fr"];
+				Object.assign(short, {
+					lookup_enabled: true,
+					lookup_action: "org.example.MATCH",
+					lookup_name: "Find a match",
+					lookup_extras: [{ key: "mode", value: "'scan'" }],
+					lookup_responses: [{ key: "first" }],
+					lookup_display_results: true,
+					lookup_field_template: template,
+					lookup_field_header: { en: "Confidence", fr: "Confiance" },
+				});
+			}, false);
+			expect(closedCodes(reading)).toEqual([]);
+			expect(listOf(reading).deviceLookup?.resultHeading).toBe("Confidence");
+			expect(listOf(reading).deviceLookup?.resultProperty).toBe(property);
+			expect(
+				reading.ctx.translations
+					.units()
+					.some(
+						(unit) =>
+							unit.unit.endsWith(":list-lookup-text") &&
+							[...unit.byLanguage.values()].includes("Confiance"),
+					),
+			).toBe(true);
+		},
+	);
+
+	it.each([
+		["1 + 2", undefined],
+		["2147483646 + 1", undefined],
+		["2147483647 + 1", "lookup-enabled-lookup-action"],
+		["1.0 + 2", "lookup-enabled-lookup-action"],
+		["1+2", "lookup-enabled-lookup-action"],
+		["properties/mode", "lookup-extra-relative-without-case-context"],
+		["'properties/mode'", undefined],
+		["'3'", undefined],
+	] as const)(
+		"accounts for the exact meaning of the lookup argument %s",
+		async (value, finding) => {
+			const reading = await readDetails((short) => {
+				Object.assign(short, {
+					lookup_enabled: true,
+					lookup_action: "org.example.SCAN",
+					lookup_name: "Scan",
+					lookup_extras: [{ key: "mode", value }],
+					lookup_responses: [{ key: "patient_id" }],
+				});
+			});
+			expect(closedCodes(reading)).toEqual(finding ? [`${M}${finding}`] : []);
+			if (value.startsWith("'")) {
+				expect(listOf(reading).deviceLookup?.extras).toEqual([
+					{ name: "mode", value: value.slice(1, -1) },
+				]);
+			} else if (finding === undefined) {
+				const [left, right] = value.split(" + ").map(Number);
+				expect(listOf(reading).deviceLookup?.extras).toEqual([
+					{
+						name: "mode",
+						expression: {
+							kind: "arith",
+							op: "+",
+							left: { kind: "term", term: { kind: "literal", value: left } },
+							right: { kind: "term", term: { kind: "literal", value: right } },
+						},
+					},
+				]);
+			}
+		},
+	);
+
 	it("raises a callout on the list as one finding, each of its keys claimed under it", async () => {
 		const reading = await readDetails((short) => {
 			Object.assign(short, {

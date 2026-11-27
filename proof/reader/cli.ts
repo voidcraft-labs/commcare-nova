@@ -37,6 +37,9 @@
  *   the reading does not hold.
  * - `claims`: the reading's claim log in full.
  *
+ * A first read may request `emitApplication` for a native witness. This returns the production
+ * update JSON under the adopted HQ identities for a source with no media to upload.
+ *
  * Each difference carries the value `expected` holds at its path and the
  * value the reading gave there (`expected`, `found`, `null` for none), which
  * the judge keeps as its evidence.
@@ -51,12 +54,15 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { expandDoc } from "@/lib/commcare/expander";
+import { parseHqAppSource } from "@/lib/commcare/hq/appSource";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { canonDocument } from "@/lib/commcare/reader/canon";
 import { externalKeyText } from "@/lib/commcare/reader/identity";
 import { externalIdentityMap } from "@/lib/commcare/reader/identityMap";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
+import { keyedCaseIdPrefixesFor } from "@/lib/deployment/adoption";
 import { planFromDocuments } from "@/lib/deployment/hqChanges/plan";
+import { hqImportApplication } from "@/lib/deployment/importApplication";
 import {
 	type ReadBackDifference,
 	readBackDifferences,
@@ -79,6 +85,7 @@ import {
 	type LaneReading,
 	readForLane,
 } from "./laneReading";
+import { LANE_TARGET } from "./retainedPeer";
 
 type Mode = "read-back" | "first-read" | "claims";
 
@@ -99,6 +106,10 @@ interface Request {
 	readonly canon?: boolean;
 	/** Review the changed reading over the previously adopted, unchanged app supplied as expected. */
 	readonly reviewChanges?: boolean;
+	readonly emitApplication?: {
+		readonly appId: string;
+		readonly domain: string;
+	};
 	readonly holds?: readonly Hold[];
 }
 
@@ -111,11 +122,16 @@ interface Answer {
 	readonly declaration?: LaneDeclaration;
 	readonly offered?: readonly LaneDeclaration[];
 	readonly review?: ReturnType<typeof reviewChanges>;
+	readonly application?: ReturnType<typeof expandDoc>;
 	/** Where the owner-rule answers a first reading states are not one for each question it asks:
 	 *  those answers, and the level of each question. */
 	readonly ownerRuleChoices?: Readonly<Record<string, string>>;
 	readonly ownerRuleLevels?: readonly string[];
 	readonly firstPublish?: readonly string[];
+	readonly firstPublishPlaces?: Extract<
+		LaneReading,
+		{ kind: "read" }
+	>["firstPublishPlaces"];
 	readonly held?: readonly {
 		readonly key: string;
 		readonly pointer: string;
@@ -188,6 +204,7 @@ function withValues(
 	expected: BlueprintDoc,
 	found: BlueprintDoc,
 	differences: readonly ReadBackDifference[],
+	offered: readonly LaneDeclaration[] | null,
 ): readonly ValuedDifference[] {
 	if (differences.length === 0) return [];
 	const expectedShape = toPersistableDoc(expected);
@@ -195,13 +212,22 @@ function withValues(
 	return differences.map((difference) => ({
 		...difference,
 		expected: valueAt(expectedShape, difference.path),
-		found: valueAt(foundShape, difference.path),
+		found:
+			offered !== null &&
+			difference.path.length === 2 &&
+			difference.path[0] === "appSettings" &&
+			difference.path[1] === "runsOnlyOn"
+				? offered
+				: valueAt(foundShape, difference.path),
 	}));
 }
 
 /** The record of the entity `uuid` names, from whichever of the document's maps holds it. */
 function entityOf(doc: BlueprintDoc, uuid: string): unknown {
-	for (const value of Object.values(doc)) {
+	for (const value of [
+		...Object.values(doc),
+		doc.appSettings.installationProfiles,
+	]) {
 		if (
 			typeof value === "object" &&
 			value !== null &&
@@ -220,7 +246,12 @@ function heldOf(
 	const uuidOfKey = new Map(
 		externalIdentityMap(
 			reading.doc,
-			targetWireIdentity(reading.identity),
+			targetWireIdentity(
+				reading.identity,
+				reading.columnWords,
+				reading.projectSearches,
+				reading.installationProfiles,
+			),
 			reading.lookup && lookupWireNaming(reading.lookup.definitions),
 		).map((entry) => [
 			externalKeyText({ kind: entry.kind, parts: entry.parts }),
@@ -269,8 +300,51 @@ function reviewChanges(
 		target: toPersistableDoc(plan.target),
 		application: expandDoc(plan.target, {
 			identity: targetWireIdentity(reading.identity),
+			lookupNaming:
+				reading.lookup && lookupWireNaming(reading.lookup.definitions),
 		}),
 	};
+}
+
+function firstPublishApplication(
+	reading: Extract<LaneReading, { kind: "read" }>,
+	input: LaneReadInput,
+	target: NonNullable<Request["emitApplication"]>,
+) {
+	if (reading.media?.files.length)
+		throw new Error(
+			"An application-only witness needs a source with no media to upload.",
+		);
+	const raw = JSON.parse(input.source.body ?? "null");
+	const parsed = parseHqAppSource(raw, { admit: "any" });
+	if (parsed.kind !== "source")
+		throw new Error(
+			"A first publish needs the source of the HQ application it updates.",
+		);
+	return hqImportApplication({
+		prepared: {
+			doc: reading.doc,
+			assets: new Map(),
+			attachmentTarget: null,
+			lookupNaming:
+				reading.lookup && lookupWireNaming(reading.lookup.definitions),
+		},
+		target: { ...LANE_TARGET, domain: target.domain },
+		compatibility: { advisories: [] },
+		update: { appId: target.appId, source: parsed.source },
+		identity: targetWireIdentity(
+			reading.identity,
+			reading.columnWords,
+			reading.projectSearches,
+			reading.installationProfiles,
+		),
+		languageNames: "target",
+		seeds: "target",
+		keyedCaseIdPrefixes: keyedCaseIdPrefixesFor(
+			reading.doc,
+			reading.keyedCaseIds,
+		),
+	}).application;
 }
 
 async function answer(request: Request): Promise<Answer> {
@@ -339,10 +413,20 @@ async function answer(request: Request): Promise<Answer> {
 									}))
 								: null,
 					}),
+					request.mode === "read-back" ? reading.offered : null,
 				);
 	return {
 		...base,
 		...(differences !== undefined && { differences }),
+		...(request.mode === "first-read" &&
+			request.emitApplication && {
+				application: firstPublishApplication(
+					reading,
+					input,
+					request.emitApplication,
+				),
+				firstPublishPlaces: reading.firstPublishPlaces,
+			}),
 		...(request.reviewChanges && {
 			review: reviewChanges(expectedDoc, reading),
 		}),

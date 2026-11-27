@@ -1,3 +1,4 @@
+import { androidAppInputMember } from "@/lib/domain/fields/androidApp";
 // lib/domain/referenceSlots.ts
 //
 // The reference-slot registry: one declarative enumeration of every
@@ -64,7 +65,11 @@ import {
 	translationSourceFingerprint,
 	translationSourceFingerprintsEqual,
 } from "./localization";
-import type { ColumnKind, SearchInputDef } from "./modules";
+import {
+	type ColumnKind,
+	projectSearchOf,
+	type SearchInputDef,
+} from "./modules";
 import type { ProseTemplate } from "./prose";
 import { ownRecordValue } from "./records";
 import { isDeeplySettled } from "./settled";
@@ -149,11 +154,9 @@ export interface FormReferenceSlot {
 type SearchInputArmKind = SearchInputDef["kind"];
 
 /**
- * The search-input union's second axis. `searchInputDefSchema` is seven arms over
- * TWO independent dimensions — `kind` (simple | advanced | hidden) and widget
- * shape (scalar | date-range | select; the hidden arm has no widget).
- * Options live only on choice widgets. Starting values live on every
- * visible widget, including both date-range arms.
+ * The search input's widget determines which fields it can carry. Hidden
+ * inputs have no widget. A visible date range supplied by the Project has
+ * no starting value, while ordinary date ranges do.
  */
 type SearchInputWidget = "scalar" | "date-range" | "select";
 
@@ -171,6 +174,10 @@ export interface ModuleReferenceSlot {
 	readonly columnKinds?: readonly ColumnKind[];
 	readonly searchInputKinds?: readonly SearchInputArmKind[];
 	readonly searchInputWidgets?: readonly SearchInputWidget[];
+	readonly searchInputWidgetExceptions?: readonly {
+		readonly kind: SearchInputArmKind;
+		readonly widget: SearchInputWidget;
+	}[];
 }
 
 export type ReferenceSlot =
@@ -269,6 +276,43 @@ const LABEL_TEXT_KINDS = INPUT_KINDS;
 // ── Field slots ───────────────────────────────────────────────────
 
 export const FIELD_REFERENCE_SLOTS = [
+	{
+		entity: "field",
+		slot: "android_app_input",
+		path: "androidApp.send[].value",
+		kind: "expression",
+		appliesTo: ["text"],
+	},
+	{
+		entity: "field",
+		slot: "android_app_result",
+		path: "androidApp.receive[].question",
+		kind: "entity-uuid",
+		appliesTo: ["text"],
+	},
+	{
+		entity: "field",
+		slot: "android_app_question",
+		path: "androidApp.question",
+		kind: "entity-uuid",
+		appliesTo: [
+			"text",
+			"int",
+			"decimal",
+			"date",
+			"datetime",
+			"time",
+			"barcode",
+			"geopoint",
+		],
+	},
+	{
+		entity: "field",
+		slot: "case_change_operation",
+		path: "operationUuid",
+		kind: "entity-uuid",
+		appliesTo: ["case_change"],
+	},
 	// Entry order is observable: consumers that walk a field's slots in
 	// registry order (the rename rewriters, the deep validator's scan —
 	// whose error order user-facing surfaces preserve) see slots in this
@@ -370,7 +414,7 @@ export const FIELD_REFERENCE_SLOTS = [
 				slot,
 				path: slot,
 				kind: "prose",
-				appliesTo: LABEL_TEXT_KINDS,
+				appliesTo: slot === "extended_text" ? LABELED_KINDS : LABEL_TEXT_KINDS,
 			}) as const,
 	),
 	{
@@ -394,6 +438,16 @@ export const FIELD_REFERENCE_SLOTS = [
 		kind: "prose",
 		appliesTo: INPUT_KINDS,
 	},
+	...(["extended_hint", "extended_help", "extended_validate_msg"] as const).map(
+		(slot) =>
+			({
+				entity: "field",
+				slot,
+				path: slot,
+				kind: "prose",
+				appliesTo: INPUT_KINDS,
+			}) as const,
+	),
 	{
 		entity: "field",
 		slot: "addFirstLabel",
@@ -417,6 +471,13 @@ export const FIELD_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "field",
+		slot: "option_extended_text",
+		path: "optionsSource.options[].extended_text",
+		kind: "prose",
+		appliesTo: SELECT_KINDS,
+	},
+	{
+		entity: "field",
 		slot: "lookup_options_source",
 		path: "optionsSource",
 		kind: "options-source",
@@ -432,6 +493,10 @@ const FORM_BEHAVIOR_SLOT_NAMES = {
 	automaticSubmissionText: "automatic_submission_text",
 	skipAutomaticSyncText: "skip_automatic_sync_text",
 	validateChangedAnswersText: "validate_changed_answers_text",
+	activityKeyText: "activity_key_text",
+	activityTitleText: "activity_title_text",
+	activityWindowText: "activity_window_text",
+	savedFormDescriptorText: "saved_form_descriptor_text",
 } as const satisfies Record<FormBehaviorRole, string>;
 
 export const FORM_REFERENCE_SLOTS = [
@@ -609,6 +674,13 @@ export const FORM_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "form",
+		slot: "case_operation_close_condition",
+		path: "caseOperations[].closeCondition",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
 		slot: "case_operation_name",
 		path: "caseOperations[].name",
 		kind: "expression",
@@ -619,6 +691,41 @@ export const FORM_REFERENCE_SLOTS = [
 		slot: "case_operation_owner",
 		path: "caseOperations[].owner",
 		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "case_operation_owner_condition",
+		path: "caseOperations[].ownerCondition",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "case_operation_later_owner",
+		path: "caseOperations[].ownerAfterCreate.value",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "case_operation_later_owner_condition",
+		path: "caseOperations[].ownerAfterCreate.condition",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "case_operation_type_condition",
+		path: "caseOperations[].typeChoice.condition",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "case_operation_alternate_type",
+		path: "caseOperations[].typeChoice.otherwise",
+		kind: "case-type-ref",
 		formTypes: FORM_TYPES,
 	},
 	{
@@ -666,6 +773,22 @@ export const FORM_REFERENCE_SLOTS = [
 		path: "caseOperations[].placement.repeat",
 		// A held Save to Case placement's repeat, the operation's `forEach`
 		// repeat by the validator's `scope` rule.
+		kind: "entity-uuid",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "case_operation_placement_external_id_day_field",
+		path: "caseOperations[].placement.externalIdCalendarDayField",
+		// The published Basic slot keeps the identity of the same direct
+		// datetime answer the typed external ID write reads.
+		kind: "entity-uuid",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "case_operation_link_relationship_question",
+		path: "caseOperations[].links[].relationshipQuestion",
 		kind: "entity-uuid",
 		formTypes: FORM_TYPES,
 	},
@@ -736,6 +859,12 @@ export const MODULE_REFERENCE_SLOTS = [
 		entity: "module",
 		slot: "module_case_parent",
 		path: "parentCaseModuleUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
+		slot: "advanced_case_link_parent",
+		path: "parentCaseLink.parentUuid",
 		kind: "entity-uuid",
 	},
 	{
@@ -901,6 +1030,12 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "case_list_result_detail_input",
+		path: "caseListConfig.columns[].searchResultDetail.inputUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
 		slot: "case_list_mapping_condition",
 		path: "caseListConfig.columns[].mapping[].when",
 		kind: "expression",
@@ -929,6 +1064,36 @@ export const MODULE_REFERENCE_SLOTS = [
 		slot: "case_search_filter",
 		path: "caseListConfig.searchCondition",
 		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "case_list_additional_type",
+		path: "caseListConfig.additionalCaseTypes[]",
+		kind: "case-type-ref",
+	},
+	{
+		entity: "module",
+		slot: "search_request_type",
+		path: "caseListConfig.searchFilters[].caseType",
+		kind: "case-type-ref",
+	},
+	{
+		entity: "module",
+		slot: "search_request_related_property",
+		path: "caseListConfig.searchFilters[].property",
+		kind: "case-property-ref",
+	},
+	{
+		entity: "module",
+		slot: "case_list_lookup_result_property",
+		path: "caseListConfig.deviceLookup.resultProperty",
+		kind: "case-property-ref",
+	},
+	{
+		entity: "module",
+		slot: "search_related_property",
+		path: "caseSearchConfig.relatedRecordIdProperty",
+		kind: "case-property-ref",
 	},
 	{
 		entity: "module",
@@ -976,7 +1141,8 @@ export const MODULE_REFERENCE_SLOTS = [
 		slot: "search_input_default",
 		path: "caseListConfig.searchInputs[].default",
 		kind: "expression",
-		searchInputKinds: ["simple", "advanced"],
+		searchInputKinds: ["simple", "advanced", "parameter"],
+		searchInputWidgetExceptions: [{ kind: "parameter", widget: "date-range" }],
 	},
 	{
 		entity: "module",
@@ -990,7 +1156,7 @@ export const MODULE_REFERENCE_SLOTS = [
 		slot: "search_input_options",
 		path: "caseListConfig.searchInputs[].options",
 		kind: "options-source",
-		searchInputKinds: ["simple", "advanced"],
+		searchInputKinds: ["simple", "advanced", "parameter"],
 		searchInputWidgets: ["select"],
 	},
 	{
@@ -998,14 +1164,14 @@ export const MODULE_REFERENCE_SLOTS = [
 		slot: "search_input_required_when",
 		path: "caseListConfig.searchInputs[].required.when",
 		kind: "expression",
-		searchInputKinds: ["simple", "advanced"],
+		searchInputKinds: ["simple", "advanced", "parameter"],
 	},
 	{
 		entity: "module",
 		slot: "search_input_validation_rule",
 		path: "caseListConfig.searchInputs[].validation.rule",
 		kind: "expression",
-		searchInputKinds: ["simple", "advanced"],
+		searchInputKinds: ["simple", "advanced", "parameter"],
 	},
 	{
 		entity: "module",
@@ -1019,6 +1185,18 @@ export const MODULE_REFERENCE_SLOTS = [
 		slot: "search_button_display_condition",
 		path: "caseSearchConfig.searchButtonDisplayCondition",
 		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "project_search_parameter",
+		path: "caseSearchConfig.projectSearch.defaults[].value",
+		kind: "expression",
+	},
+	{
+		entity: "module",
+		slot: "project_search",
+		path: "caseSearchConfig.projectSearch.searchUuid",
+		kind: "entity-uuid",
 	},
 	{
 		entity: "module",
@@ -1142,6 +1320,8 @@ export function expressionSlotKey(ref: SlotContextRef): string {
 	const base = [ref.entity, ref.uuid, ref.slot];
 	if (!("member" in ref)) return JSON.stringify(base);
 	const member = ref.member;
+	if ("name" in member)
+		return JSON.stringify([...base, member.name, member.occurrence]);
 	if ("optionUuid" in member)
 		return JSON.stringify([...base, member.optionUuid]);
 	if ("datum" in member) {
@@ -1186,6 +1366,8 @@ export function expressionSlotKey(ref: SlotContextRef): string {
 	if ("sortUuid" in member) return JSON.stringify([...base, member.sortUuid]);
 	if ("filterUuid" in member)
 		return JSON.stringify([...base, member.filterUuid]);
+	if ("parameterUuid" in member)
+		return JSON.stringify([...base, member.parameterUuid]);
 	return JSON.stringify([...base, member.searchInputUuid]);
 }
 
@@ -1201,6 +1383,21 @@ function expressionRefForEntry(
 ): ExpressionSlotRef | undefined {
 	const uuid = owner.uuid;
 	if (entry.entity === "field") {
+		if (entry.slot === "android_app_input") {
+			const source = ownRecordValue(doc.fields, uuid);
+			if (
+				source?.kind !== "text" ||
+				source.androidApp?.kind !== "open-app" ||
+				indices[0] === undefined
+			)
+				return undefined;
+			return {
+				entity: "field",
+				uuid,
+				slot: entry.slot,
+				member: androidAppInputMember(source.androidApp.send, indices[0]),
+			};
+		}
 		return { entity: "field", uuid, slot: entry.slot };
 	}
 	if (entry.entity === "module") {
@@ -1274,6 +1471,17 @@ function expressionRefForEntry(
 							uuid,
 							slot: entry.slot,
 							member: { columnUuid: column.uuid },
+						};
+			}
+			case "project_search_parameter": {
+				const parameter = projectSearchOf(mod)?.defaults[indices[0] ?? -1];
+				return parameter === undefined
+					? undefined
+					: {
+							entity: "module",
+							uuid,
+							slot: entry.slot,
+							member: { parameterUuid: parameter.uuid },
 						};
 			}
 			case "search_input_default":
@@ -1366,8 +1574,13 @@ function expressionRefForEntry(
 		}
 		case "case_operation_target_expression":
 		case "case_operation_condition":
+		case "case_operation_close_condition":
 		case "case_operation_name":
 		case "case_operation_owner":
+		case "case_operation_type_condition":
+		case "case_operation_owner_condition":
+		case "case_operation_later_owner":
+		case "case_operation_later_owner_condition":
 		case "case_operation_rename": {
 			const operation = form.caseOperations?.[indices[0] ?? -1];
 			return operation === undefined
@@ -1536,7 +1749,8 @@ function proseRefForEntry(
 	slot: FieldProseSlotId,
 	indices: readonly number[],
 ): ProseSlotRef | undefined {
-	if (slot !== "option_label") return { entity: "field", uuid, slot };
+	if (slot !== "option_label" && slot !== "option_extended_text")
+		return { entity: "field", uuid, slot };
 	const options = (
 		field as { optionsSource?: { options?: readonly { uuid?: Uuid }[] } }
 	).optionsSource?.options;
@@ -1621,11 +1835,11 @@ export function translatedFieldProse(
 			const ref = proseRefForEntry(field, field.uuid, entry.slot, indices);
 			if (source === undefined || ref === undefined) continue;
 			const unitId =
-				ref.slot === "option_label"
+				"member" in ref
 					? makeTranslationUnitId(
 							"field",
 							field.uuid,
-							"option",
+							ref.slot === "option_label" ? "option" : "option_extended_text",
 							ref.member.optionUuid,
 						)
 					: makeTranslationUnitId("field", field.uuid, ref.slot);
@@ -1996,7 +2210,10 @@ export type NonReferenceReason =
 	 *  `referenceIndex.extractFormEdges` follows it under the `shared_form`
 	 *  slot, so removing that form names every entry that opens it
 	 *  (`lib/doc/sharedFormDependents.ts`). */
-	| "shared-form";
+	| "shared-form"
+	/** A link within one Search screen, maintained by its input/group edits
+	 *  and checked against that screen's input and group definitions. */
+	| "search-input-connection";
 
 export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	Record<string, NonReferenceReason>
@@ -2008,6 +2225,10 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	"activity.name": "display-text",
 	"activity.description": "display-text",
 	"activity.estimatedHours": "config",
+	"androidApp.kind": "discriminator",
+	"androidApp.action": "config",
+	"androidApp.send[].name": "config",
+	"androidApp.receive[].name": "config",
 	repeat_mode: "discriminator",
 	// A query repeat's held placement: a closed enum, naming nothing.
 	placement: "config",
@@ -2063,6 +2284,13 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	label_media: "media",
 	help_media: "media",
 	"optionsSource.kind": "discriminator",
+	"optionsSource.status": "config",
+	// A filter across the worker's whole restore names a wire property key
+	// shared by any number of case types. It has no single catalog identity.
+	"optionsSource.propertyMatch.property": "config",
+	"optionsSource.propertyMatch.alternateProperty": "config",
+	"optionsSource.propertyMatch.text": "data-literal",
+	"optionsSource.propertyMatch.alternateText": "data-literal",
 	"optionsSource.options[].uuid": "identity",
 	"optionsSource.options[].value": "data-literal",
 	"optionsSource.options[].media": "media",
@@ -2165,14 +2393,26 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"caseOperations[].uuid": "identity",
 	"caseOperations[].id": "declaration",
 	"caseOperations[].action": "discriminator",
+	"caseOperations[].closeAfter": "config",
 	"caseOperations[].target.kind": "discriminator",
+	"caseOperations[].target.shareKeyAcrossRows": "config",
 	"caseOperations[].links[].identifier": "wire-token",
 	"caseOperations[].links[].target.kind": "discriminator",
+	"caseOperations[].links[].target.shareKeyAcrossRows": "config",
 	"caseOperations[].links[].relationship": "config",
 	"caseOperations[].writes[].onlyIfChanged": "config",
 	"caseOperations[].nameOnlyIfChanged": "config",
+	"caseOperations[].keepNameText": "config",
+	"caseOperations[].ownerAfterCreate.keepOwnerTextAfterWrites": "config",
 	"caseOperations[].renameOnlyIfChanged": "config",
 	"caseOperations[].ownerOnlyIfChanged": "config",
+	// Imported case-type calculations contain literal pieces only.
+	// The checked caseType above supplies the case catalog reference.
+	"caseOperations[].typeChoice.reapplyPrimaryAtEnd": "config",
+	"caseOperations[].typeCalculation.kind": "discriminator",
+	"caseOperations[].typeCalculation.parts[].kind": "discriminator",
+	"caseOperations[].typeCalculation.parts[].term.kind": "discriminator",
+	"caseOperations[].typeCalculation.parts[].term.value": "config",
 	// A held placement names the slot or the block CommCare HQ keeps the
 	// change in: closed enums, an index, and the element names of a Save to
 	// Case block's path in the form's source.
@@ -2180,6 +2420,7 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	"caseOperations[].placement.slot": "discriminator",
 	"caseOperations[].placement.index": "config",
 	"caseOperations[].placement.path": "wire-token",
+	"caseOperations[].placement.editorCaseType": "wire-token",
 	// An advanced action's tag is the element name HQ writes its block at
 	// (`case_<tag>`); `row` is a flag.
 	"caseOperations[].placement.tag": "wire-token",
@@ -2213,8 +2454,10 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	menuLayout: "config",
 	// The kind a publish recorded: one literal, written only by holds.
 	heldKind: "config",
+	"parentCaseLink.identifier": "wire-token",
 	// A list that goes on by itself when it holds one row: a flag.
 	autoSelectSingle: "config",
+	searchResultsName: "declaration",
 	purpose: "display-text",
 	icon: "media",
 	audioLabel: "media",
@@ -2250,15 +2493,45 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.detailColumnOrder[]": "identity",
 	"caseListConfig.selection.kind": "discriminator",
 	"caseListConfig.selection.maximum": "config",
+	"caseListConfig.selection.autoSelect": "config",
 	"caseListConfig.emptyText": "display-text",
 	"caseListConfig.selectButtonText": "display-text",
 	"caseListConfig.optimizations": "config",
+	"caseListConfig.deviceLookup.action": "wire-token",
+	"caseListConfig.deviceLookup.automatic": "config",
+	"caseListConfig.deviceLookup.evaluateExtras": "config",
+	// Computed extras are fixed arithmetic or reads of the signed worker's
+	// name and ID. They do not name authored properties.
+	"caseListConfig.deviceLookup.extras[].expression.kind": "discriminator",
+	"caseListConfig.deviceLookup.extras[].expression.op": "discriminator",
+	"caseListConfig.deviceLookup.extras[].expression.left.kind": "discriminator",
+	"caseListConfig.deviceLookup.extras[].expression.left.term.kind":
+		"discriminator",
+	"caseListConfig.deviceLookup.extras[].expression.left.term.value":
+		"data-literal",
+	"caseListConfig.deviceLookup.extras[].expression.right.kind": "discriminator",
+	"caseListConfig.deviceLookup.extras[].expression.right.term.kind":
+		"discriminator",
+	"caseListConfig.deviceLookup.extras[].expression.right.term.value":
+		"data-literal",
+	"caseListConfig.deviceLookup.extras[].expression.term.kind": "discriminator",
+	"caseListConfig.deviceLookup.extras[].expression.term.field": "wire-token",
+	"caseListConfig.deviceLookup.extras[].name": "wire-token",
+	"caseListConfig.deviceLookup.extras[].value": "data-literal",
+	"caseListConfig.deviceLookup.icon": "media",
+	"caseListConfig.deviceLookup.label": "display-text",
+	"caseListConfig.deviceLookup.responses[]": "wire-token",
+	"caseListConfig.deviceLookup.resultHeading": "display-text",
 	"caseListConfig.columns[].loadBehavior": "config",
 	"caseListConfig.columns[].uuid": "identity",
 	"caseListConfig.columns[].kind": "discriminator",
 	"caseListConfig.columns[].readFrom": "discriminator",
 	"caseListConfig.columns[].showOwner": "config",
 	"caseListConfig.columns[].header": "display-text",
+	"caseListConfig.columns[].searchResultDetail.onList": "config",
+	"caseListConfig.columns[].searchResultDetail.prefix": "display-text",
+	"caseListConfig.columns[].searchResultDetail.suffix": "display-text",
+	"caseListConfig.columns[].searchResultDetail.text": "display-text",
 	// Display text, but NOT a translation unit: a link cell is emitted as
 	// `<template form="markdown">`, and CommCare HQ builds locale variables
 	// only for its `Enum` format subclasses, so an HQ-imported app has
@@ -2302,6 +2575,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	// A table or place field shown as HQ's direct property field, and a
 	// placed cell only Android draws.
 	"caseListConfig.columns[].rowField": "config",
+	"caseListConfig.columns[].inlineResultProperty": "config",
 	"caseListConfig.columns[].tile.androidOnly": "config",
 	"caseListConfig.columns[].visibleInList": "config",
 	"caseListConfig.columns[].visibleInDetail": "config",
@@ -2351,8 +2625,23 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchInputs[].kind": "discriminator",
 	"caseListConfig.searchInputs[].matching": "config",
 	"caseListConfig.searchInputs[].allowBlank": "config",
+	"caseListConfig.searchInputs[].sendAnswer": "config",
+	"caseListConfig.searchInputs[].excludeFromRequest": "config",
+	"caseListConfig.searchInputs[].savedDefault": "config",
 	"caseListConfig.searchInputs[].hidden": "config",
+	"caseListConfig.searchInputs[].group": "search-input-connection",
+	"caseListConfig.searchInputs[].addressReceiver.kind": "discriminator",
+	"caseListConfig.searchInputs[].addressReceiver.source":
+		"search-input-connection",
+	"caseListConfig.searchInputs[].addressReceiver.topic": "wire-token",
+	"caseListConfig.searchInputs[].addressReceiver.parts[]": "wire-token",
+	"caseListConfig.searchInputs[].addressReceiver.fields": "wire-token",
+	"caseListConfig.searchInputs[].addressReceiver.component": "wire-token",
+	"caseListConfig.searchInputs[].addressReceiver.suffix": "wire-token",
+	"caseListConfig.searchInputGroups[].uuid": "identity",
+	"caseListConfig.searchInputGroups[].label": "display-text",
 	"caseListConfig.searchFilters[].uuid": "identity",
+	"caseSearchConfig.relatedRecords": "config",
 	"caseListConfig.searchFilters[].target.kind": "discriminator",
 	"caseListConfig.searchFilters[].target.attribute": "config",
 	"caseListConfig.searchFilters[].target.identifier": "config",
@@ -2365,6 +2654,8 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchInputs[].required.message": "display-text",
 	"caseListConfig.searchInputs[].required.noMessage": "config",
 	"caseListConfig.searchInputs[].validation.message": "display-text",
+	"caseSearchConfig.projectSearch.defaults[].name": "config",
+	"caseSearchConfig.projectSearch.defaults[].uuid": "identity",
 	"caseSearchConfig.searchActionEnabled": "config",
 	"caseListConfig.searchFilters[].target.placement": "config",
 	"caseSearchConfig.requestOrder[].comparison": "config",
@@ -2377,6 +2668,9 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchFilters[].order[].recordName": "config",
 	"caseListConfig.searchFilters[].order[].implicitComparison": "config",
 	"caseListConfig.searchFilters[].order[].implicitDirection": "config",
+	"caseListConfig.searchFilters[].order[].savedComparison": "config",
+	"caseListConfig.searchFilters[].order[].savedDirectionSigns": "config",
+	"caseListConfig.searchFilters[].order[].savedSuffix": "config",
 	"caseListConfig.searchFilters[].order[].direction": "config",
 	"caseSearchConfig.workflow": "config",
 	"caseSearchConfig.formsReadSearch": "config",

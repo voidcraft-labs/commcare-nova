@@ -260,13 +260,24 @@ function LinkRow({
 							value={link.identifier}
 							ariaLabel="Name of this connection"
 							onCommit={(next) => {
-								const verdict = caseOperationLinkIdentifierVerdict(next, taken);
+								const verdict = caseOperationLinkIdentifierVerdict(
+									next,
+									taken,
+									"free-here",
+									true,
+								);
 								if (!verdict.ok) {
 									setRejection(verdict.userMessage);
 									return;
 								}
+								const candidate = { ...link, identifier: next.trim() };
+								const result = linkVerdict(candidate);
+								if (!result.ok) {
+									setRejection(result.reason);
+									return;
+								}
 								setRejection(undefined);
-								onChange({ ...link, identifier: next.trim() });
+								onChange(candidate);
 							}}
 						/>
 					) : (
@@ -414,11 +425,17 @@ function LinkRow({
 				<p className="text-[13px] font-medium text-nova-text-secondary">
 					How they are related
 				</p>
-				<RelationshipMenu
-					value={link.relationship}
-					canEdit={canEdit}
-					onChange={(relationship) => onChange({ ...link, relationship })}
-				/>
+				{link.relationshipQuestion === undefined ? (
+					<RelationshipMenu
+						value={link.relationship}
+						canEdit={canEdit}
+						onChange={(relationship) => onChange({ ...link, relationship })}
+					/>
+				) : (
+					<p className="text-[14px] text-nova-text">
+						From the question that names this case
+					</p>
+				)}
 			</div>
 		</div>
 	);

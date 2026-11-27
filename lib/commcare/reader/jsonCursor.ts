@@ -950,14 +950,18 @@ export class JsonCursorImpl implements JsonCursor {
 		this.ledger.claim(this.mapSite(MAP_KEY), claim, this.place);
 	}
 
-	takeClass(claim: Claim<"take">): Admitted<string> {
-		const site: LedgerSite = {
+	classSite(): LedgerSite {
+		return {
 			owner: this,
 			sub: CLASS,
 			artifact: "app.json",
 			where: () => this.pointer,
 			name: `schema:${this.cls}`,
 		};
+	}
+
+	takeClass(claim: Claim<"take">): Admitted<string> {
+		const site = this.classSite();
 		return this.ledger.claim(site, claim, this.place)
 			? this.ledger.admit(this.cls, site, claim, this.place)
 			: this.ledger.unrecorded(this.cls);

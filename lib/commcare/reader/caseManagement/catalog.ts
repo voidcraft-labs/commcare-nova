@@ -22,14 +22,18 @@ import {
 	CaseRelationCatalog,
 	relationMetadata,
 } from "@/lib/domain/caseRelations";
+import { formCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
 import {
-	concreteCasePropertyWriterTypes,
 	effectiveCaseTypes,
 	materializableCaseTypes,
 } from "@/lib/domain/effectiveCaseTypes";
 import { slotContext } from "@/lib/domain/expression/context";
-import { hiddenWriterVerdicts } from "@/lib/domain/expression/inference";
+import { formStructure } from "@/lib/domain/expression/formStructure";
+import {
+	hiddenWriterVerdicts,
+	inferExpressionTypes,
+} from "@/lib/domain/expression/inference";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import { agreedStorageType } from "@/lib/domain/expression/ruleSets";
 import {
@@ -39,6 +43,7 @@ import {
 	type RelationPath,
 } from "@/lib/domain/expression/types";
 import { walkExpressionNodes } from "@/lib/domain/expression/walk";
+import { menuWithInheritedCaseSettings } from "@/lib/domain/listedForms";
 import { type ProseTemplate, proseText } from "@/lib/domain/prose";
 import {
 	type ExpressionCarrierRef,
@@ -274,8 +279,8 @@ function declareToldTypes(
 					return false;
 				// A date-and-time question saves its moment through its sibling,
 				// which only a `datetime` property holds, or its day straight.
-				if (one.field.kind === "datetime")
-					return declared !== (one.day === true ? "date" : "datetime");
+				if (one.day === true) return declared !== "date";
+				if (one.field.kind === "datetime") return declared !== "datetime";
 				const given = caseDataTypeForFieldKind(one.field.kind);
 				return given !== undefined && !declaredTypeHolds(given, declared);
 			});
@@ -287,7 +292,11 @@ interface CatalogWrite {
 	readonly caseType: string;
 	readonly property: string;
 	readonly field?: DraftField;
+	/** The source Hidden Value's answer bind is xsd:dateTime. */
+	readonly dateTime?: true;
+	/** The case write stores the day of a date-and-time answer. */
 	readonly day?: true;
+	/** A preload reads the property and writes nothing. */
 	readonly read?: true;
 }
 
@@ -369,17 +378,11 @@ const DATETIME_DECLARATIONS = new WeakMap<
  */
 function declareHiddenDateTimes(
 	draft: Draft<Catalog>,
-	writes: readonly {
-		readonly caseType: string;
-		readonly property: string;
-		readonly field?: DraftField;
-		readonly dateTime?: true;
-		readonly read?: true;
-	}[],
+	writes: readonly CatalogWrite[],
 ): { caseType: string; property: string }[] {
 	const declared: { caseType: string; property: string }[] = [];
 	for (const one of writes) {
-		if (one.dateTime !== true) continue;
+		if (one.dateTime !== true || one.day === true) continue;
 		const writers = writes.filter(
 			(other) =>
 				other.read !== true &&
@@ -539,17 +542,8 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 		noteType(caseTypes, typeof stored === "string" ? stored : undefined);
 	}
 	const links: ReadLink[] = [];
-	const writes: {
-		caseType: string;
-		property: string;
-		field?: DraftField;
-		/** The writing question is a Hidden Value its bind types `xsd:dateTime`. */
-		dateTime?: true;
-		/** A date-and-time question's answer saved straight, its day. */
-		day?: true;
-		/** A preload, which reads the property and writes nothing. */
-		read?: true;
-	}[] = [];
+	const writes: CatalogWrite[] = [];
+	const linkedWrites: CatalogWrite[] = [];
 	for (const module of app.modules) {
 		const menuType = module.module.caseType;
 		for (const form of module.forms) {
@@ -557,15 +551,17 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 				const caseType = op.action === "own" ? menuType : op.caseType;
 				if (caseType === undefined) continue;
 				noteType(caseTypes, caseType);
-				for (const write of op.writes)
-					if (write.via === undefined)
-						writes.push({
-							caseType,
-							property: write.property,
-							field: write.value.field,
-							...(boundDateTime(form, write.value.field) && { dateTime: true }),
-							...(write.value.day === true && { day: true }),
-						});
+				for (const write of op.writes) {
+					const reached = write.via?.at(-1)?.throughCaseType;
+					const collection = reached === undefined ? writes : linkedWrites;
+					collection.push({
+						caseType: reached ?? caseType,
+						property: write.property,
+						field: write.value.field,
+						...(boundDateTime(form, write.value.field) && { dateTime: true }),
+						...(write.value.day === true && { day: true }),
+					});
+				}
 				if (
 					op.linksOwn === true &&
 					menuType !== undefined &&
@@ -591,32 +587,42 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 						...(boundDateTime(form, write.value.field) && { dateTime: true }),
 						...(write.value.day === true && { day: true }),
 					});
-				for (const link of op.links)
+				for (const link of op.links) {
+					if (link.relationshipQuestion !== undefined) {
+						noteType(caseTypes, link.targetType);
+						continue;
+					}
 					links.push({
 						child: caseType,
 						identifier: link.identifier,
 						parent: link.targetType,
 						relationship: link.relationship,
 					});
+				}
 			}
 			for (const block of saveToCaseReading(form)?.proposals ?? []) {
 				const caseType = block.action === "own" ? menuType : block.caseType;
 				if (caseType === undefined) continue;
 				noteType(caseTypes, caseType);
 				const destination = block.retype ?? caseType;
-				noteType(caseTypes, destination);
+				const destinations =
+					block.typeChoice === undefined || block.typeChoice.reapplyPrimaryAtEnd
+						? [destination]
+						: [destination, block.typeChoice.otherwise];
+				for (const type of destinations) noteType(caseTypes, type);
 				for (const write of block.writes) {
 					// A value that is one question's answer is that question's write.
 					const field =
 						write.value.kind === "text"
 							? write.value.readsField
 							: write.value.field;
-					writes.push({
-						caseType: destination,
-						property: write.property,
-						...(field !== undefined && { field }),
-						...(boundDateTime(form, field) && { dateTime: true }),
-					});
+					for (const type of destinations)
+						writes.push({
+							caseType: type,
+							property: write.property,
+							...(field !== undefined && { field }),
+							...(boundDateTime(form, field) && { dateTime: true }),
+						});
 				}
 				for (const link of block.links) {
 					noteType(caseTypes, link.targetType);
@@ -633,6 +639,21 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 			const xform = form.xform;
 			if (xform !== null)
 				for (const field of fieldsOf(xform.childrenOf, null)) {
+					// A case choices nodeset names the type it lists even when no menu owns it.
+					const choices = xform.caseChoices.get(field);
+					if (choices?.caseType !== undefined) {
+						noteType(caseTypes, choices.caseType);
+						for (const property of [
+							choices.labelProperty,
+							choices.sortProperty,
+						])
+							if (property !== undefined)
+								writes.push({
+									caseType: choices.caseType,
+									property,
+									read: true,
+								});
+					}
 					const read = field.field.default_value as
 						| {
 								kind?: string;
@@ -653,6 +674,20 @@ export function readCaseCatalog(ctx: ReadContext, app: DraftApp): void {
 				}
 		}
 	}
+	// Day inference must see every basic writer for a reached property, even
+	// another menu that writes a different value through a case index.
+	const dayDestinations = new Set(
+		linkedWrites
+			.filter((write) => write.day === true)
+			.map(({ caseType, property }) => JSON.stringify([caseType, property])),
+	);
+	for (const write of linkedWrites) {
+		if (!dayDestinations.has(JSON.stringify([write.caseType, write.property])))
+			continue;
+		noteType(caseTypes, write.caseType);
+		writes.push(write);
+	}
+
 	const selections: { child: string; parent: string }[] = [];
 	for (const module of app.modules) {
 		const parent = app.modules.find(
@@ -723,7 +758,31 @@ function reportedPairs(ctx: ReadContext): Set<string> {
 
 const WRITER_CLAIMS = defineClaims("caseManagement.catalog", {
 	otherPair: refuse(`forms-and-case-writes/any-other-mixed-writer-pair`, null),
+	wholeNumberPreloadFromText: refuse(
+		`forms-and-case-writes/whole-number-starting-answer-from-free-text`,
+		null,
+	),
 });
+
+/** The free-text destinations written directly by a visible follow-up answer. */
+function ownFreeTextDestinations(doc: BlueprintDoc): ReadonlySet<string> {
+	const destinations = new Set<string>();
+	for (const form of Object.values(doc.forms)) {
+		if (form.type !== "followup") continue;
+		for (const [fieldUuid, writes] of formCaseWriteViews(doc, form.uuid)) {
+			const field = doc.fields[fieldUuid];
+			if (field?.kind !== "text" || field.validate !== undefined) continue;
+			for (const write of writes)
+				if (
+					write.destination === "own" &&
+					write.slot === "write" &&
+					!write.link
+				)
+					destinations.add(JSON.stringify([write.caseType, write.property]));
+		}
+	}
+	return destinations;
+}
 
 /**
  * The writers of each property judged over the bound document
@@ -746,10 +805,10 @@ export function settleWriterTypes(
 	app: DraftApp,
 	doc: BlueprintDoc,
 ): void {
-	let opinions: ReturnType<typeof concreteCasePropertyWriterTypes>;
+	let inference: ReturnType<typeof inferExpressionTypes>;
 	let verdicts: ReturnType<typeof hiddenWriterVerdicts>;
 	try {
-		opinions = concreteCasePropertyWriterTypes(doc);
+		inference = inferExpressionTypes(doc);
 		verdicts = hiddenWriterVerdicts(doc);
 	} catch (error) {
 		rethrowWorkStop(error);
@@ -771,11 +830,32 @@ export function settleWriterTypes(
 			name: property,
 		});
 	};
-	for (const [caseType, byProperty] of opinions) {
+	let freeText: ReadonlySet<string> | undefined;
+	for (const [caseType, byProperty] of inference.writerOpinions) {
 		if (NOT_CATALOGUED.has(caseType)) continue;
 		for (const [property, types] of byProperty) {
 			if (types.size < 2 || agreedStorageType(types) !== undefined) continue;
-			finding(caseType, property, WRITER_CLAIMS.otherPair);
+			const cast = inference.propertyTypes.get(caseType)?.get(property)?.castBy;
+			let integerOpeningReadsFreeText = false;
+			if (
+				types.size === 2 &&
+				types.has("int") &&
+				types.has("text") &&
+				cast?.type === "int" &&
+				doc.fields[cast.field]?.kind === "int"
+			) {
+				freeText ??= ownFreeTextDestinations(doc);
+				integerOpeningReadsFreeText = freeText.has(
+					JSON.stringify([caseType, property]),
+				);
+			}
+			finding(
+				caseType,
+				property,
+				integerOpeningReadsFreeText
+					? WRITER_CLAIMS.wholeNumberPreloadFromText
+					: WRITER_CLAIMS.otherPair,
+			);
 		}
 	}
 	for (const verdict of verdicts) {
@@ -1057,6 +1137,7 @@ export function catalogAsRead(
 		kind: string;
 	}[] = [];
 	const selections: { child: string; parent: string }[] = [];
+	const reads: { caseType: string; property: string }[] = [];
 	for (const uuid of doc.moduleOrder)
 		noteType(caseTypes, doc.modules[uuid]?.caseType);
 	for (const moduleUuid of doc.moduleOrder) {
@@ -1073,7 +1154,13 @@ export function catalogAsRead(
 				if (caseType === undefined) continue;
 				noteType(caseTypes, caseType);
 				const destination = (op.action === "update" && op.retype) || caseType;
-				noteType(caseTypes, destination);
+				const destinations =
+					op.action === "create" &&
+					op.typeChoice !== undefined &&
+					!op.typeChoice.reapplyPrimaryAtEnd
+						? [destination, op.typeChoice.otherwise]
+						: [destination];
+				for (const type of destinations) noteType(caseTypes, type);
 				for (const write of op.writes ?? []) {
 					// A write through an index saves to a case above; its type is the
 					// expression stage's to note, by the read it binds.
@@ -1083,17 +1170,18 @@ export function catalogAsRead(
 						value.kind === "term" && value.term.kind === "field"
 							? doc.fields[value.term.uuid]
 							: undefined;
-					writes.push({
-						caseType: destination,
-						property: write.property,
-						kind: field?.kind ?? "expression",
-						...(field !== undefined &&
-							isSelect(field.kind) && {
-								options: inlineOptions(
-									field as unknown as Readonly<Record<string, unknown>>,
-								),
-							}),
-					});
+					for (const type of destinations)
+						writes.push({
+							caseType: type,
+							property: write.property,
+							kind: field?.kind ?? "expression",
+							...(field !== undefined &&
+								isSelect(field.kind) && {
+									options: inlineOptions(
+										field as unknown as Readonly<Record<string, unknown>>,
+									),
+								}),
+						});
 				}
 				for (const link of op.links ?? []) {
 					noteType(caseTypes, link.targetType);
@@ -1106,10 +1194,20 @@ export function catalogAsRead(
 					});
 				}
 			}
+			for (const fieldUuid of formStructure(doc, formUuid)?.fields.keys() ??
+				[]) {
+				const field = doc.fields[fieldUuid];
+				const choices =
+					"optionsSource" in field ? field.optionsSource : undefined;
+				if (choices?.kind !== "cases") continue;
+				noteType(caseTypes, choices.caseType);
+				for (const property of [choices.labelProperty, choices.sortProperty])
+					if (property !== undefined)
+						reads.push({ caseType: choices.caseType, property });
+			}
 		}
 	}
 	noteParents(caseTypes, links, selections, knownCaseTypesOf(doc));
-	const reads: { caseType: string; property: string }[] = [];
 	const effectiveTypes = effectiveCaseTypes(doc);
 	const subcases = subcaseLinks(doc, effectiveTypes);
 	expressionReads(doc.fields, reads, effectiveTypes);
@@ -1127,6 +1225,15 @@ export function catalogAsRead(
 		}
 		for (const uuid of doc.moduleOrder) {
 			const module = doc.modules[uuid];
+			const lookup = module?.caseListConfig?.deviceLookup?.resultProperty;
+			if (lookup !== undefined) {
+				const owner = menuWithInheritedCaseSettings(
+					doc,
+					uuid,
+					module,
+				)?.caseType;
+				if (owner !== undefined) noteProperty(draft, owner, lookup);
+			}
 			if (module?.caseType === undefined) continue;
 			for (const one of listProperties(
 				module as unknown as Readonly<Record<string, unknown>>,
@@ -1145,6 +1252,18 @@ export function catalogAsRead(
 					draft.push({ name: one.caseType, properties: [] });
 				noteProperty(draft, one.caseType, one.property);
 			}
+			for (const type of module.caseListConfig?.additionalCaseTypes ?? [])
+				noteType(draft, type);
+			for (const filter of module.caseListConfig?.searchFilters ?? [])
+				if ("kind" in filter && filter.kind === "request-record-type")
+					noteType(draft, filter.caseType);
+			const search = module.caseSearchConfig;
+			if (
+				search &&
+				"relatedRecordIdProperty" in search &&
+				search.relatedRecordIdProperty
+			)
+				noteProperty(draft, module.caseType, search.relatedRecordIdProperty);
 			// A Details tab's child type, and the related type a search requests
 			// beside a tab's own rows, are types the list reader declares
 			// (`caseList/details.ts`).

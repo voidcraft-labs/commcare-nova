@@ -35,10 +35,10 @@ directories the partitions cover (``walked_files``).
   document's walks to), ``lib/commcare/surface/**``, and the test modules
   outside the checks whose items run in documents' groups
   (``DOCUMENT_GROUP_TESTS``: HQ's branch proof), whose outcomes a document's
-  group keeps.
-- ``harness``: every file under ``proof/`` and ``lib/commcare/surface/``, and
-  Nova's package manifest, lock and Node version (``HARNESS_FILES``): what a
-  package group's tests can read of the checkout.
+  group keeps. The shared XML name ranges are data the manifest judge reads.
+- ``harness``: every file under ``proof/`` and ``lib/commcare/surface/``, the shared
+  XML name ranges, and Nova's package manifest, lock and Node version
+  (``HARNESS_FILES``): what a package group's tests can read of the checkout.
 
 Beside them: ``image``, the digest ``proof/image.lock`` pins (or one named
 with ``--image``); ``postgres``, the digest of the Postgres image
@@ -76,6 +76,7 @@ JUDGE_DIRECTORIES = ("proof/checks/", "proof/rules/", "lib/commcare/surface/")
 # is in the observation's (``proof.observe.partition``). ``proof/checks/test_judge_purity.py`` holds every
 # collected item of a document's group to a module of this partition.
 DOCUMENT_GROUP_TESTS = frozenset({"proof/hq/test_branches.py"})
+NAME_RANGE_FILES = frozenset({"lib/domain/portableNameRanges.json", "lib/domain/androidNameRanges.json"})
 JUDGE_FILES = (
     frozenset(
         {
@@ -87,9 +88,10 @@ JUDGE_FILES = (
         }
     )
     | DOCUMENT_GROUP_TESTS
+    | NAME_RANGE_FILES
 )
 HARNESS_DIRECTORIES = ("proof/", "lib/commcare/surface/")
-HARNESS_FILES = frozenset({"package.json", "package-lock.json", ".nvmrc"})
+HARNESS_FILES = frozenset({"package.json", "package-lock.json", ".nvmrc"}) | NAME_RANGE_FILES
 # The paths a walk of a copy without git reads: the partitions' directories and files.
 WALKED = ("proof", "lib/commcare/surface", *sorted(HARNESS_FILES))
 # What a walk leaves out, as git's ignore rules would: bytecode, installed packages, the lane's output.

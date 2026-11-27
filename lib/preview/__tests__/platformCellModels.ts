@@ -85,7 +85,12 @@ import {
 	startingSearchRange,
 	webSearchRangeDraft,
 } from "../engine/searchRangeAnswer";
-import { drawnSearchInputs } from "../engine/searchRunState";
+import {
+	applySearchAddressMessage,
+	drawnSearchInputs,
+	openSearchRunState,
+	searchInputAnswerKeys,
+} from "../engine/searchRunState";
 import { prepareEntryPointLaunch } from "../entryPointLaunch";
 import { labelPresentation } from "../labelPresentation";
 import { shownMenuBadge } from "../menuProjection";
@@ -1086,9 +1091,232 @@ export const PLATFORM_MODEL_CHECKS = {
 		).toBe(1);
 	},
 
+	"search-headings-android": () => {
+		const first = {
+			...simpleSearchInputDef(
+				testUuid("heading-area"),
+				"area",
+				"Area",
+				"text",
+				"area",
+			),
+			group: testUuid("search-heading-location"),
+		};
+		const second = {
+			...simpleSearchInputDef(
+				testUuid("heading-identifier"),
+				"identifier",
+				"Identifier",
+				"text",
+				"identifier",
+			),
+			group: testUuid("search-heading-identification"),
+		};
+		expect(ANDROID.searchFieldGroups).toBe(false);
+		expect(drawnSearchInputs([first, second], ANDROID)).toEqual([
+			first,
+			second,
+		]);
+		expect(WEB_APPS.searchFieldGroups).toBe(true);
+	},
+
 	/* Android reads no `hidden`: it draws a hidden value, with or without a
 	 * starting value, and a field Web Apps does not draw, as ordinary fields;
 	 * Web Apps draws none of them (`SearchInputForm` reads the same rule). */
+	"search-address-picker-android": () => {
+		const source = {
+			kind: "address",
+			type: "address",
+			uuid: testUuid("address-source"),
+			name: "source",
+			label: "Address",
+		} as const;
+		const receiver = {
+			...simpleSearchInputDef(
+				testUuid("address-receiver"),
+				"city",
+				"City",
+				"text",
+				"city",
+			),
+			addressReceiver: {
+				kind: "address",
+				source: source.uuid,
+				parts: ["city"] as "city"[],
+			},
+		} as const;
+		expect(drawnSearchInputs([source, receiver], ANDROID)).toEqual([receiver]);
+		expect(drawnSearchInputs([source, receiver], WEB_APPS)).toEqual([
+			source,
+			receiver,
+		]);
+		expect(searchInputAnswerKeys([source, receiver])).toEqual(
+			new Set(["city"]),
+		);
+	},
+	"search-address-clear-android": (on: Platform) => {
+		const picker = {
+			kind: "address",
+			type: "address",
+			uuid: testUuid("clearing-address-picker"),
+			name: "home",
+			label: "Address",
+		} as const;
+		const receiver = simpleSearchInputDef(
+			testUuid("clearing-address-receiver"),
+			"village",
+			"Village",
+			"text",
+			"village",
+			{
+				addressReceiver: {
+					kind: "address-clear",
+					source: picker.uuid,
+					component: "unknown_component",
+				},
+			},
+		);
+		const inputs = [picker, receiver];
+		const entered = new Map([["village", "Hand-entered village"]]);
+		const rules = previewPlatformRules(on);
+		expect(drawnSearchInputs(inputs, rules)).toEqual([receiver]);
+		for (const message of [{ city: "Example Town" }, null]) {
+			expect(
+				applySearchAddressMessage(
+					entered,
+					inputs,
+					picker.uuid,
+					message,
+					undefined,
+					rules,
+				),
+			).toEqual(entered);
+			expect(
+				applySearchAddressMessage(
+					entered,
+					inputs,
+					picker.uuid,
+					message,
+					undefined,
+					WEB_APPS,
+				).has("village"),
+			).toBe(false);
+		}
+	},
+	"saved-address-default": (on: Platform) => {
+		const picker = {
+			kind: "address",
+			type: "address",
+			uuid: testUuid("saved-address-picker"),
+			name: "village",
+			label: "Village",
+			savedDefault: "Old address",
+		} as const;
+		const name = simpleSearchInputDef(
+			testUuid("saved-address-name"),
+			"client_name",
+			"Name",
+			"text",
+			"client_name",
+			{ default: term(literal("Amina")) },
+		);
+		const inputs = [picker, name];
+		const rules = previewPlatformRules(on);
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Clients",
+					caseType: "client",
+					caseListConfig: {
+						...caseListConfig([]),
+						searchInputs: inputs,
+					},
+				},
+			],
+		});
+		const opened = openSearchRunState(
+			"saved-address",
+			inputs,
+			{
+				context: { userid: "worker" },
+				user: {},
+				userPropertySlugs: {},
+			},
+			{ doc, moduleUuid: doc.moduleOrder[0] },
+		);
+		expect(searchInputAnswerKeys(inputs)).toEqual(new Set(["client_name"]));
+		expect(opened.defaults).toEqual(new Map([["client_name", "Amina"]]));
+		expect(drawnSearchInputs(inputs, rules)).toEqual(
+			on === "web-apps" ? inputs : [name],
+		);
+	},
+	"search-unmatched-address-topic": (on: Platform) => {
+		const picker = {
+			kind: "address",
+			type: "address",
+			uuid: testUuid("unmatched-topic-picker"),
+			name: "home",
+			label: "Address",
+		} as const;
+		const village = {
+			...simpleSearchInputDef(
+				testUuid("unmatched-topic-village"),
+				"village",
+				"Village",
+				"text",
+				"village",
+			),
+			addressReceiver: { kind: "unsubscribed-topic", topic: "home||city" },
+		} as const;
+		const city = simpleSearchInputDef(
+			testUuid("unmatched-topic-active-city"),
+			"city",
+			"City",
+			"text",
+			"city",
+			{
+				addressReceiver: {
+					kind: "address",
+					source: picker.uuid,
+					parts: ["city"],
+				},
+			},
+		);
+		const inputs = [picker, village, city];
+		const rules = previewPlatformRules(on);
+		const entered = new Map([
+			["village", "Hand-entered village"],
+			["city", "Hand-entered city"],
+		]);
+		const picked = applySearchAddressMessage(
+			entered,
+			inputs,
+			picker.uuid,
+			{ city: "Example Town" },
+			undefined,
+			rules,
+		);
+		const cleared = applySearchAddressMessage(
+			picked,
+			inputs,
+			picker.uuid,
+			null,
+			undefined,
+			rules,
+		);
+		expect(searchInputAnswerKeys(inputs)).toEqual(new Set(["village", "city"]));
+		expect(picked.get("village")).toBe("Hand-entered village");
+		expect(cleared.get("village")).toBe("Hand-entered village");
+		if (on === "web-apps") {
+			expect(drawnSearchInputs(inputs, rules)).toEqual(inputs);
+			expect(picked.get("city")).toBe("Example Town");
+			expect(cleared.has("city")).toBe(false);
+		} else {
+			expect(drawnSearchInputs(inputs, rules)).toEqual([village, city]);
+			expect(picked).toEqual(entered);
+			expect(cleared).toEqual(entered);
+		}
+	},
 	"hidden-search-field-android": () => {
 		const hidden = hiddenSearchInputDef(
 			testUuid("cell-model-hidden"),

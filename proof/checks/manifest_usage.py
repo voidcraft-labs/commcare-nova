@@ -255,6 +255,7 @@ from proof.checks.compare.app_strings import (
 )
 from proof.checks.differences import Difference, pointer_token
 from proof.checks.manifest_value_classes import (
+    POSITIVE_VALUE_CLASSES,
     VALUE_CLASSES,
     VARIANTS,
     App,
@@ -269,6 +270,7 @@ from proof.checks.manifest_value_classes import (
     instance_scheme,
     instance_source,
     preset_source,
+    project_search_endpoint_id,
     scanned_instance_names,
     protected_constraint_form,
     unread_words_dropped,
@@ -338,7 +340,7 @@ class Manifest:
     parsers: dict = field(default_factory=dict)  # parser name -> its item (children, elements)
     entries: dict = field(default_factory=dict)  # surface key -> (Entry, ...): the inventory entries naming it
     # Each value class's reader by its entry's id (proof.checks.manifest_value_classes.VALUE_CLASSES).
-    readers: dict = field(default_factory=lambda: VALUE_CLASSES)
+    readers: dict = field(default_factory=lambda: VALUE_CLASSES | POSITIVE_VALUE_CLASSES)
     # The readers of the parts a REFUSED class holds apart, by its entry's id (``VARIANTS``).
     variants: dict = field(default_factory=lambda: VARIANTS)
 
@@ -559,11 +561,6 @@ def app_json_uses(
     root = app.get("doc_type") or "Application"
     document = App(app, artifact, configurations, authored=authored, read=read)
     found.documents.append(document)
-    scope = ((root, app),)
-    # The app's own class sits at the whole document, whose pointer is the empty one (RFC 6901), as each object's
-    # use sits at its own pointer.
-    found.add(f"schema:{root}", artifact, "", JsonAt(document, scope))
-    _walk_object(app, root, "", manifest, artifact, found, document, scope)
     sources = app.get("_attachments") or {}
     for m, module in enumerate(app.get("modules") or []):
         for f, form in enumerate((module or {}).get("forms") or []):
@@ -575,6 +572,11 @@ def app_json_uses(
                 parsed = xform_uses(source.encode("utf-8"), manifest, f"{_prefix(artifact)}form:{m}.{f}", found)
                 parsed.app_form = (document, form or {})
                 document.forms.setdefault((form or {}).get("unique_id"), parsed)
+    scope = ((root, app),)
+    # Basic update slots can now bind to the source of their own form. The app's class sits at the whole
+    # document, whose pointer is the empty one (RFC 6901), as each object's use sits at its own pointer.
+    found.add(f"schema:{root}", artifact, "", JsonAt(document, scope))
+    _walk_object(app, root, "", manifest, artifact, found, document, scope)
 
 
 def _prefix(artifact):
@@ -643,6 +645,8 @@ def _walk_object(value, cls, pointer, manifest, artifact, found, document, scope
                 continue
         at = f"{pointer}/{pointer_token(key)}"
         slot = JsonAt(document, scope, key)
+        if (cls, key) in _BASIC_UPDATE_SLOTS and (form := slot.nearest("Form")) is not None:
+            slot = JsonAt(document, scope, key, document.xform(form))
         item = manifest.item(f"schema:{cls}.{key}")
         if item is None or _undeclared_member(item):
             found.add(schema_key(manifest, cls, key), artifact, at, slot)
@@ -678,6 +682,13 @@ def _walk_object(value, cls, pointer, manifest, artifact, found, document, scope
             if dispatched:
                 found.add(f"schema:{chosen}", artifact, where, JsonAt(document, inner))
             _walk_object(element, wrapped, where, manifest, artifact, found, document, inner)
+
+
+_BASIC_UPDATE_SLOTS = frozenset({
+    ("Form", "actions"),
+    ("FormActions", "update_case"),
+    ("UpdateCaseAction", "update"),
+})
 
 
 def key_name(text):
@@ -933,11 +944,18 @@ def _object_uses(cls, value, pointer, manifest, artifact, found, at):
             kind = field_value.split(":", 1)[0] if ":" in field_value else "property"
             found.add(f"detail-field-type:{kind}", artifact, f"{pointer}/field", JsonAt(at.app, at.scope, "field"))
     elif cls == "DefaultCaseSearchProperty":
-        # A filter that holds no value is one use of its own, where Nova's reader refuses it whole
-        # (``manifest_value_classes.missing_default_value``); a filter that holds one is used through its keys.
-        if holds_no_default_value(value):
-            found.add(f"schema:{cls}", artifact, pointer, at)
+        # A filter with no value is refused whole. A project endpoint reads its parameter as an
+        # ordered request row with its own identity. Ordinary filters are used through their keys.
+        endpoint = (at.nearest("CaseSearch") or {}).get("case_search_endpoint_id")
         name = value.get("property")
+        key = (manifest.item(f"csql-key:{name}") or {}) if isinstance(name, str) else {}
+        parameter = (
+            project_search_endpoint_id(endpoint)
+            and isinstance(name, str) and bool(name)
+            and not key.get("configField") and "tag" not in key.get("roles", ())
+        )
+        if holds_no_default_value(value) or parameter:
+            found.add(f"schema:{cls}", artifact, pointer, at)
         _search_key(name, manifest, artifact, f"{pointer}/property", found, JsonAt(at.app, at.scope, "property"))
         if name == XPATH_QUERY_KEY and isinstance(value.get("defaultValue"), str):
             found.query(artifact, f"{pointer}/defaultValue", value["defaultValue"])
@@ -2376,7 +2394,9 @@ def standing(manifest: Manifest, use: Use):
       whose class the check cannot rule out: a value Nova does not hold yet,
       whatever allowing class names its key; a reader that does not say leaves
       the use to the steps below;
-    - else a use an allowing entry names is ``HELD``;
+    - else a use an unconditional allowing entry names is ``HELD``;
+    - else a use a positive HELD reader proves is ``HELD``; a use the reader
+      cannot determine is ``UNDECIDED`` for that entry;
     - else, in a local archive, a use some source-refused entry's class
       takes is ``SOURCE``, and one some such class may take, its reader not
       saying, ``UNDECIDED``;
@@ -2445,6 +2465,7 @@ class _Plan:
     static: tuple | None
     judged: tuple = ()  # ((Entry, reader's place), ...)
     bar: tuple = ()  # (Entry, ...)
+    positive: tuple = ()  # ((Entry, reader's place or None), ...) for HELD rows requiring affirmative evidence
 
 
 class _NeedsReader(Exception):
@@ -2482,6 +2503,17 @@ def _evaluate(plan, read):
         return HELD_NEW, tuple(entry for entry in plan.new if entry in taken or entry not in judged)
     if plan.allowed:
         return HELD, ()
+    proven, unsure = [], []
+    for entry, place in plan.positive:
+        verdict = _verdict(entry, place, read)
+        if verdict is True:
+            proven.append(entry)
+        elif verdict is None:
+            unsure.append(entry)
+    if proven:
+        return HELD, tuple(proven)
+    if unsure:
+        return UNDECIDED, tuple(unsure)
     taken, unsure = [], []
     for entry, place in plan.source:
         verdict = _verdict(entry, place, read)
@@ -2508,7 +2540,7 @@ def _standing_plan(manifest, key, built):
         return None
     if all(entry.disposition == "REFUSED" and entry.refused_by_hq_build() for entry in entries):
         return _Plan(entries, (), False, (), (), (), (BAR, entries))
-    refusing, source, new, judged, readers, bar = [], [], [], [], [], []
+    refusing, source, new, judged, readers, bar, positive = [], [], [], [], [], [], []
     allowed = False
     for entry in entries:
         if entry.disposition == "HELD-NEW":
@@ -2516,6 +2548,12 @@ def _standing_plan(manifest, key, built):
             reader = manifest.readers.get(entry.id) if entry.value_class is not None else None
             if reader is not None:
                 judged.append((entry, len(readers)))
+                readers.append(reader)
+            continue
+        if entry.disposition == "HELD" and entry.id in POSITIVE_VALUE_CLASSES:
+            reader = manifest.readers.get(entry.id)
+            positive.append((entry, None if reader is None else len(readers)))
+            if reader is not None:
                 readers.append(reader)
             continue
         if entry.disposition != "REFUSED":
@@ -2530,13 +2568,13 @@ def _standing_plan(manifest, key, built):
         if reader is not None:
             readers.append(reader)
     plan = _Plan(
-        entries, tuple(refusing), allowed, tuple(new), tuple(source), tuple(readers), None, tuple(judged), tuple(bar)
+        entries, tuple(refusing), allowed, tuple(new), tuple(source), tuple(readers), None, tuple(judged), tuple(bar), tuple(positive)
     )
     try:
         static = _evaluate(plan, _no_reader)
     except _NeedsReader:
         return plan
-    return _Plan(entries, plan.refusing, allowed, plan.new, plan.source, (), static, plan.judged, plan.bar)
+    return _Plan(entries, plan.refusing, allowed, plan.new, plan.source, (), static, plan.judged, plan.bar, plan.positive)
 
 
 @cache

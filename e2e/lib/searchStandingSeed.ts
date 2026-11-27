@@ -1,8 +1,8 @@
 /**
- * Three lists of patients under one menu: Patients, which opens on Results
+ * Four lists of patients under one menu: Patients, which opens on Results
  * first and whose forms read the search; Find a patient, which opens on
  * Results first through its Search action, its forms reading no search; and
- * All patients, a plain list.
+ * All patients, a plain list; and Search notes, which shows the submitted prompt on Details.
  *
  * Opening Patients runs its default search, which finds both patients. A
  * worker who searches again for one of them, steps out to the menu, opens
@@ -28,10 +28,12 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
+	calculatedColumn,
 	fuzzyMode,
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 
 export const SEARCH_STANDING_SEED = {
@@ -63,6 +65,13 @@ export const SEARCH_STANDING_SEED = {
 		name: "All patients",
 		formName: "Review",
 		columnUuid: testUuid("search-standing-browse-column"),
+	},
+	resultDetail: {
+		moduleUuid: testUuid("search-standing-result-detail"),
+		name: "Search notes",
+		formName: "Check note",
+		columnUuid: testUuid("search-standing-result-detail-name"),
+		searchInputUuid: testUuid("search-standing-result-detail-input"),
 	},
 	prompt: { name: "patient_name", label: "Patient name" },
 	noteLabel: "Visit note",
@@ -153,6 +162,46 @@ export function buildSearchStandingBlueprint(appId: string): BlueprintDoc {
 				],
 			},
 			{
+				uuid: seed.resultDetail.moduleUuid,
+				name: seed.resultDetail.name,
+				caseType: seed.caseType,
+				caseListConfig: {
+					columns: [
+						plainColumn(seed.resultDetail.columnUuid, "case_name", "Patient"),
+						{
+							...calculatedColumn(
+								testUuid("search-standing-submitted-answer"),
+								"Search note",
+								term(literal("No submitted Search")),
+								{ notOnList: true, visibleInList: false },
+							),
+							searchResultDetail: {
+								inputUuid: seed.resultDetail.searchInputUuid,
+								prefix: "Entered [",
+								suffix: "]",
+							},
+						},
+					],
+					searchInputs: [
+						simpleSearchInputDef(
+							seed.resultDetail.searchInputUuid,
+							seed.prompt.name,
+							seed.prompt.label,
+							"text",
+							"case_name",
+							{ mode: fuzzyMode() },
+						),
+					],
+				},
+				forms: [
+					{
+						name: seed.resultDetail.formName,
+						type: "followup",
+						fields: [note],
+					},
+				],
+			},
+			{
 				uuid: seed.browsing.moduleUuid,
 				name: seed.browsing.name,
 				caseType: seed.caseType,
@@ -172,10 +221,19 @@ export function buildSearchStandingBlueprint(appId: string): BlueprintDoc {
 		seed.searching.moduleUuid,
 		seed.finding.moduleUuid,
 		seed.browsing.moduleUuid,
+		seed.resultDetail.moduleUuid,
 	])
 		doc.modules[child] = {
 			...doc.modules[child],
 			parentModuleUuid: seed.clinic.moduleUuid,
 		};
+	doc.localization = {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "spa"],
+		wireCodes: { eng: "en", spa: "es" },
+		translations: { spa: {} },
+	};
+
 	return doc;
 }

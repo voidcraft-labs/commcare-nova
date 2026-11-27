@@ -3,13 +3,13 @@
 import { useEffect, useId, useState } from "react";
 import { Input } from "@/components/shadcn/input";
 import type { CaseSelection } from "@/lib/domain";
+import { STANDARD_CASE_SELECTION_MAXIMUM } from "@/lib/domain/caseSelectionLimits";
 import { selectableSegmentCls } from "@/lib/styles";
 import { cn } from "@/lib/utils";
 
-const DEFAULT_MULTIPLE_MAXIMUM = 100;
-
 export interface CaseSelectionSettingProps {
 	readonly value: CaseSelection | undefined;
+	readonly maximumAllowed?: number;
 	readonly canEdit: boolean;
 	/** Why Several cases is withheld, when a platform the app runs on can't
 	 *  run it: that platform's picker line, under the choice's label. A stored
@@ -27,13 +27,14 @@ export interface CaseSelectionSettingProps {
  */
 export function CaseSelectionSetting({
 	value,
+	maximumAllowed = STANDARD_CASE_SELECTION_MAXIMUM,
 	canEdit,
 	severalRefusal,
 	onChange,
 }: CaseSelectionSettingProps) {
 	const multiple = value?.kind === "multiple";
 	const severalWithheld = !multiple && severalRefusal !== undefined;
-	const maximum = value?.maximum ?? DEFAULT_MULTIPLE_MAXIMUM;
+	const maximum = value?.maximum ?? STANDARD_CASE_SELECTION_MAXIMUM;
 	const selectionName = useId();
 	const maximumInputId = useId();
 	const maximumHelpId = `${maximumInputId}-help`;
@@ -70,14 +71,14 @@ export function CaseSelectionSetting({
 			maximumDraft.trim() === "" ||
 			!Number.isInteger(parsed) ||
 			parsed < 1 ||
-			parsed > 100
+			parsed > maximumAllowed
 		) {
 			setMaximumProblem("range");
 			return;
 		}
 		setMaximumProblem(null);
 		if (parsed !== maximum) {
-			onChange({ kind: "multiple", maximum: parsed }, origin);
+			onChange({ ...value, kind: "multiple", maximum: parsed }, origin);
 			// The saved setting remains authoritative while its review is open.
 			// A confirmed change updates `maximum` and the effect above restores the
 			// new value; cancelling leaves no unsaved draft behind.
@@ -93,7 +94,7 @@ export function CaseSelectionSetting({
 	const maximumProblemMessage =
 		maximumProblem === "peer-change"
 			? "This limit changed elsewhere while you were editing. Press Esc to use the shared limit, then enter your change again."
-			: "Choose a whole number from 1 to 100.";
+			: `Choose a whole number from 1 to ${maximumAllowed}.`;
 
 	return (
 		<section aria-labelledby="results-selection-heading">
@@ -173,7 +174,7 @@ export function CaseSelectionSetting({
 								id={maximumInputId}
 								type="number"
 								min={1}
-								max={100}
+								max={maximumAllowed}
 								step={1}
 								value={maximumDraft}
 								onChange={(event) => {
@@ -215,12 +216,31 @@ export function CaseSelectionSetting({
 									id={maximumHelpId}
 									className="mt-1.5 text-[13px] leading-relaxed text-nova-text-muted"
 								>
-									Choose a whole number from 1 to 100.
+									Choose a whole number from 1 to {maximumAllowed}.
 								</p>
 							)}
 						</div>
 					)}
 
+					{multiple && (
+						<label className="mt-4 flex items-center gap-2 text-sm font-medium text-nova-text">
+							<input
+								type="checkbox"
+								checked={value.autoSelect === true}
+								onChange={(event) =>
+									onChange(
+										{
+											kind: "multiple",
+											maximum,
+											...(event.currentTarget.checked && { autoSelect: true }),
+										},
+										event.currentTarget,
+									)
+								}
+							/>
+							Choose matching cases automatically
+						</label>
+					)}
 					{multiple && (
 						<p className="mt-4 text-[13px] leading-relaxed text-nova-text-muted">
 							A question without a starting answer begins blank. Leaving it

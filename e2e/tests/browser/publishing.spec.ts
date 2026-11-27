@@ -149,7 +149,16 @@ function report(
 			: "This project space supports everything this app uses.",
 	};
 }
-async function open(page: Page, query = "", review = true) {
+async function open(
+	page: Page,
+	query = "",
+	review = true,
+	downloadTargets: DownloadTargetsView = {
+		targets: [{ server: "india", domain: "alpha", unavailable: null }],
+		heldFromHq: [],
+		webAppsOnly: false,
+	},
+) {
 	await page.route("**/api/apps/native-publishing/stream?*", (route) =>
 		route.fulfill({
 			status: 200,
@@ -175,11 +184,7 @@ async function open(page: Page, query = "", review = true) {
 		route.fulfill({
 			json: {
 				success: true,
-				data: {
-					targets: [{ server: "india", domain: "alpha", unavailable: null }],
-					heldFromHq: [],
-					webAppsOnly: false,
-				},
+				data: downloadTargets,
 			},
 		}),
 	);
@@ -3598,4 +3603,96 @@ test("Check connection reads the connection route alone, says so when it can't, 
 	).toHaveCount(0);
 	expect(answers).toBe(2);
 	expect(navigations).toEqual([]);
+});
+
+test("offers named Android downloads only for eligible apps and targets, keeping the exact empty-named selection through the request", async ({
+	page,
+}) => {
+	const picker = page.getByRole("combobox", { name: "Installation profile" });
+	await open(page, "installations=true&webOnly=true", false, {
+		targets: [],
+		heldFromHq: [],
+		webAppsOnly: true,
+	});
+	await choose(page, "Publish option", "CommCare mobile app file", false);
+	await expect(page.getByText(WEB_APPS_ONLY_HAS_NO_CCZ)).toBeVisible();
+	await expect(picker).toHaveCount(0);
+	await open(page, "installations=true", false, {
+		targets: [],
+		heldFromHq: [],
+		webAppsOnly: false,
+	});
+	await choose(page, "Publish option", "CommCare mobile app file", false);
+	await expect(
+		page.getByText(/Once the app is published, you can download the CCZ/),
+	).toBeVisible();
+	await expect(picker).toHaveCount(0);
+	await open(page, "installations=true", false, {
+		targets: [
+			{ server: "production", domain: "alpha", unavailable: null },
+			{ server: "india", domain: "alpha", unavailable: null },
+		],
+		heldFromHq: [],
+		webAppsOnly: false,
+	});
+	await expect(picker).toHaveCount(0);
+	await choose(page, "Publish option", "CommCare mobile app file", false);
+	const india = page.getByRole("radio", {
+		name: "alpha on India",
+		exact: true,
+	});
+	await expect(india).not.toBeChecked();
+	await expect(
+		page.getByRole("button", { name: "Continue", exact: true }),
+	).toBeDisabled();
+	await expect(picker).toHaveCount(0);
+	await india.click();
+	await expect(picker).toBeVisible();
+	await picker.click();
+	await expect(
+		page.getByRole("option", {
+			name: "Profile 3 · Team (English)",
+			exact: true,
+		}),
+	).toBeVisible();
+	await page
+		.getByRole("option", {
+			name: "Profile 1 · Unnamed profile (English)",
+			exact: true,
+		})
+		.click();
+	await expect(picker).toHaveText("Profile 1 · Unnamed profile (English)");
+	await reviewDestination(page);
+	await expect(
+		page.getByText(
+			"Installation profile: Profile 1 · Unnamed profile (English)",
+			{ exact: true },
+		),
+	).toBeVisible();
+	const reached = Promise.withResolvers<URLSearchParams>(),
+		finish = Promise.withResolvers<void>();
+	await page.route("**/publishing/download/ccz?*", async (route) => {
+		reached.resolve(new URL(route.request().url()).searchParams);
+		await finish.promise;
+		await route.fulfill({ json: { ok: true } });
+	});
+	try {
+		await page
+			.getByRole("button", { name: "Download CCZ", exact: true })
+			.click();
+		expect(Object.fromEntries(await reached.promise)).toEqual({
+			server: "india",
+			domain: "alpha",
+			profile: "0199a000-0000-7000-8000-00000000a000",
+		});
+		await expect(picker).toHaveCount(0);
+		await expect(
+			page.getByRole("button", { name: "Back", exact: true }),
+		).toBeDisabled();
+	} finally {
+		finish.resolve();
+	}
+	await expect(
+		page.getByText("Mobile app file downloaded", { exact: true }),
+	).toBeVisible();
 });

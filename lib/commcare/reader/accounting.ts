@@ -102,6 +102,8 @@ export type ClaimSite =
 	| XmlNode
 	| { readonly json: JsonCursor; readonly key: string };
 
+type JsonClassSite = { readonly json: JsonCursor; readonly class: true };
+
 export interface ClaimRecord {
 	/** `app.json` or `form:<m>.<f>`. */
 	readonly artifact: string;
@@ -807,11 +809,13 @@ export class Accounting implements ClaimLedger {
 
 	// ── What a stage asks of the accounting directly ──────────────────────
 
-	#site(site: ClaimSite): LedgerSite | undefined {
+	#site(site: ClaimSite | JsonClassSite): LedgerSite | undefined {
 		if ("json" in site) {
 			const cursor = site.json;
 			return cursor instanceof JsonCursorImpl
-				? cursor.site(site.key)
+				? "key" in site
+					? cursor.site(site.key)
+					: cursor.classSite()
 				: undefined;
 		}
 		const document = documentOf(site.element);
@@ -937,7 +941,7 @@ export class Accounting implements ClaimLedger {
 	 * name is the defect `key-not-named`.
 	 */
 	claimEntry(
-		site: ClaimSite,
+		site: ClaimSite | JsonClassSite,
 		entryId: string,
 		key: string,
 		place: HqPlace,
@@ -1012,7 +1016,7 @@ export class Accounting implements ClaimLedger {
 	 * `claimEntry` answers it; a key not claimed there yet is `claimEntry`'s.
 	 */
 	claimEntryClass(
-		site: ClaimSite,
+		site: ClaimSite | JsonClassSite,
 		entryId: string,
 		key: string,
 		place: HqPlace,

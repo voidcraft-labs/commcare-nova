@@ -1,0 +1,19 @@
+{
+	"id": "hq-legacy-search-group-wording",
+	"configuration": {
+		"flags": [
+			"CASE_SEARCH_ADVANCED",
+			"SYNC_SEARCH_CASE_CLAIM"
+		],
+		"namedPrivileges": [],
+		"commcareVersion": "2.57.0",
+		"commtrack": false,
+		"syncCasesOnFormEntry": false,
+		"caseSearchEnabled": true
+	},
+	"declaration": "preselected",
+	"exhibits": [
+		"application-and-settings/translations-generated-wording",
+		"case-search/is-group-group-key"
+	]
+}

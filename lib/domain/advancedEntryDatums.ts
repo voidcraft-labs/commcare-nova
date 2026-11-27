@@ -33,7 +33,7 @@
 // Pure, and memoized per document object (documents are replaced, never
 // changed in place).
 
-import { advancedChainIndex, advancedKindBlockers } from "./advancedModule";
+import { advancedKindBlockers, advancedMenuChainIndex } from "./advancedModule";
 import { allocateAdvancedTags } from "./advancedTags";
 import {
 	basicCaseSlots,
@@ -63,6 +63,7 @@ import {
 import {
 	CASE_LOADING_FORM_TYPES,
 	type CaseOperation,
+	type CaseOperationWrite,
 	caseOperationRunsPerSelectedCase,
 	type Form,
 	formLinkEntries,
@@ -75,6 +76,10 @@ import {
 import { uniqueSlug } from "./idSlug";
 import { moduleParent, projectedModulePreorder } from "./moduleHierarchy";
 import type { AdvancedIneligibility } from "./placements";
+import {
+	isReservedCaseOperationWrite,
+	isWritableStandardCaseProperty,
+} from "./standardCaseProperties";
 import { USERCASE_CASE_TYPE } from "./usercase";
 import type { Uuid } from "./uuid";
 
@@ -145,7 +150,12 @@ function computeChain(doc: BlueprintDoc, formUuid: Uuid): readonly ChainLoad[] {
 	return typed.map((load, index) => {
 		const parent = typed[index - 1];
 		if (parent === undefined) return load;
-		const chainIndex = advancedChainIndex(doc, load.caseType, parent.caseType);
+		const chainIndex = advancedMenuChainIndex(
+			doc,
+			load.moduleUuid,
+			load.caseType,
+			parent.caseType,
+		);
 		return {
 			...load,
 			identifier:
@@ -491,6 +501,96 @@ function readsQuestion(
 	return stands === undefined || stands === repeat;
 }
 
+/** A passive label's submitted value is ordinary text. Keep its Advanced load
+ * away from the case facets and properties HQ routes to dedicated columns. */
+export function isAdvancedOwnLabelProperty(property: string): boolean {
+	return (
+		property !== "hq_user_id" &&
+		!isReservedCaseOperationWrite({ property }) &&
+		!isWritableStandardCaseProperty(property)
+	);
+}
+
+/** A confirmation or a visible banner can submit a present, empty label answer. */
+export function caseWriteLabelSavesEmpty(
+	askForConfirmation: unknown,
+	banner: unknown,
+): boolean {
+	return askForConfirmation === true
+		? banner === undefined
+		: banner === "good" || banner === "caution" || banner === "bad";
+}
+
+/** The earlier record in a two-choice entry can supply one passive label. */
+function earlierManualLabelSource(f: CaseSlotFacts, selection: Uuid): boolean {
+	const choices = explicitFormCaseSelections(f.doc, f.formUuid);
+	if (choices === undefined) {
+		const chain = advancedLoadChain(f.doc, f.formUuid);
+		const first = chain[0];
+		return (
+			chain.length === 2 &&
+			first !== undefined &&
+			implicitFormSelectionId(f.formUuid, first.moduleUuid) === selection
+		);
+	}
+	return (
+		choices.length === 2 &&
+		ownFormSelectionIndex(f.doc, f.formUuid) === 1 &&
+		choices[0].uuid === selection &&
+		choices[0].source.kind === "choose" &&
+		choices[1].source.kind === "choose"
+	);
+}
+
+function readsOwnRootLabel(
+	f: CaseSlotFacts,
+	write: CaseOperationWrite,
+): boolean {
+	if (
+		write.via !== undefined ||
+		write.onlyIfChanged ||
+		!isAdvancedOwnLabelProperty(write.property)
+	)
+		return false;
+	const source = caseWriteValueField(write.value);
+	if (source === undefined || source.link) return false;
+	const field = f.doc.fields[source.field];
+	const passive =
+		field?.kind === "label" &&
+		field.askForConfirmation !== true &&
+		field.banner === undefined;
+	const starting =
+		f.form.openingAssignments?.filter(
+			({ field: target }) => target === source.field,
+		) ?? [];
+	const [first, last] = starting;
+	const loadedFromEarlier =
+		first?.source.kind === "selection" &&
+		earlierManualLabelSource(f, first.source.selection);
+	const loadedFromSelectedRecords =
+		passive &&
+		f.form.type === "followup" &&
+		starting.every(
+			(row) =>
+				row.via === undefined && isAdvancedOwnLabelProperty(row.property),
+		) &&
+		(starting.length === 1
+			? first?.source.kind === "own" || loadedFromEarlier
+			: starting.length === 2 &&
+				loadedFromEarlier &&
+				last?.source.kind === "own");
+	return (
+		field?.kind === "label" &&
+		(passive ||
+			(f.form.type !== "close" &&
+				caseWriteLabelSavesEmpty(field.askForConfirmation, field.banner))) &&
+		field.default_value === undefined &&
+		(starting.length === 0 || loadedFromSelectedRecords) &&
+		f.doc.fieldOrder[f.formUuid]?.includes(source.field) === true &&
+		f.submittedChildren.get(f.formUuid)?.includes(source.field) === true
+	);
+}
+
 function stateable(
 	f: CaseSlotFacts,
 	condition: Expression | undefined,
@@ -512,6 +612,27 @@ function ownerExpressible(
 	return readsQuestion(f, owner, repeat);
 }
 
+/** Keep an aliased close separate so its selected load still reads as a
+ * follow-up. The own passive label may already have a published Save to Case
+ * path, or may take the chosen load directly. */
+function ownPassiveLabelNeedsSeparateClose(
+	f: CaseSlotFacts,
+	load: Extract<AdvancedLoadRef, { kind: "chain" }>,
+): boolean {
+	const own = f.own;
+	return (
+		own !== undefined &&
+		f.form.type === "followup" &&
+		!f.severalCases &&
+		f.module?.caseType !== USERCASE_CASE_TYPE &&
+		ownFormSelectionIndex(f.doc, f.formUuid) === load.index &&
+		!f.positionedOperations.has(own.uuid) &&
+		own.writes?.some((write) => readsOwnRootLabel(f, write)) === true &&
+		(heldOwnOrCreateBlockExpresses(f, own) ||
+			loadClause(f, own, load) === undefined)
+	);
+}
+
 /** The first clause that keeps `operation` from `load`, in the table order
  *  of `lib/commcare/advancedPlacement.ts`. `worker-property-name` waits on
  *  the proof lane's gated run and is not tried; no load meets
@@ -523,18 +644,31 @@ export function loadClause(
 ): AdvancedIneligibility | undefined {
 	if (operation.action !== "own" && operation.forEach !== undefined)
 		return "scope";
+	// A conditioned direct worker update must keep its conditional source
+	// block even when its authored condition is a constant match-all.
+	if (isWorkerRecordUpdate(operation) && operation.condition !== undefined)
+		return "write-condition";
 	const writes = operation.writes ?? [];
-	const values: Expression[] = [
-		...(operation.action === "own"
-			? operation.name === undefined
-				? []
-				: [operation.name]
-			: operation.action === "update" && operation.rename !== undefined
-				? [operation.rename]
-				: []),
-		...writes.map((write) => write.value),
-	];
-	if (values.some((value) => !readsQuestion(f, value, undefined)))
+	const name =
+		operation.action === "own"
+			? operation.name
+			: operation.action === "update"
+				? operation.rename
+				: undefined;
+	const ownSelectedCase =
+		operation.action === "own" &&
+		(f.form.type === "followup" || f.form.type === "close") &&
+		!f.severalCases &&
+		load.kind === "chain" &&
+		f.module?.caseType !== USERCASE_CASE_TYPE;
+	if (
+		(name !== undefined && !readsQuestion(f, name, undefined)) ||
+		writes.some(
+			(write) =>
+				!readsQuestion(f, write.value, undefined) &&
+				!(ownSelectedCase && readsOwnRootLabel(f, write)),
+		)
+	)
 		return "value-not-a-question";
 	if (
 		writes.some((write) => write.condition !== undefined) ||
@@ -543,11 +677,12 @@ export function loadClause(
 			operation.condition.kind !== "match-all")
 	)
 		return "write-condition";
-	if (
-		operation.action === "close" &&
-		!stateable(f, operation.condition, undefined)
-	)
-		return "condition-not-stateable";
+	if (operation.action === "close") {
+		if (!stateable(f, operation.condition, undefined))
+			return "condition-not-stateable";
+		if (load.kind === "chain" && ownPassiveLabelNeedsSeparateClose(f, load))
+			return "scope";
+	}
 	if (
 		load.kind === "chain" &&
 		(f.form.caseSelections === undefined
@@ -592,12 +727,14 @@ export function openActionClause(
 	view: OpenActionView,
 ): AdvancedIneligibility | undefined {
 	if (!opensCase(f, operation)) return "scope";
+	if (operation.ownerAfterCreate !== undefined) return "write-condition";
 	const repeat =
 		operation.action === "create" ? operation.forEach?.repeat : undefined;
 	if (
 		operation.action === "create" &&
 		operation.target.kind === "new" &&
-		operation.target.idFrom !== undefined
+		(operation.target.idFrom !== undefined ||
+			operation.target.expr !== undefined)
 	)
 		return "keyed";
 	const writes = operation.writes ?? [];
@@ -702,9 +839,11 @@ function candidateNewCases(
 	for (const op of operations)
 		if (
 			op.action === "create" &&
+			op.ownerAfterCreate === undefined &&
 			op.forEach === undefined &&
 			op.target.kind === "new" &&
-			op.target.idFrom === undefined
+			op.target.idFrom === undefined &&
+			op.target.expr === undefined
 		)
 			candidates.push({
 				operationUuid: op.uuid,

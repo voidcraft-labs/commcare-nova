@@ -38,7 +38,7 @@ export interface EvaluateRequest {
 		readonly command?: string;
 		readonly data?: Readonly<Record<string, string | readonly string[]>>;
 	};
-	/** A case list on the installed local archive: its search text and sort column. */
+	/** A case list on this export's installed suite: its search text and sort column. */
 	readonly caseList?: {
 		readonly searchText?: string;
 		readonly sortIndex?: number;

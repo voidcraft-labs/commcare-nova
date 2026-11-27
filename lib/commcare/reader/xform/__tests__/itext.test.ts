@@ -217,7 +217,6 @@ describe("pragma keys", () => {
 		);
 		expect(codes(reading).sort()).toEqual(
 			[
-				Q("a-question-text-whose-itext-id-is-pragma-form-descriptor-where"),
 				Q("itext-pragma-entries-pragma-form-descriptor-pragma-skip-full"),
 				Q("itext-entry-referenced-only-from-jr-itext-in-an-expression"),
 			].sort(),
@@ -772,7 +771,7 @@ describe("pragma rows", () => {
 		]);
 	});
 
-	it("refuses an activity key and the title beside it, which Nova does not hold yet", async () => {
+	it("holds an activity key and the title beside it", async () => {
 		const reading = await readForm(
 			xformSource({
 				data: "<a/><b/>",
@@ -789,7 +788,12 @@ describe("pragma rows", () => {
 		const activity = Q(
 			"a-question-text-label-hint-help-validation-message-repeat-add",
 		);
-		expect(codes(reading)).toEqual([activity, activity]);
+		expect(codes(reading)).toEqual([]);
+		expect(
+			[...reading.closed.claims.records()].filter(
+				(record) => record.entry === activity,
+			),
+		).toHaveLength(2);
 	});
 });
 

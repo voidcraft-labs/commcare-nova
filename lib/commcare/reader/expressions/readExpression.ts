@@ -12,7 +12,6 @@ import {
 	extractAstLookupReferences,
 	readReferences,
 } from "@/lib/doc/lookupReferences";
-
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { fieldCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
@@ -22,8 +21,10 @@ import {
 	type LookupTypeIndex,
 	slotContext,
 } from "@/lib/domain/expression/context";
+import { ordinaryDeviceCaseList } from "@/lib/domain/expression/directHostTextEquality";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { RuleSet } from "@/lib/domain/expression/profiles";
+import { literalShape } from "@/lib/domain/expression/ruleSets";
 import { expressionContextAtPath } from "@/lib/domain/expression/typeChecker";
 import {
 	type Expression,
@@ -92,6 +93,7 @@ import {
 	hqExpressionField,
 } from "../../suite/case-list/orderPlanOptions";
 import { emitSearchFilterValue } from "../../suite/case-search/nativeFilters";
+import { projectSearchValue } from "../../suite/case-search/projectSearch";
 import { searchPromptWire } from "../../suite/case-search/searchPrompts";
 import { searchWireShape } from "../../suite/case-search/searchWireShape";
 import { searchInputInstanceId } from "../../suite/case-search/types";
@@ -572,6 +574,7 @@ function scopeWith(
 		form !== undefined && caseOperationSlot(pending.ref)
 			? operationPlaceReads(doc, form, pending.ref, env)
 			: undefined;
+	const reached = reachedSlot(doc, pending);
 	const reading: FormReadingHooks = {
 		functions: READ_FUNCTIONS,
 		itextUnit: (id) => itextUnits?.get(id),
@@ -586,9 +589,7 @@ function scopeWith(
 				operationIdPaths,
 				withdrawn,
 				sites,
-				...(readsReached(doc, pending.ref) && {
-					readsReached: true as const,
-				}),
+				...(reached === undefined ? {} : { readsReached: reached }),
 				...(place === undefined ? {} : { place }),
 				...(root === undefined ? {} : { root }),
 			}),
@@ -609,17 +610,24 @@ function scopeWith(
 	};
 }
 
-/** Whether the slot reads an untyped index walk as the reached read: a case
- *  list column's calculation, in a menu that offers no Search, whose Results
- *  hold no case such a walk reaches (`searchRelatedCalculationCompatibility`
- *  refuses it there). */
-function readsReached(doc: BlueprintDoc, ref: SlotContextRef): boolean {
-	if (ref.entity !== "module" || ref.slot !== "case_list_column_expression")
-		return false;
+/** A reached read describes the worker's case database. Search Results and
+ * other details can have a different row population. */
+function reachedSlot(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+): FoldEnv["readsReached"] {
+	const { ref, mode } = pending;
+	if (ref.entity !== "module") return undefined;
 	const module = doc.modules[ref.uuid];
-	return (
-		module !== undefined && effectiveCaseSearchConfig(module) === undefined
-	);
+	if (module === undefined || effectiveCaseSearchConfig(module) !== undefined)
+		return undefined;
+	if (ref.slot === "case_list_column_expression") return "column";
+	return ref.slot === "case_list_filter" &&
+		ordinaryDeviceCaseList(doc, ref.uuid) &&
+		mode.target === "hq-json" &&
+		mode.interpolation === "case"
+		? "host-filter"
+		: undefined;
 }
 
 /** The site key of one fold over one span of the source. */
@@ -642,7 +650,7 @@ function proposeFold(
 		readonly operationIdPaths: ReadonlyMap<string, Uuid>;
 		readonly withdrawn: ReadonlySet<string>;
 		readonly sites: FoldSites;
-		readonly readsReached?: true;
+		readonly readsReached?: FoldEnv["readsReached"];
 		readonly place?: OperationPlaceReads;
 		readonly root?: FormSyntax;
 	},
@@ -658,7 +666,9 @@ function proposeFold(
 			doc: options.doc,
 			operationIdPaths: options.operationIdPaths,
 			withdrawn: options.withdrawn,
-			...(options.readsReached && { readsReached: true }),
+			...(options.readsReached === undefined
+				? {}
+				: { readsReached: options.readsReached }),
 			...(options.place === undefined ? {} : { place: options.place }),
 			...(options.root === undefined ? {} : { root: options.root }),
 			bindPlain(at, context) {
@@ -772,11 +782,13 @@ function formEmission(
 	const mod = doc.modules[moduleUuid];
 	const links = linkContextOf(doc, naming);
 	const own = selectedCaseSessionDatum(doc, links, moduleUuid, formUuid);
-	const searchAnswers =
-		moduleFormsReadSearch(mod) ||
+	const searchAnswers = searchAnswersOf(
+		doc,
+		moduleUuid,
 		afterEmptySearchRegistrationFormOf(doc, moduleUuid) === formUuid
-			? searchAnswersOf(doc, moduleUuid)
-			: undefined;
+			? undefined
+			: formUuid,
+	);
 	let datumId: WireTermBindings["datumId"];
 	const bindings: WireTermBindings = {
 		formCaseProperty: formCasePropertyRead({
@@ -794,6 +806,9 @@ function formEmission(
 			? {}
 			: {
 					searchInputInstanceId: searchAnswers.instanceId,
+					searchAnswerInstances: searchAnswers.answers,
+					searchResultInstances: searchAnswers.instances,
+					searchResultInstance: searchAnswers.resultsInstanceId,
 					searchInputNames: searchAnswers.names,
 				}),
 		datumId: (ref) => {
@@ -1292,6 +1307,18 @@ function printSlotWith(
 						rewrites,
 					),
 				);
+			case "project_search_parameter":
+				return text(
+					projectSearchValue(
+						expression,
+						ref.member.parameterUuid,
+						expressions,
+						naming,
+						searchInstanceOf(mod),
+						caseListStepDatumId(doc, ref.uuid, "chainId"),
+						rewrites,
+					),
+				);
 			case "search_button_display_condition":
 				return hq(
 					projectSearchButtonCondition(
@@ -1619,7 +1646,7 @@ function printSlotWith(
 					? (field.optionsSource as SelectOptionsSource | undefined)
 					: undefined;
 			const path = projection.path({ kind: "field", uuid: ref.uuid });
-			if (choices === undefined || choices.kind === "inline" || !path)
+			if ((choices?.kind !== "cases" && choices?.kind !== "lookup") || !path)
 				throw new Error(
 					`The question ${ref.uuid} takes no choices from a table or from cases.`,
 				);
@@ -1680,7 +1707,7 @@ function searchInstanceOf(
 ): `search-input:${string}` | undefined {
 	const config = mod.caseSearchConfig;
 	if (config === undefined) return undefined;
-	const wire = searchWireShape(config);
+	const wire = searchWireShape(config, mod?.searchResultsName);
 	return wire === undefined ? undefined : searchInputInstanceId(wire);
 }
 
@@ -1877,6 +1904,8 @@ export interface BoundSlot {
 	readonly candidate: Expression;
 	/** `S` of the method: HQ's text as a runtime reads it. */
 	readonly source: FormSyntax;
+	/** The source spelling after adding explicit Core numeric coercions, where certified. */
+	readonly comparisonSource?: FormSyntax;
 	/** The fold sites the bind used, as `foldId:from:to` of the source,
 	 *  outermost first. */
 	readonly foldSites: readonly string[];
@@ -1953,6 +1982,185 @@ function catalogNeedsNameDiagnostics(env: ExpressionReadEnv): boolean {
 	return needed;
 }
 
+/** A root Text field used without traversing or filtering the answer node. */
+function rootTextOrderLeaf(
+	doc: BlueprintDoc,
+	form: Uuid,
+	value: Expression,
+	source: FormSyntax,
+): boolean {
+	return (
+		source.kind === "child" &&
+		!source.descendant &&
+		source.step.kind === "name" &&
+		source.left?.kind === "child" &&
+		!source.left.descendant &&
+		source.left.left === undefined &&
+		source.left.step.kind === "name" &&
+		value.kind === "term" &&
+		value.term.kind === "field" &&
+		value.term.filters === undefined &&
+		doc.fields[value.term.uuid]?.kind === "text" &&
+		doc.fieldParent[value.term.uuid] === form
+	);
+}
+
+/** One root Text answer or a flat concatenation starting with that answer. */
+function rootTextOrderInput(
+	doc: BlueprintDoc,
+	form: Uuid,
+	value: Expression,
+	source: FormSyntax,
+): boolean {
+	if (value.kind !== "concat")
+		return rootTextOrderLeaf(doc, form, value, source);
+	if (
+		source.kind !== "call" ||
+		source.name !== "concat" ||
+		value.parts.length !== source.args.length
+	)
+		return false;
+	return value.parts.every((part, index) => {
+		const operand = source.args[index];
+		if (index === 0 || operand.kind !== "string")
+			return rootTextOrderLeaf(doc, form, part, operand);
+		return (
+			part.kind === "term" &&
+			part.term.kind === "literal" &&
+			part.term.value === operand.value
+		);
+	});
+}
+
+/** Root text answers ordered against text in a root Hidden Value's
+ * calculation. Core coerces each side with exactly the `number()` function.
+ * Keep the reference, the comparison and both authored branches. */
+function explicitTextOrder(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+	expression: Expression,
+	source: FormSyntax,
+):
+	| { readonly candidate: Expression; readonly comparisonSource: FormSyntax }
+	| undefined {
+	const ref = pending.ref;
+	if (
+		ref.entity !== "field" ||
+		ref.slot !== "calculate" ||
+		pending.mode.target !== "xform" ||
+		doc.fields[ref.uuid]?.kind !== "hidden" ||
+		expression.kind !== "if" ||
+		expression.cond.kind !== "lt" ||
+		source.kind !== "call" ||
+		source.name !== "if" ||
+		source.args.length !== 3
+	)
+		return undefined;
+	const { left, right } = expression.cond;
+	const [condition, then, otherwise] = source.args;
+	if (
+		condition.kind !== "binary" ||
+		condition.op !== "<" ||
+		condition.right.kind !== "string" ||
+		then.kind !== "string" ||
+		otherwise.kind !== "string" ||
+		right.kind !== "term" ||
+		right.term.kind !== "literal" ||
+		typeof right.term.value !== "string" ||
+		right.term.value === ""
+	)
+		return undefined;
+	// Other temporal literals have their own ordering and refusal rules.
+	const shape = literalShape(right.term.value)?.type;
+	if (shape === "time" || shape === "datetime") return undefined;
+	const form = formOfField(doc, ref.uuid);
+	if (
+		form === undefined ||
+		doc.fieldParent[ref.uuid] !== form ||
+		!rootTextOrderInput(doc, form, left, condition.left)
+	)
+		return undefined;
+	const numeric = (operand: Expression): Expression => ({
+		kind: "call",
+		fn: "number",
+		args: [operand],
+	});
+	const numericSource = (operand: FormSyntax): FormSyntax => ({
+		kind: "call",
+		name: "number",
+		args: [operand],
+		from: operand.from,
+		to: operand.to,
+	});
+	return {
+		candidate: {
+			...expression,
+			cond: { ...expression.cond, left: numeric(left), right: numeric(right) },
+		},
+		comparisonSource: {
+			...source,
+			args: [
+				{
+					...condition,
+					left: numericSource(condition.left),
+					right: numericSource(condition.right),
+				},
+				then,
+				otherwise,
+			],
+		},
+	};
+}
+
+const fingerprintPath =
+	"instance('commcaresession')/session/data/fingerprintquery";
+const emptyFingerprintGuardKeys = new Set(
+	[1, 2].flatMap((position) => {
+		const parsed = readFormSyntax(
+			`if(count(${fingerprintPath}) = 0, '', string(${fingerprintPath}[${position}]))`,
+		);
+		return parsed.ok && parsed.node !== undefined
+			? [formSyntaxKey(parsed.node)]
+			: [];
+	}),
+);
+
+/** The direct Android survey has no producer for this session datum.
+ * Compare the entire guarded shape before reducing it to its fallback. */
+export function missingFingerprintFallback(
+	doc: BlueprintDoc,
+	pending: PendingExpression,
+	env: ExpressionReadEnv,
+	syntax: FormSyntax,
+): Extract<FormSyntax, { kind: "string" }> | undefined {
+	const { ref } = pending;
+	const form = slotForm(doc, ref);
+	if (
+		form === undefined ||
+		form !== env.directFormWithoutSessionSupplier ||
+		ref.entity !== "field" ||
+		ref.slot !== "calculate" ||
+		pending.mode.target !== "xform" ||
+		doc.fields[ref.uuid]?.kind !== "hidden" ||
+		doc.fieldParent[ref.uuid] !== form ||
+		instanceSourcesOf(doc, pending, env)?.get("commcaresession") !==
+			"jr://instance/session"
+	)
+		return undefined;
+	const node = core(syntax);
+	if (node.kind !== "call" || node.name !== "if" || node.args.length !== 3)
+		return undefined;
+	const [test, fallback, present] = node.args;
+	if (fallback.kind !== "string" || fallback.value === "") return undefined;
+	const normalized = {
+		...node,
+		args: [test, { ...fallback, value: "" }, present],
+	};
+	return emptyFingerprintGuardKeys.has(formSyntaxKey(normalized))
+		? fallback
+		: undefined;
+}
+
 /** Bind `pending.text` against `doc` with every fold on but the `withdrawn`
  *  sites. */
 export function bindSlot(
@@ -2023,6 +2231,26 @@ export function bindSlot(
 	}
 	const prepared = preparedSource(doc, pending);
 	if (!prepared.ok) return { kind: "refused", cause: prepared.cause };
+	const fallback = missingFingerprintFallback(
+		doc,
+		pending,
+		env,
+		prepared.syntax,
+	);
+	if (fallback !== undefined)
+		return {
+			kind: "bound",
+			bound: {
+				candidate: {
+					kind: "term",
+					term: { kind: "literal", value: fallback.value },
+				},
+				source: prepared.syntax,
+				comparisonSource: fallback,
+				foldSites: [],
+				spans: new Map(),
+			},
+		};
 	const sites: FoldSites = {
 		used: new Set(),
 		spans: new Map(),
@@ -2052,10 +2280,17 @@ export function bindSlot(
 	const context = holdsUntypedTemporalLiteral(parsed.expression)
 		? slotContext(doc, pending.ref, lookupTypes(env))
 		: undefined;
+	const explicit = explicitTextOrder(
+		doc,
+		pending,
+		parsed.expression,
+		prepared.syntax,
+	);
 	const candidate =
-		context === undefined
+		explicit?.candidate ??
+		(context === undefined
 			? parsed.expression
-			: typedWhereRequired(parsed.expression, context);
+			: typedWhereRequired(parsed.expression, context));
 	// A name of plain ASCII letters can still be one a slot refuses (a form's
 	// read of a table tagged __proto__, which HQ's form builder drops).
 	if (env.lookup.size > 0 && catalogNeedsNameDiagnostics(env)) {
@@ -2073,6 +2308,9 @@ export function bindSlot(
 		bound: {
 			candidate,
 			source: prepared.syntax,
+			...(explicit !== undefined && {
+				comparisonSource: explicit.comparisonSource,
+			}),
 			foldSites,
 			spans: sites.spans,
 			...(sites.listedCaseInQuery && { listedCaseInQuery: true }),
@@ -2100,7 +2338,11 @@ export function judgeSlot(
 		env,
 		context?.ruleSet ?? "form",
 	);
-	const difference = firstDifference(source, print, compare);
+	const difference = firstDifference(
+		bound.comparisonSource ?? source,
+		print,
+		compare,
+	);
 	if (difference === undefined)
 		return { kind: "bound", candidate, source, print, equal: true, foldSites };
 	let withdraw: string | undefined;

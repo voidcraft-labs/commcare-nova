@@ -16,12 +16,29 @@ import copy
 import json
 
 from proof.matrix import ops
+from proof.matrix.bases import _pages
 
 SESSION = "instance('commcaresession')/session"
 
 # hq-search: Clients, Active clients and Visits, all of the case type client; Visits searches as its forms open.
 # Each menu is named by its position in the app as it stands when the value is set (``ops.set_json``).
 _ACTIVE_CLIENTS = {"$menu": 1}
+
+
+def default_filter_resets_earlier_sort(authoring, app_id):
+    """The blank comparison resets earlier order and sorts by three indexed representations."""
+    for term in ("-visit:date", "+priority::ignored", "-visit:date"):
+        ops.set_json(authoring, app_id, "/modules/1/search_config/default_properties/-", {
+            "property": "commcare_sort", "doc_type": "DefaultCaseSearchProperty", "defaultValue": f"'{term}'",
+        })
+
+def default_filter_reset_masks_an_unknown_comparison(authoring, app_id):
+    """HQ's reset masks the missing index field. Its earlier comparator has no Nova meaning."""
+    for term in ("++priority:unknown", "+priority::ignored", "-visit:date"):
+        ops.set_json(authoring, app_id, "/modules/1/search_config/default_properties/-", {
+            "property": "commcare_sort", "doc_type": "DefaultCaseSearchProperty", "defaultValue": f"'{term}'",
+        })
+
 
 # A text Search field as HQ's Case List page stores one, beside no other setting.
 _TEXT_FIELD = {
@@ -284,10 +301,82 @@ def list_first_in_web_apps(authoring, app_id):
     _set_each(authoring, app_id, ("/cloudcare_enabled", True), ("/modules/0/search_config/auto_launch", False))
 
 
+def search_button_orders_worker_name_with_session(authoring, app_id):
+    """Clients' short list loads the worker session its Search action reads."""
+    _search_button_orders_worker_with_session(authoring, app_id, "username")
+
+
+def search_button_orders_worker_id_with_session(authoring, app_id):
+    """The declared worker session also supplies the worker ID."""
+    _search_button_orders_worker_with_session(authoring, app_id, "userid")
+
+
+def search_button_orders_device_id_with_session(authoring, app_id):
+    """The declared session also supplies the device ID."""
+    _search_button_orders_worker_with_session(authoring, app_id, "deviceid")
+
+
+def search_button_compares_device_id_below_with_session(authoring, app_id):
+    """The declared session supplies the device id in this distinct comparison."""
+    _search_button_orders_worker_with_session(authoring, app_id, "deviceid", operator="<")
+
+
+def search_button_orders_two_session_values(authoring, app_id):
+    """The declared session is available, but both operands now depend on the worker entry."""
+    _search_button_orders_worker_with_session(authoring, app_id, "deviceid", operator="<",
+                                              right=f"{SESSION}/context/userid")
+
+
+def search_button_orders_device_against_app_version(authoring, app_id):
+    """The application version is outside the worker-identity comparison class."""
+    _search_button_orders_worker_with_session(authoring, app_id, "deviceid", operator="<",
+                                              right=f"{SESSION}/context/appversion")
+
+
+def _search_button_orders_worker_with_session(authoring, app_id, field, operator=">", right="'m'"):
+    _set_each(
+        authoring,
+        app_id,
+        ("/modules/0/case_details/short/filter", f"@owner_id = {SESSION}/context/userid"),
+        ("/modules/0/search_config/search_button_display_condition", f"{SESSION}/context/{field} {operator} {right}"),
+    )
+
+
 def owner_exclusion_on_an_ordered_text(authoring, app_id):
     """Active clients' owner list chosen by ordering the worker's name against text, its case list's filter holding
     Nova's clause for the list."""
-    owners = f"if({SESSION}/context/username > 'm', 'a', 'b')"
+    _owner_exclusion_on_order(authoring, app_id, "username")
+
+
+def owner_exclusion_on_an_ordered_worker_id(authoring, app_id):
+    """Active clients' owner rule comparing the worker ID with arbitrary text."""
+    _owner_exclusion_on_order(authoring, app_id, "userid")
+
+
+def owner_exclusion_on_an_ordered_device_id(authoring, app_id):
+    """The owner rule compares a device identifier instead of the worker identity."""
+    _owner_exclusion_on_order(authoring, app_id, "deviceid")
+
+
+def owner_exclusion_on_a_less_than_device_id(authoring, app_id):
+    """The device identifier is ordered below a fixed literal."""
+    _owner_exclusion_on_order(authoring, app_id, "deviceid", comparison="<")
+
+
+def owner_exclusion_orders_two_session_values(authoring, app_id):
+    """Two dynamic session operands are a separate carrier."""
+    _owner_exclusion_on_order(authoring, app_id, "deviceid", comparison="<",
+                              right=f"{SESSION}/context/userid")
+
+
+def owner_exclusion_orders_device_against_app_version(authoring, app_id):
+    """The application version is outside the worker-identity comparison class."""
+    _owner_exclusion_on_order(authoring, app_id, "deviceid", comparison="<",
+                              right=f"{SESSION}/context/appversion")
+
+
+def _owner_exclusion_on_order(authoring, app_id, field, *, comparison=">", right="'m'"):
+    owners = f"if({SESSION}/context/{field} {comparison} {right}, 'a', 'b')"
     _set_each(
         authoring,
         app_id,
@@ -373,20 +462,75 @@ def inline_search_on_display_only_menu(authoring, app_id):
     _set_each(authoring, app_id, ("/modules/0/search_config/inline_search", True))
 
 
-# Search fields ------------------------------------------------------------------------------------------------------
-
-
-def fields_grouped(authoring, app_id):
-    """Clients' six Search fields put in one group of its search screen, the group's own entry last."""
+def related_record_id_sent_twice(authoring, app_id):
+    """Set both spellings of the one key, producing a single invalid Search request."""
     _set_each(
         authoring,
         app_id,
         (
-            "/modules/0/search_config/properties/-",
-            {**_field("g", "Group"), "is_group": True, "group_key": "g"},
+            "/modules/1/search_config/default_properties/-",
+            {
+                "property": "x_commcare_custom_related_case_property",
+                "doc_type": "DefaultCaseSearchProperty",
+                "defaultValue": "'parent/name'",
+            },
         ),
-        *((f"/modules/0/search_config/properties/{index}/group_key", "g") for index in range(6)),
+        ("/modules/1/search_config/custom_related_case_property", "name"),
     )
+
+
+# Search fields ------------------------------------------------------------------------------------------------------
+
+
+def _grouped_search_rows(authoring, app_id, label, *, key="group_header_0"):
+    from proof.hq import operations
+
+    module = operations.held_app(authoring.state, app_id).get_module(0)
+    return [
+        {**_field(key, label), "is_group": True, "group_key": key},
+        *({**field.to_json(), "group_key": key} for field in module.search_config.properties),
+    ]
+
+
+def field_sharing_the_saved_group_display_key(authoring, app_id):
+    """HQ uses the field's label even for the earlier heading under the same locale."""
+    from lxml import etree
+
+    from proof.checks.compare.app_strings import parse_app_strings
+    from proof.hq import operations
+
+    name, label = "g", "Account code"
+    properties = _grouped_search_rows(authoring, app_id, "Client details", key=name)
+    properties.append({**_field(name, label), "group_key": name, "exclude": True})
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties", properties)
+    with authoring.step("variant:shared-search-group-display-key"):
+        app = operations.held_app(authoring.state, app_id)
+        key = f"search_property.m0.{name}"
+        assert key not in app.translations.get("en", {})
+        assert parse_app_strings(app.create_app_strings("en"))[key] == label
+        suite = etree.fromstring(app.create_suite())
+        assert suite.xpath(f".//group[@key='{name}']/display/text/locale[@id='{key}']")
+        assert suite.xpath(f".//prompt[@key='{name}']/display/text/locale[@id='{key}']")
+
+
+def fields_with_ungrouped_prompt(authoring, app_id):
+    """Keep a real group's header and fields, then leave one field unassigned."""
+    rows = _grouped_search_rows(authoring, app_id, "Group")
+    rows.append(_field("region", "Region"))
+    _set_each(authoring, app_id, ("/modules/0/search_config/properties", rows))
+
+
+def fields_with_unknown_search_heading(authoring, app_id):
+    """HQ serves a prompt naming a heading the search did not declare."""
+    rows = _grouped_search_rows(authoring, app_id, "Group")
+    rows.append({**_field("region", "Region"), "group_key": "unknown_heading"})
+    _set_each(authoring, app_id, ("/modules/0/search_config/properties", rows))
+
+
+def fields_with_blank_search_heading(authoring, app_id):
+    """HQ serves a complete group whose header has no text."""
+    rows = _grouped_search_rows(authoring, app_id, "")
+    _set_each(authoring, app_id, ("/modules/0/search_config/properties", rows))
 
 
 # Registration after an empty search ---------------------------------------------------------------------------------
@@ -412,8 +556,8 @@ def child_menu_reads_the_search(authoring, app_id):
     child menu, choosing its own case from its own list; and Active clients' Followup Form showing ``check_note``
     where Visits' village answer is ``north``. HQ's build keeps the child's own selection where it matches the root
     menu's (``entries.py::EntriesHelper.add_parent_datums``), so the child's entry carries no query of Visits' and
-    the form reads an instance no step loads. The results instance of its own HQ's build needs of the child is the
-    row's second change."""
+    the form reads an instance no step loads. The child's results instance is
+    distinct from its parent's."""
     with authoring.step("variant:child-menu-reads-the-search:visits-second"):
         body, content_type = ops.form_body([("from", "2"), ("to", "1"), ("ajax", "false")])
         ops.post(authoring, "rearrange", [app_id, "modules"], body, content_type, "Visits moved second", redirects=True)
@@ -421,6 +565,7 @@ def child_menu_reads_the_search(authoring, app_id):
         authoring,
         app_id,
         ("/modules/1/search_config/properties", [_field("village", "Village")]),
+        ("/modules/2/search_config/instance_name", "active"),
         # Visits, second once moved.
         ("/modules/2/root_module_id", {"$menu": 1}),
         ("/modules/2/search_config/default_properties", []),
@@ -455,11 +600,15 @@ def child_menu_selecting_from_the_search_reads_it(authoring, app_id):
     its child menu, choosing a household from Households' list before its own member; and Members' Followup Form
     showing ``status_note`` where Households' village answer is ``north``. HQ's build writes Households' query into
     the entry ahead of that choice (``entries.py::EntriesHelper.add_remote_query_datums``), so the form reads the
-    answers its own entry loaded. The results instance of its own HQ's build needs of Members is the row's second
-    change."""
+    answers its own entry loaded. The Web Apps witness has a case-first parent and a distinct name on the child.
+    Remove the base's ordinary registration and Android-only date-time form, which exercise separate contracts."""
+    _pages.delete_form(authoring, app_id, 0, 3)
+    _pages.delete_form(authoring, app_id, 0, 0)
     _set_each(
         authoring,
         app_id,
+        ("/cloudcare_enabled", True),
+        ("/modules/1/search_config/instance_name", "members"),
         ("/modules/0/search_config/properties", [_field("village", "Village")]),
         ("/modules/0/search_config/inline_search", True),
         ("/modules/0/search_config/auto_launch", True),
@@ -616,4 +765,73 @@ def district_choice_details(authoring, app_id):
         (base + "/value", "@row_code"),
         (base + "/label", "name[@lang='fr'][1]"),
         (base + "/sort", "name[@lang='en'][1]"),
+    )
+
+
+
+def address_picker_and_two_receivers(authoring, app_id):
+    _address_picker_for_lookup(authoring, app_id, "select")
+
+
+def address_picker_and_single_choice(authoring, app_id):
+    _address_picker_for_lookup(authoring, app_id, "select1")
+
+
+def address_picker_and_receiver_without_component(authoring, app_id):
+    """The Village field subscribes to the existing picker but names no address part."""
+    _address_picker_for_lookup(authoring, app_id, "select")
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties/2/receiver_expression", "home")
+
+
+def address_picker_and_unmatched_receiver_topic(authoring, app_id):
+    _address_picker_for_lookup(authoring, app_id, "select")
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties/2/receiver_expression", "home||city")
+
+
+def address_picker_receiver_with_extra_hyphen(authoring, app_id):
+    _address_picker_for_lookup(authoring, app_id, "select")
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties/2/receiver_expression", "home-city-extra")
+
+
+def address_picker_receiver_with_unknown_component(authoring, app_id):
+    _address_picker_for_lookup(authoring, app_id, "select")
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties/2/receiver_expression", "home-unknown-extra")
+
+
+def address_picker_receiver_with_a_prototype_component(authoring, app_id):
+    _address_picker_for_lookup(authoring, app_id, "select")
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties/2/receiver_expression",
+                 "home-constructor-extra")
+
+
+def _address_picker_for_lookup(authoring, app_id, choice_type):
+    """The exact Search picker fills a text field and an existing lookup choice."""
+    prompts = _modules(authoring, app_id)[0]["search_config"]["properties"]
+    village = next(row for row in prompts if row["name"] == "village")
+    district = next(row for row in prompts if row["name"] == "district")
+    village["receiver_expression"] = "home-us_state||city"
+    district["receiver_expression"] = "home-region"
+    district["input_"] = choice_type
+    prompts.insert(0, {
+        **_field("home", "Find an address"),
+        "exclude": True,
+        "appearance": "address",
+    })
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties", prompts)
+
+def search_text_prompt_with_prefix_in_web_apps_results_list(authoring, app_id):
+    """Keep literal text before an offered answer on the Search-first Results screen."""
+    search_text_prompt_in_web_apps_results_list(authoring, app_id)
+    ops.set_json(authoring, app_id, "/modules/0/case_details/short/columns/1/field",
+                 "concat('Answer: ', instance('search-input:results')/input/field[@name = 'village'])")
+
+
+def search_text_prompt_in_web_apps_results_list(authoring, app_id):
+    """The ordinary standalone Results list displays its submitted text answer."""
+    _set_each(
+        authoring,
+        app_id,
+        ("/cloudcare_enabled", True),
+        ("/modules/0/case_details/short/columns/1/field",
+         "instance('search-input:results')/input/field[@name = 'village']"),
     )

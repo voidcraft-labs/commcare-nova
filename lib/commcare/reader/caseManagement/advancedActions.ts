@@ -13,6 +13,8 @@
  */
 
 import {
+	advancedCaseIndexNameProblem,
+	advancedCaseIndexNeedsAndroid,
 	type CaseOperation,
 	type CaseOperationLink,
 	type CaseOperationWrite,
@@ -22,13 +24,22 @@ import {
 	type FormSelectionSource,
 	type FormType,
 	isCaseOperationIdentifier,
+	isCaseOperationLinkIdentifier,
 	ownCaseOperationId,
+	RESERVED_CASE_OPERATION_TYPES,
 	type TargetedCaseOperation,
 	type Term,
 	type Uuid,
 } from "@/lib/domain";
-import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
-import { advancedKindBlockers } from "@/lib/domain/advancedModule";
+import {
+	caseWriteLabelSavesEmpty,
+	formCaseSelections,
+	isAdvancedOwnLabelProperty,
+} from "@/lib/domain/advancedEntryDatums";
+import {
+	advancedChainIndex,
+	advancedKindBlockers,
+} from "@/lib/domain/advancedModule";
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import {
 	actingUser,
@@ -37,9 +48,10 @@ import {
 	term,
 	unowned,
 } from "@/lib/domain/expression/builders";
-import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import { implicitFormSelectionId } from "@/lib/domain/formEntryCases";
+import { isPortableName } from "@/lib/domain/portableName";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
+import { submittedElementNameNeedsAndroid } from "@/lib/domain/submittedAnswerName";
 import {
 	circumstanceFinding,
 	type Finding,
@@ -82,6 +94,7 @@ import { pendingPlaceholder } from "../pendingExpressions";
 import { whereText } from "../place";
 import { readProjectionInputs } from "../projectionInputs";
 import { provisionalDocument } from "../provisional";
+import { sameXPathText } from "../syntaxCompare";
 import { holdsWorkerRecordWrite } from "../worldEntities";
 import type { DraftField } from "../xform";
 import { isAllocatedName } from "../xform/generated";
@@ -95,6 +108,7 @@ import {
 	type PropertyNameClass,
 	type ProposedValue,
 	propertyNameClass,
+	type QuestionValue,
 	questionValue,
 	repeatOfField,
 } from "./basicActions";
@@ -150,6 +164,14 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 	autoSelectCase: take(
 		`${M}/auto-select-case-on-an-advanced-module`,
 		"schema:AdvancedModule.auto_select_case",
+	),
+	advancedInlineSearchNoQuery: refuse(
+		`${M}/advanced-inline-search-without-entry-query`,
+		"schema:AdvancedModule",
+	),
+	heldParentCaseLink: take(
+		`${M}/advanced-manual-load-with-an-exact-parent-link`,
+		"schema:AdvancedModule.case_type",
 	),
 	kindBlocked: refuse(
 		`${M}/advanced-module-nova-would-write-as-a-basic-one`,
@@ -329,6 +351,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/loadupdateaction-case-properties-key-with-on-a-load-with-no-case`,
 		"schema:LoadUpdateAction.case_properties",
 	),
+	loadViaFirst: take(
+		`${F}/loadupdateaction-first-load-writes-through-a-declared-parent-or-host`,
+		"schema:LoadUpdateAction.case_properties",
+	),
 	loadViaFacet: take(
 		`${F}/update-key-name-or-owner-id-through-an-index-segment`,
 		"schema:LoadUpdateAction.case_properties",
@@ -384,6 +410,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 	illegalPreload: refuse(
 		`${F}/update-key-failing-hq-s-grammar-or-in-case-reserved-words-json`,
 		"schema:LoadUpdateAction.preload",
+	),
+	passiveLabelWrite: take(
+		`${F}/an-advanced-follow-up-update-from-its-root-passive-label`,
+		"schema:ConditionalCaseUpdate.question_path",
 	),
 	labelQuestion: refuse(
 		`${F}/an-advanced-load-s-update-or-preload-or-an-open-action-s-name-or`,
@@ -535,6 +565,14 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/advancedopencaseaction-case-indices-child-extension-one-or-many`,
 		"schema:AdvancedOpenCaseAction.case_indices",
 	),
+	extendedOpenIndexReference: take(
+		`${F}/advancedopencaseaction-case-indices-child-extension-one-or-many`,
+		"schema:CaseIndex.reference_id",
+	),
+	unicodeOpenIndexReference: take(
+		`${F}/advanced-open-connection-unicode-name`,
+		"schema:CaseIndex.reference_id",
+	),
 	openIndexOwnOrLater: refuse(
 		`${F}/advancedopencaseaction-case-indices-naming-its-own-or-a-later`,
 		"schema:AdvancedOpenCaseAction.case_indices",
@@ -556,6 +594,22 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 		`${F}/an-advanced-open-action-indexed-to-an-open-action-that-has-a-equal`,
 		"schema:AdvancedOpenCaseAction.case_indices",
 	),
+	openIndexInvalidXml: refuse(
+		`${F}/index-identifier-invalid-xml-local-name`,
+		"schema:AdvancedOpenCaseAction.case_indices",
+	),
+	openIndexUnaddressable: refuse(
+		`${F}/index-identifier-unaddressable-in-worker-xpath`,
+		"schema:AdvancedOpenCaseAction.case_indices",
+	),
+	rootOpenIndexWebOnly: refuse(
+		`${F}/root-open-index-unavailable-on-either-worker`,
+		"schema:AdvancedOpenCaseAction.case_indices",
+	),
+	repeatOpenIndexWebOnly: refuse(
+		`${F}/repeat-open-index-unavailable-on-either-worker`,
+		"schema:AdvancedOpenCaseAction.case_indices",
+	),
 	openIndexName: refuse(
 		`${F}/index-identifier-outside-an-xml-element-name`,
 		"schema:AdvancedOpenCaseAction.case_indices",
@@ -567,6 +621,18 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 	openIndexAgainstSelection: take(
 		`${F}/an-advanced-open-action-s-parent-index-against-a-menu-s-parent-selection`,
 		"schema:AdvancedOpenCaseAction.case_indices",
+	),
+	questionToLoadFromFreeText: refuse(
+		`${F}/advanced-open-relationship-from-unrestricted-text`,
+		"schema:CaseIndex.relationship",
+	),
+	constrainedQuestionToLoad: take(
+		`${F}/advanced-open-relationship-from-constrained-text`,
+		"schema:CaseIndex.relationship",
+	),
+	constrainedQuestionPath: take(
+		`${F}/advanced-open-relationship-from-constrained-text`,
+		"schema:CaseIndex.relationship_question",
 	),
 	questionToLoad: refuse(
 		`${F}/caseindex-relationship-question-relationship-question-the-index-naming-a`,
@@ -617,6 +683,7 @@ interface ProposedLink {
 	readonly identifier: string;
 	readonly targetType: string;
 	readonly relationship: "child" | "extension";
+	readonly relationshipQuestion?: DraftField;
 	readonly target: ProposedCaseRef;
 }
 
@@ -901,7 +968,7 @@ interface Reading {
  */
 type SlashKeys =
 	| { readonly kind: "indexed" }
-	| { readonly kind: "own"; readonly caseType: string }
+	| { readonly kind: "own" | "first"; readonly caseType: string }
 	| { readonly kind: "elsewhere" };
 
 /** One write map (`case_properties`) of a load or an open action, key by key. */
@@ -924,9 +991,20 @@ function readProperties(
 		readonly worker?: Claim<"refuse">;
 	},
 	slashes: SlashKeys,
-	/** An open action's: whose `owner_id` may name Nova's owner node, which the open action
-	 *  settles once its operation has an id. */
-	opens = false,
+	options: {
+		/** An open action may name Nova's generated owner node. */
+		readonly opens?: boolean;
+		/** The selected record carries a passive label only on its ordinary update. */
+		readonly ownLoad?: {
+			readonly closes: boolean;
+			readonly sourceLoad: Readonly<Record<string, unknown>>;
+			readonly earlierChosenLoad?: Readonly<Record<string, unknown>>;
+			readonly preloadedLabels: ReadonlyMap<
+				DraftField,
+				readonly (Readonly<Record<string, unknown>> | null)[]
+			>;
+		};
+	} = {},
 ): {
 	writes: {
 		property: string;
@@ -978,19 +1056,38 @@ function readProperties(
 				continue;
 			}
 			const indices = segments.slice(0, -1);
+			const firstUserIndex =
+				slashes.kind === "first" &&
+				indices.length === 1 &&
+				indices[0] === "user" &&
+				property !== "name" &&
+				property !== "owner_id" &&
+				!namesAttachment(r.form, cursor.peek("question_path"));
 			if (
 				slashes.kind === "elsewhere" ||
-				!indices.every((step) => step === "parent" || step === "host")
+				(!firstUserIndex &&
+					!indices.every((step) => step === "parent" || step === "host"))
 			) {
 				refuseKey(ADVANCED_CLAIMS.loadViaElsewhere);
 				continue;
 			}
 			const steps = ancestorSteps(r.ctx, slashes.caseType, indices);
+			if (
+				firstUserIndex &&
+				(steps === undefined ||
+					steps.types.some((type) => RESERVED_CASE_OPERATION_TYPES.has(type)) ||
+					steps.types[0] === steps.types[1])
+			) {
+				refuseKey(ADVANCED_CLAIMS.loadViaElsewhere);
+				continue;
+			}
 			if (steps === undefined) {
 				refuseKey(ADVANCED_CLAIMS.loadViaUnknown);
 				continue;
 			}
 			via = steps.steps as CaseWriteVia;
+			if (slashes.kind === "first")
+				cursor.holdMapEntry(ADVANCED_CLAIMS.loadViaFirst);
 		}
 		// The case above's name and owner: HQ's build writes `name` as the
 		// block's `case_name` (`XFormCaseBlock.add_case_updates`) and `owner_id`
@@ -1062,8 +1159,58 @@ function readProperties(
 				onlyIfChanged = true;
 			}
 		}
+		const storedPath = cursor.peek("question_path");
+		const source =
+			options.ownLoad &&
+			via === undefined &&
+			cursor.peek("update_mode") === "always" &&
+			isAdvancedOwnLabelProperty(property) &&
+			typeof storedPath === "string"
+				? fieldAt(r.form, storedPath)
+				: undefined;
+		const passive =
+			source?.kind === "label" &&
+			source.field.askForConfirmation !== true &&
+			source.field.banner === undefined;
+		const preloads = source && options.ownLoad?.preloadedLabels.get(source);
+		const onlyOrdinaryLoads =
+			preloads?.length === 1
+				? preloads[0] === options.ownLoad?.sourceLoad ||
+					preloads[0] === options.ownLoad?.earlierChosenLoad
+				: preloads?.length === 2 &&
+					preloads[0] === options.ownLoad?.earlierChosenLoad &&
+					preloads[1] === options.ownLoad?.sourceLoad;
+		const label =
+			source?.kind === "label" &&
+			source.parent === null &&
+			source.dataParent === null &&
+			(passive ||
+				(!options.ownLoad?.closes &&
+					caseWriteLabelSavesEmpty(
+						source.field.askForConfirmation,
+						source.field.banner,
+					))) &&
+			(preloads === undefined ||
+				(passive && !options.ownLoad?.closes && onlyOrdinaryLoads)) &&
+			!source.expressions.some(
+				(expression) => expression.slot === "default_value",
+			)
+				? source
+				: undefined;
+		if (source?.kind === "label" && label === undefined) {
+			cursor.refuse("question_path", ADVANCED_CLAIMS.labelQuestion, {
+				name: key,
+			});
+			r.ok = false;
+			out.refused = true;
+			continue;
+		}
 		const path = consume(
-			cursor.take("question_path", claims.path, (value) => value),
+			cursor.take(
+				"question_path",
+				label === undefined ? claims.path : ADVANCED_CLAIMS.passiveLabelWrite,
+				(value) => value,
+			),
 		);
 		if (typeof path !== "string" || path === "") {
 			r.ok = false;
@@ -1075,14 +1222,21 @@ function readProperties(
 		}
 		// An open action's owner may name the owner node Nova folds beside it,
 		// which Nova saves every time.
-		if (key === "owner_id" && opens && onlyIfChanged === undefined) {
+		if (key === "owner_id" && options.opens && onlyIfChanged === undefined) {
 			const owner = ownerNode(r, path);
 			if (owner !== undefined) {
 				out.ownerNode = owner;
 				continue;
 			}
 		}
-		const read = questionValue(r.ctx, r.form, path, property);
+		const read: QuestionValue =
+			label === undefined
+				? questionValue(r.ctx, r.form, path, property)
+				: {
+						kind: "value",
+						value: { field: label, link: false },
+						datetimeSibling: false,
+					};
 		if (read.kind === "finding") {
 			r.ctx.accounting.finding(advancedReadClaim(read.claim), r.form.place, {
 				name: key,
@@ -1739,6 +1893,24 @@ function readOrdinaryAdvancedActions(
 	const storedLoads = Array.isArray(actions.load_update_cases)
 		? actions.load_update_cases
 		: [];
+	const preloadedLabels = new Map<
+		DraftField,
+		(Readonly<Record<string, unknown>> | null)[]
+	>();
+	for (const load of storedLoads) {
+		if (!isJsonObject(load) || !isJsonObject(load.preload)) continue;
+		for (const [path, property] of Object.entries(load.preload)) {
+			const field = fieldAt(form, path);
+			if (field?.kind !== "label") continue;
+			const direct =
+				typeof property === "string" &&
+				isAdvancedOwnLabelProperty(property) &&
+				holdsAsOpeningAssignment([], property);
+			const sourceLoads = preloadedLabels.get(field) ?? [];
+			sourceLoads.push(direct ? load : null);
+			preloadedLabels.set(field, sourceLoads);
+		}
+	}
 	const storedOpens = Array.isArray(actions.open_cases)
 		? actions.open_cases
 		: [];
@@ -2043,6 +2215,8 @@ function readOrdinaryAdvancedActions(
 				L.drop("product_program", ADVANCED_CLAIMS.productProgramOff);
 		}
 		const indexed = indexRead !== undefined;
+		const closeStored = load.close_condition;
+		const closes = activeCondition(closeStored);
 		const properties = readProperties(
 			r,
 			L,
@@ -2053,7 +2227,30 @@ function readOrdinaryAdvancedActions(
 				? { kind: "indexed" }
 				: last
 					? { kind: "own", caseType: caseType as string }
-					: { kind: "elsewhere" },
+					: i === 0 &&
+							position === 0 &&
+							!automatic &&
+							caseType !== "commcare-user"
+						? { kind: "first", caseType: caseType as string }
+						: { kind: "elsewhere" },
+			{
+				...(last &&
+					!automatic &&
+					caseType !== "commcare-user" && {
+						ownLoad: {
+							closes,
+							sourceLoad: load,
+							preloadedLabels,
+							...(i === 1 &&
+								storedLoads.length === 2 &&
+								chosenIndexes.length === 2 &&
+								chosenIndexes[0] === 0 &&
+								isJsonObject(storedLoads[0]) && {
+									earlierChosenLoad: storedLoads[0],
+								}),
+						},
+					}),
+			},
 		);
 		// A `form-case` read walks from the form's own case the indices the document
 		// links each type to its parent by (`caseTypeDepths.ts::caseTypeHopMap`). HQ
@@ -2072,8 +2269,6 @@ function readOrdinaryAdvancedActions(
 				);
 			});
 		readLoadPreloads(r, L, load, caseType as string, indexed, hops);
-		const closeStored = load.close_condition;
-		const closes = activeCondition(closeStored);
 		// A close that never runs is read as no close. HQ's page stores one with its question,
 		// answer and operator cleared (`advanced/actions.js::actionBase.clean_condition`), which
 		// is not the schema's default, so the claim is made whether or not it closes.
@@ -2320,7 +2515,7 @@ function readOrdinaryAdvancedActions(
 				},
 			},
 			{ kind: "elsewhere" },
-			true,
+			{ opens: true },
 		);
 		// The repeat: the name question's innermost.
 		const context =
@@ -2416,8 +2611,31 @@ function readOrdinaryAdvancedActions(
 				const namesOpen = openIndex !== undefined && loadIndex === undefined;
 				const earlierOpenIndex = afterOpenIndex;
 				if (namesOpen) afterOpenIndex = true;
-				if (!XML_ELEMENT_NAME_PATTERN.test(identifier)) {
-					I.refuseWhole(ADVANCED_CLAIMS.openIndexName, { name: identifier });
+				const nameProblem = advancedCaseIndexNameProblem(identifier);
+				if (nameProblem) {
+					// Formplayer skips templates at opening, but serializes a new row
+					// as ASCII as soon as it saves the session after adding that row.
+					const unavailableWriter =
+						nameProblem === "one-platform" &&
+						form.docType === "AdvancedForm" &&
+						conditionType(openStored) === "always" &&
+						(index.relationship === undefined ||
+							index.relationship === "child") &&
+						indexTag !== "" &&
+						loadIndex !== undefined &&
+						submittedElementNameNeedsAndroid(identifier) &&
+						isPortableName(identifier, ["web-apps"]);
+					let onePlatform = ADVANCED_CLAIMS.openIndexName;
+					if (unavailableWriter && context === "")
+						onePlatform = ADVANCED_CLAIMS.rootOpenIndexWebOnly;
+					else if (unavailableWriter && repeat !== undefined && !closes)
+						onePlatform = ADVANCED_CLAIMS.repeatOpenIndexWebOnly;
+					const claim = {
+						"invalid-xml": ADVANCED_CLAIMS.openIndexInvalidXml,
+						unaddressable: ADVANCED_CLAIMS.openIndexUnaddressable,
+						"one-platform": onePlatform,
+					}[nameProblem];
+					I.refuseWhole(claim, { name: identifier });
 					r.ok = false;
 					return;
 				}
@@ -2429,12 +2647,49 @@ function readOrdinaryAdvancedActions(
 					r.ok = false;
 					return;
 				}
+				let relationshipQuestion: DraftField | undefined;
 				if (index.relationship === "question") {
 					const question =
 						typeof index.relationship_question === "string"
 							? index.relationship_question
 							: "";
 					const field = question === "" ? undefined : fieldAt(form, question);
+					const sourceLogic =
+						field === undefined
+							? undefined
+							: form.xform?.binds.get(field.node)?.logic;
+					// The form reader has folded out Nova's generated case-name check.
+					const validation = field?.expressions.find(
+						(slot) => slot.slot === "validate",
+					)?.text;
+					if (
+						field?.kind === "text" &&
+						field === name?.field &&
+						field.parent === null &&
+						field.dataParent === null &&
+						sourceLogic?.required !== undefined &&
+						sameXPathText(sourceLogic.required, "true()") &&
+						sourceLogic.relevant === undefined &&
+						validation !== undefined &&
+						sameXPathText(validation, ". = 'child' or . = 'extension'") &&
+						!field.expressions.some((slot) => slot.slot === "default_value") &&
+						!own &&
+						context === "" &&
+						indices.length === 1 &&
+						identifier === "parent" &&
+						loadIndex === 0 &&
+						loadUuids.has(loadIndex) &&
+						conditionType(openStored) === "always" &&
+						!closes &&
+						properties.owner === undefined &&
+						properties.ownerNode === undefined &&
+						!ctx.input.source.raw.case_sharing
+					)
+						relationshipQuestion = field;
+					const freeText =
+						field?.kind === "text" &&
+						field.node.path.length === 1 &&
+						!form.xform?.binds.get(field.node)?.logic.constraint?.trim();
 					const claim =
 						question === ""
 							? ADVANCED_CLAIMS.openIndexQuestion
@@ -2445,9 +2700,11 @@ function readOrdinaryAdvancedActions(
 									: loadIndex !== undefined && earlierOpenIndex
 										? ADVANCED_CLAIMS.questionAfterOpenIndex
 										: loadIndex !== undefined && loadUuids.has(loadIndex)
-											? ADVANCED_CLAIMS.questionToLoad
+											? freeText
+												? ADVANCED_CLAIMS.questionToLoadFromFreeText
+												: ADVANCED_CLAIMS.questionToLoad
 											: undefined;
-					if (claim !== undefined) {
+					if (claim !== undefined && relationshipQuestion === undefined) {
 						I.refuseWhole(claim);
 						r.ok = false;
 						return;
@@ -2479,6 +2736,7 @@ function readOrdinaryAdvancedActions(
 						identifier,
 						targetType: String(load.case_type),
 						relationship,
+						...(relationshipQuestion !== undefined && { relationshipQuestion }),
 						target: loadUuids.get(loadIndex) as ProposedCaseRef,
 					});
 				} else if (
@@ -2536,9 +2794,32 @@ function readOrdinaryAdvancedActions(
 						parentType: read.targetType,
 						relationship,
 					});
-				for (const key of ["reference_id", "relationship"])
-					if (I.used(key))
-						consume(I.take(key, ADVANCED_CLAIMS.openIndices, (value) => value));
+				if (I.used("reference_id")) {
+					const claim = advancedCaseIndexNeedsAndroid(identifier)
+						? ADVANCED_CLAIMS.unicodeOpenIndexReference
+						: isCaseOperationLinkIdentifier(identifier)
+							? ADVANCED_CLAIMS.openIndices
+							: ADVANCED_CLAIMS.extendedOpenIndexReference;
+					consume(I.take("reference_id", claim, (value) => value));
+				}
+				if (I.used("relationship"))
+					consume(
+						I.take(
+							"relationship",
+							relationshipQuestion === undefined
+								? ADVANCED_CLAIMS.openIndices
+								: ADVANCED_CLAIMS.constrainedQuestionToLoad,
+							(value) => value,
+						),
+					);
+				if (relationshipQuestion !== undefined)
+					consume(
+						I.take(
+							"relationship_question",
+							ADVANCED_CLAIMS.constrainedQuestionPath,
+							(value) => value,
+						),
+					);
 			});
 		}
 		// HQ's build refuses an open action with no name (`case_name required`,
@@ -3128,6 +3409,9 @@ export function writeAdvancedOperations(
 					identifier: link.identifier,
 					targetType: link.targetType,
 					relationship: link.relationship,
+					...(link.relationshipQuestion?.uuid !== undefined && {
+						relationshipQuestion: link.relationshipQuestion.uuid,
+					}),
 					target: linkTarget(link.target),
 				}) as CaseOperationLink,
 		);
@@ -3282,6 +3566,10 @@ export function listFormRulesPlace(
  *  form whose chain differs from the menu's one chain (its finding). */
 export function writeAdvancedChains(ctx: ReadContext): void {
 	const outsideTheChain = new Set<DraftForm>();
+	const sourceLinks = new Map<
+		DraftModule,
+		{ parentUuid: Uuid; identifier: string }
+	>();
 	for (const module of ctx.draft.modules) {
 		if (module.docType !== "AdvancedModule") continue;
 		const forms = module.forms.filter((form) => READINGS.has(form));
@@ -3301,6 +3589,52 @@ export function writeAdvancedChains(ctx: ReadContext): void {
 		ctx.writeDraft(() => {
 			module.module.parentCaseModuleUuid = parent;
 		});
+		if (
+			chain.length !== 2 ||
+			disagreeing.length > 0 ||
+			module.json.peek("root_module_id")
+		)
+			continue;
+		const chosen = forms
+			.map((form) => READINGS.get(form))
+			.filter(
+				(reading): reading is AdvancedReading =>
+					reading !== undefined && reading.chosen.length > 0,
+			);
+		const identifier = chosen[0]?.chosen[1]?.index?.identifier;
+		if (
+			identifier !== undefined &&
+			isCaseOperationLinkIdentifier(identifier) &&
+			chosen.every(
+				(reading) =>
+					reading.refused !== true &&
+					reading.chosen.length === 2 &&
+					reading.chosen[1].index?.tag === reading.chosen[0].tag &&
+					reading.chosen[1].index?.identifier === identifier,
+			)
+		)
+			sourceLinks.set(module, { parentUuid: parent, identifier });
+	}
+	const doc = provisionalDocument(ctx);
+	for (const [module, link] of sourceLinks) {
+		const childType = doc.modules[module.uuid]?.caseType;
+		const parentType = doc.modules[link.parentUuid]?.caseType;
+		if (childType === undefined || parentType === undefined) continue;
+		const available = advancedChainIndex(doc, childType, parentType);
+		if (
+			available.kind !== "several" ||
+			!available.identifiers.includes(link.identifier)
+		)
+			continue;
+		ctx.writeDraft(() => {
+			module.module.parentCaseLink = link;
+		});
+		ctx.accounting.claimEntryClass(
+			{ json: module.json, key: "case_type" },
+			ADVANCED_CLAIMS.heldParentCaseLink.entry,
+			"schema:AdvancedModule.case_type",
+			module.place,
+		);
 	}
 	for (const module of ctx.draft.modules)
 		for (const form of module.forms)
@@ -4002,6 +4336,46 @@ export function claimParentIndicesAgainstSelections(
 	}
 }
 
+/** A root Advanced entry never adds its configured inline Query. A sync
+ * after choosing a case is separate, and a child menu can get the Query
+ * from its parent's entry. */
+export function advancedKindBlockClaim(module: DraftModule) {
+	const search = module.json.peek("search_config");
+	const parent = module.json.peek("parent_select");
+	if (
+		module.docType === "AdvancedModule" &&
+		!module.json.peek("root_module_id") &&
+		(!isJsonObject(parent) || parent.active !== true) &&
+		isJsonObject(search) &&
+		search.inline_search === true &&
+		search.auto_launch === true &&
+		search.default_search !== true &&
+		Array.isArray(search.properties) &&
+		search.properties.some(
+			(prompt) =>
+				isJsonObject(prompt) &&
+				prompt.is_group !== true &&
+				prompt.hidden !== true &&
+				prompt.exclude !== true,
+		) &&
+		module.forms.some((form) => {
+			const actions = form.json.peek("actions");
+			return (
+				isJsonObject(actions) &&
+				Array.isArray(actions.load_update_cases) &&
+				actions.load_update_cases.some(
+					(load) =>
+						isJsonObject(load) &&
+						!load.auto_select &&
+						!load.load_case_from_fixture,
+				)
+			);
+		})
+	)
+		return ADVANCED_CLAIMS.advancedInlineSearchNoQuery;
+	return ADVANCED_CLAIMS.kindBlocked;
+}
+
 /** A menu read with a held kind that Nova would write basic: one finding at the menu. */
 export function settleAdvancedMenu(
 	ctx: ReadContext,
@@ -4013,8 +4387,16 @@ export function settleAdvancedMenu(
 		doc.modules[module.uuid] === undefined
 	)
 		return;
-	if (advancedKindBlockers(doc, module.uuid).length > 0)
-		ctx.accounting.finding(ADVANCED_CLAIMS.kindBlocked, module.place);
+	if (advancedKindBlockers(doc, module.uuid).length === 0) return;
+	const claim = advancedKindBlockClaim(module);
+	if (claim === ADVANCED_CLAIMS.advancedInlineSearchNoQuery) {
+		ctx.accounting.claimEntryClass(
+			{ json: module.json, class: true },
+			claim.entry,
+			"schema:AdvancedModule",
+			module.place,
+		);
+	} else ctx.accounting.finding(claim, module.place);
 }
 
 function readExplicitAutoSource(

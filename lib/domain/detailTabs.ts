@@ -189,7 +189,8 @@ function queryFixtures(menu: Module, into: Set<DetailFixture>) {
 		}
 		if ("options" in input) {
 			into.add(input.options.tableId);
-			readFixtures(into, input.options.filter);
+			if (input.options.kind === "lookup")
+				readFixtures(into, input.options.filter);
 		}
 		readFixtures(into, searchInputDefault(input));
 		readFixtures(into, input.required?.when);

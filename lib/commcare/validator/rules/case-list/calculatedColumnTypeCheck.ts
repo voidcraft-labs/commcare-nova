@@ -9,6 +9,16 @@ import {
 	columnRunsOnResults,
 	detailColumnRowScope,
 } from "@/lib/domain/expression/detailRowScope";
+import { ordinaryDeviceCaseList } from "@/lib/domain/expression/directHostTextEquality";
+import {
+	countsOwnRestoredType,
+	restoredColumnCountMatch,
+} from "@/lib/domain/expression/ruleSets";
+import { resolveSearchResultDetailRoute } from "@/lib/domain/searchResultDetail";
+import {
+	inlineResultPropertyColumnSupported,
+	inlineResultPropertyPlacementsSupported,
+} from "../../../suite/case-list/inlineResultPropertyPlacements";
 import { type ValidationError, validationError } from "../../errors";
 import {
 	checkErrorDetails,
@@ -26,6 +36,7 @@ export function calculatedColumnTypeCheck(
 	const columns = mod.caseListConfig?.columns ?? [];
 
 	const errors: ValidationError[] = [];
+	let inlineResultPlacements: boolean | undefined;
 
 	for (let index = 0; index < columns.length; index++) {
 		const column = columns[index];
@@ -80,6 +91,45 @@ export function calculatedColumnTypeCheck(
 			}
 		}
 		if (column.kind !== "calculated") continue;
+		if (column.inlineResultProperty) {
+			inlineResultPlacements ??= inlineResultPropertyPlacementsSupported(
+				doc,
+				mod,
+			);
+			if (
+				!inlineResultPlacements ||
+				!inlineResultPropertyColumnSupported(doc, mod, column)
+			)
+				errors.push(
+					validationError(
+						"CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
+						"module",
+						"This calculation displays a text property in this menu’s Search results. Keep it on the results list or replace the calculation.",
+						{ moduleUuid, moduleName: mod.name },
+						{
+							columnUuid: column.uuid,
+							slot: `caseListConfig.columns[${index}].inlineResultProperty`,
+						},
+					),
+				);
+		}
+		if (
+			column.searchResultDetail &&
+			!resolveSearchResultDetailRoute(mod, column, column.searchResultDetail)
+		) {
+			errors.push(
+				validationError(
+					"CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
+					"module",
+					"Choose a Text prompt from this menu’s Search, or a Date, Date range, Barcode, or single-choice prompt for a Details-only field. A plain field can show the answer when Search opens before Results.",
+					{ moduleUuid, moduleName: mod.name },
+					{
+						columnUuid: column.uuid,
+						slot: `caseListConfig.columns[${index}].searchResultDetail`,
+					},
+				),
+			);
+		}
 		let hiddenTextRead = false;
 		if (
 			column.texts?.length &&
@@ -131,6 +181,25 @@ export function calculatedColumnTypeCheck(
 				rows: [{ kind: "case", caseType: mod.caseType, root: "casedb" }],
 			});
 		}
+		if (
+			(countsOwnRestoredType(column.expression, mod.caseType) ||
+				restoredColumnCountMatch(column.expression, mod.caseType) !==
+					undefined) &&
+			!ordinaryDeviceCaseList(doc, moduleUuid)
+		)
+			errors.push(
+				validationError(
+					"CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
+					"module",
+					"Move this count to a top-level list that reads the worker’s cases.",
+					{ moduleUuid, moduleName: mod.name },
+					{
+						columnUuid: column.uuid,
+						slot: `caseListConfig.columns[${index}].expression`,
+						registrySlot: "case_list_column_expression",
+					},
+				),
+			);
 		const typeErrors = scopes.flatMap((scope) =>
 			semanticCheckErrors(checkExpression(column.expression, scope)),
 		);

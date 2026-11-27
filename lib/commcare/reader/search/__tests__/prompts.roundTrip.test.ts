@@ -20,6 +20,7 @@ import {
 	term,
 	whenInput,
 } from "@/lib/domain/expression/builders";
+import type { Expression } from "@/lib/domain/expression/types";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { plainColumn } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
@@ -507,8 +508,40 @@ describe("Search fields over a table and over dates", () => {
 		},
 	});
 
-	for (const type of ["select", "multi-select", "checkboxes"] as const)
-		it(`reads a ${type} field whose choices come from a table, sorted and filtered`, async () => {
+	for (const { type, label, filter } of [
+		{
+			type: "select",
+			label: "text against fixed text",
+			filter: {
+				kind: "gt",
+				left: term(tableColumn(TABLE, NAME)),
+				right: term(literal("m")),
+			},
+		},
+		{
+			type: "select",
+			label: "text against the length of another column",
+			filter: {
+				kind: "lt",
+				left: term(tableColumn(TABLE, NAME)),
+				right: {
+					kind: "call",
+					fn: "string-length",
+					args: [term(tableColumn(TABLE, CODE))],
+				},
+			},
+		},
+		...(["multi-select", "checkboxes"] as const).map((type) => ({
+			type,
+			label: "matching text",
+			filter: eq(term(tableColumn(TABLE, REGION)), literal("north")),
+		})),
+	] satisfies {
+		type: "select" | "multi-select" | "checkboxes";
+		label: string;
+		filter: Expression;
+	}[])
+		it(`reads a ${type} field whose table choices filter ${label}`, async () => {
 			const inputs: SearchInputDef[] = [
 				{
 					uuid: uuid(9),
@@ -524,7 +557,7 @@ describe("Search fields over a table and over dates", () => {
 						valueColumnId: CODE,
 						labelColumnId: NAME,
 						sortColumnId: RANK,
-						filter: eq(term(tableColumn(TABLE, REGION)), literal("north")),
+						filter,
 					},
 				},
 			];
@@ -536,7 +569,7 @@ describe("Search fields over a table and over dates", () => {
 				lookupNaming: naming,
 				input: withTable,
 			});
-			expect(codes(reading)).toEqual([]);
+			expect(reading.findings).toEqual([]);
 			const read = comparableList(listOf(reading)) as {
 				searchInputs: unknown[];
 			};

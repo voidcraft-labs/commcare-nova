@@ -11,8 +11,14 @@
 // (`es/case_search.py::sort_by_case_property`).
 
 import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
-import type { SearchRequestOrder } from "@/lib/domain/modules";
-import { FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
+import type {
+	SearchFilterOrder,
+	SearchRequestOrder,
+} from "@/lib/domain/modules";
+import {
+	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
+	isDeviceOnlyCaseProperty,
+} from "@/lib/domain/standardCaseProperties";
 
 type Term = SearchRequestOrder[number];
 
@@ -55,31 +61,56 @@ export function serverOrderKeyNovaReserves(key: string): boolean {
 	);
 }
 
-/** Whether a literal `commcare_sort` text names a key Nova reserves. */
-export function requestOrderTextNamesReserved(text: string): boolean {
-	return text
-		.split(",")
-		.some((part) =>
-			serverOrderKeyNovaReserves(
-				part.replace(/^[-+]+/, "").split(":")[0] ?? "",
-			),
-		);
+/** The reason a key cannot order the results of a server search. */
+function orderKeyRefusal(key: string): "reserved" | "device-only" | undefined {
+	if (serverOrderKeyNovaReserves(key)) return "reserved";
+	if (isDeviceOnlyCaseProperty(key)) return "device-only";
 }
 
-/** Whether dedicated sort rows name a key Nova reserves. */
-export function dedicatedOrderNamesReserved(value: unknown): boolean {
+/** The built-in receiver cannot sort on an unmapped index subfield. The
+ * analyzed phonetic field exists, so its behavior is outside this finding. */
+export function unmappedSingleOrderComparison(text: string): boolean {
+	const [key, comparison, ...more] = text.replace(/^[+-]+/, "").split(":");
 	return (
-		Array.isArray(value) &&
-		value.some(
-			(row) =>
-				row !== null &&
-				typeof row === "object" &&
-				typeof (row as Record<string, unknown>).property_name === "string" &&
-				serverOrderKeyNovaReserves(
-					(row as Record<string, unknown>).property_name as string,
-				),
-		)
+		key !== undefined &&
+		comparison !== undefined &&
+		more.length === 0 &&
+		!SERVER_ORDER_RECORD_KEYS.has(key) &&
+		orderKeyRefusal(key) === undefined &&
+		authoredCasePropertyNameSchema.safeParse(key).success &&
+		/^[A-Za-z][A-Za-z0-9_-]*$/.test(comparison) &&
+		!["exact", "numeric", "date", "phonetic"].includes(comparison)
 	);
+}
+
+function orderRefusal(keys: readonly string[]) {
+	const reasons = keys.map(orderKeyRefusal);
+	if (reasons.includes("reserved")) return "reserved";
+	if (reasons.includes("device-only")) return "device-only";
+}
+
+/** A refusal for an order in a literal Search filter. */
+export function requestOrderTextRefusal(text: string) {
+	return orderRefusal(
+		text
+			.split(",")
+			.map((part) => part.replace(/^[-+]+/, "").split(":")[0] ?? ""),
+	);
+}
+
+/** A refusal for the dedicated sort rows saved in Search settings. */
+export function dedicatedOrderRefusal(value: unknown) {
+	return !Array.isArray(value)
+		? undefined
+		: orderRefusal(
+				value.flatMap((row) =>
+					row !== null &&
+					typeof row === "object" &&
+					typeof row.property_name === "string"
+						? [row.property_name]
+						: [],
+				),
+			);
 }
 
 /** The key HQ's index holds a term's value under. */
@@ -98,7 +129,7 @@ function readTerm(
 	const attribute = Object.entries(ATTRIBUTE_KEYS).find(
 		([wire]) => wire === key,
 	)?.[1];
-	if (serverOrderKeyNovaReserves(key)) return;
+	if (orderKeyRefusal(key) !== undefined) return;
 	const property = attribute ?? (key === "name" ? "case_name" : key);
 	if (!authoredCasePropertyNameSchema.safeParse(property).success) return;
 	if (
@@ -174,34 +205,128 @@ export function readDedicatedOrder(
 }
 
 /** The `commcare_sort` text a default filter sends for `order`. */
-export function requestOrderText(order: SearchRequestOrder): string {
+export function requestOrderText(order: SearchFilterOrder): string {
 	return order
-		.map(
-			(term) =>
+		.map((term) => {
+			if (term.comparison === "discarded")
+				return `${term.savedDirectionSigns}${term.property}:${term.savedComparison}`;
+			if (term.comparison === "indexed-fallback")
+				return `+${term.property}::${term.savedSuffix ?? "ignored"}`;
+			return (
 				(term.implicitDirection
 					? ""
 					: term.direction === "descending"
 						? "-"
 						: "+") +
 				requestOrderKey(term) +
-				(term.implicitComparison ? "" : `:${WIRE_COMPARISON[term.comparison]}`),
-		)
+				(term.implicitComparison ? "" : `:${WIRE_COMPARISON[term.comparison]}`)
+			);
+		})
 		.join(",");
 }
 
+/** The fixed wire spelling of the retained ascending index reset. The
+ * caller verifies the whole built-in search before claiming this term. */
+export function readIndexResetOrderText(
+	text: string,
+): SearchFilterOrder | undefined {
+	const [prefix, ...resets] = text.split(",");
+	if (resets.length > 2) return;
+	const single = resets.length === 0;
+	const terms: SearchFilterOrder = [];
+	for (const [index, value] of (single ? [prefix] : resets).entries()) {
+		const [signedProperty, blank, suffix, ...extra] = value.split(":");
+		if (
+			!signedProperty?.startsWith("+") ||
+			blank !== "" ||
+			suffix !== (single || index === 1 ? "ignored" : "obsolete") ||
+			extra.length
+		)
+			return;
+		const property = signedProperty.slice(1);
+		if (!indexedResetProperty(property)) return;
+		terms.push({
+			property,
+			comparison: "indexed-fallback",
+			direction: "ascending",
+			...(suffix === "obsolete" && { savedSuffix: suffix }),
+		});
+	}
+	if (single) return terms;
+	const earlier = readRequestOrderText(prefix);
+	if (
+		earlier?.order.length !== 1 ||
+		earlier.order[0].comparison !== "date" ||
+		earlier.order[0].direction !== "descending" ||
+		requestOrderText(earlier.order) !== prefix
+	)
+		return;
+	return [earlier.order[0], ...terms];
+}
+
+/** The signed spelling of a literal order that an independently verified later reset discards. */
+export function readDiscardedOrderText(
+	text: string,
+): SearchFilterOrder | undefined {
+	if (!unmappedSingleOrderComparison(text)) return;
+	const [signedKey, savedComparison] = text.split(":");
+	if (
+		signedKey === undefined ||
+		savedComparison === undefined ||
+		savedComparison.length > 64
+	)
+		return;
+	const property = signedKey.replace(/^[+-]+/, "");
+	const savedDirectionSigns = signedKey.slice(
+		0,
+		signedKey.length - property.length,
+	);
+	switch (savedDirectionSigns) {
+		case "":
+		case "+":
+		case "-":
+		case "++":
+		case "+-":
+		case "-+":
+		case "--":
+			return [
+				{
+					property,
+					comparison: "discarded",
+					savedComparison,
+					savedDirectionSigns,
+				},
+			];
+	}
+}
+
+export function indexedResetProperty(property: string): boolean {
+	return (
+		authoredCasePropertyNameSchema.safeParse(property).success &&
+		!SERVER_ORDER_RECORD_KEYS.has(property) &&
+		orderKeyRefusal(property) === undefined
+	);
+}
+
 /** The order a literal `commcare_sort` text names, or `undefined` for text
- *  Nova cannot hold. HQ reads a leading `-` as descending and anything else
- *  as ascending; a part with two signs or more than one `:` is refused here
- *  although HQ would read it. */
+ *  Nova cannot hold. HQ strips leading signs from the property and reads
+ *  only the first for direction. A single nonempty suffix after an explicit
+ *  comparison is discarded by the receiver, which reads only the first two
+ *  fields. An empty comparison instead resets the accumulated sort. */
 export function readRequestOrderText(
 	text: string,
-): SearchRequestOrder | undefined {
+): { order: SearchRequestOrder; removedSuffix: boolean } | undefined {
 	const order: Term[] = [];
+	let removedSuffix = false;
+	let repeatedSigns = false;
 	for (const part of text.split(",")) {
-		if (/^[+-]{2}/.test(part)) return;
 		const signed = /^[+-]/.test(part);
-		const [key, comparison, ...extra] = part.replace(/^[-+]+/, "").split(":");
-		if (extra.length > 0 || key === undefined) return;
+		repeatedSigns ||= /^[+-]{2}/.test(part);
+		const [key, comparison, suffix, ...extra] = part
+			.replace(/^[-+]+/, "")
+			.split(":");
+		if (extra.length > 0 || key === undefined || suffix === "") return;
+		removedSuffix ||= suffix !== undefined;
 		const term = readTerm(
 			key,
 			comparison ?? "exact",
@@ -214,5 +339,7 @@ export function readRequestOrderText(
 			...(!signed && { implicitDirection: true as const }),
 		});
 	}
-	return order as SearchRequestOrder;
+	// The two source rewrites have independent first-publish controls.
+	if (removedSuffix && repeatedSigns) return;
+	return { order: order as SearchRequestOrder, removedSuffix };
 }

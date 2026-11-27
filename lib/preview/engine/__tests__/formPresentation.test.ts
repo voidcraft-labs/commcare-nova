@@ -506,6 +506,30 @@ it("confirms passive messages and preserves the worker's Android checkbox throug
 	}
 });
 
+it.each([
+	[androidDevice(), ""],
+	[webAppsDevice(), "OK"],
+] as const)(
+	"keeps the native answer of a floating banner on $platform",
+	(device, expected) => {
+		const { engine } = runtime(
+			[
+				{
+					kind: "label",
+					id: "banner",
+					label: "The member was seen",
+					banner: "good",
+				},
+				{ kind: "label", id: "notice", label: "Read the visit notes" },
+			],
+			device,
+		);
+		expect(engine.validateAll()).toBe(true);
+		expect(engine.getState("/data/banner").value).toBe(expected);
+		expect(engine.getState("/data/notice").value).toBe("OK");
+	},
+);
+
 it("confirms visible messages at their submitted addresses and leaves messages outside the worker's screen alone", () => {
 	const group = testUuid("message-storage-group");
 	const messages = testUuid("message-record-group");

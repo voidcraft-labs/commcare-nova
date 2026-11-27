@@ -411,8 +411,12 @@ describe("a Search question's choice order", () => {
 	}
 	const options = (doc: BlueprintDoc) => {
 		const input = doc.modules[M("a")].caseListConfig?.searchInputs[0];
-		if (input === undefined || !("options" in input))
-			throw new Error("Expected the choice question");
+		if (
+			input === undefined ||
+			!("options" in input) ||
+			input.options.kind !== "lookup"
+		)
+			throw new Error("Expected the lookup choice question");
 		return input.options;
 	};
 	const { uuid: _uuid, ...addedBody } = region(LABEL, LABEL);

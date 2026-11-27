@@ -12,6 +12,7 @@ import {
 	concat,
 	dateLiteral,
 	eq,
+	gt,
 	gte,
 	input,
 	literal,
@@ -22,6 +23,7 @@ import {
 	today,
 } from "@/lib/domain/expression/builders";
 import { NO_SEARCH_SCREEN_TITLE, plainColumn } from "@/lib/domain/modules";
+import { searchEmissionFixture } from "../../../__tests__/searchEmissionFixture";
 import { patients, uuid } from "../../caseList/__tests__/fixtures";
 import {
 	type AppJson,
@@ -47,6 +49,40 @@ function doc(search: object = {}) {
 		search,
 	});
 }
+
+it("reconciles renamed and moved HQ heading rows through their fields", async () => {
+	const fixture = searchEmissionFixture("grouped-prompts");
+	const first = await readLists(fixture);
+	expect(closedCodes(first)).toEqual([]);
+	const prior = listOf(first);
+	const edited = await readLists(fixture, {
+		edit: (app) => {
+			const search = app.modules[0]?.search_config;
+			const rows = search?.properties;
+			if (!search || !Array.isArray(rows) || rows.length !== 4)
+				throw new Error("The fixture needs two Search headings");
+			const moved = [...rows.slice(2), ...rows.slice(0, 2)];
+			search.properties = moved.map((row, index) => {
+				const group_key = index < 2 ? "group_header_0" : "group_header_2";
+				return {
+					...row,
+					group_key,
+					...(index % 2 === 0 && { name: group_key }),
+				};
+			});
+		},
+	});
+	expect(closedCodes(edited)).toEqual([]);
+	const current = listOf(edited);
+	expect(current.searchInputGroups).toEqual(
+		[...(prior.searchInputGroups ?? [])].reverse(),
+	);
+	expect(
+		current.searchInputs.map((input) => [input.name, input.group]),
+	).toEqual(
+		[...prior.searchInputs].reverse().map((input) => [input.name, input.group]),
+	);
+});
 
 describe("a search's settings", () => {
 	it("reads a title with text, and a subtitle", async () => {
@@ -326,33 +362,92 @@ describe("a search's settings", () => {
 		);
 	});
 
-	it("reads the list filter's owner clause of a refused exclusion as that refusal's, one finding", async () => {
-		// An exclusion over an ordered comparison of text, which Nova's value vocabulary does not
-		// hold: the search's refusal is the one cause, and the clause Nova's print would write for
-		// a held exclusion is no difference of the list's.
-		const outside =
-			"if(instance('commcaresession')/session/context/username > 'm', 'a', 'b')";
-		const reading = await readLists(
-			doc({ excludedOwnerIds: term(literal("abc")) }),
-			{
-				edit: (app) => {
-					const menu = app.modules[0] as {
-						case_details: { short: { filter?: unknown } };
-						search_config: { blacklisted_owner_ids_expression?: unknown };
-					};
-					const swap = (text: unknown) =>
-						typeof text === "string" ? text.replaceAll("'abc'", outside) : text;
-					menu.case_details.short.filter = swap(menu.case_details.short.filter);
-					menu.search_config.blacklisted_owner_ids_expression = swap(
-						menu.search_config.blacklisted_owner_ids_expression,
-					);
+	it.each(["username", "userid", "deviceid"])(
+		"preserves %s in the shared owner exclusion",
+		async (field) => {
+			const workerRule = `if(instance('commcaresession')/session/context/${field} > 'm', 'a', 'b')`;
+			const reading = await readLists(
+				doc({ excludedOwnerIds: term(literal("abc")) }),
+				{
+					edit: (app) => {
+						const menu = app.modules[0] as {
+							case_details: { short: { filter?: unknown } };
+							search_config: { blacklisted_owner_ids_expression?: unknown };
+						};
+						const swap = (text: unknown) =>
+							typeof text === "string"
+								? text.replaceAll("'abc'", workerRule)
+								: text;
+						menu.case_details.short.filter = swap(
+							menu.case_details.short.filter,
+						);
+						menu.search_config.blacklisted_owner_ids_expression = swap(
+							menu.search_config.blacklisted_owner_ids_expression,
+						);
+					},
 				},
-			},
-		);
-		expect(closedCodes(reading)).toEqual([
-			"case-search/blacklisted-owner-ids-expression-outside-valueexpression",
-		]);
-	});
+			);
+			expect(closedCodes(reading)).toEqual([]);
+			expect(searchOf(reading)?.excludedOwnerIds).toMatchObject({
+				kind: "if",
+				cond: {
+					kind: "gt",
+					left: {
+						kind: "term",
+						term: { kind: "session-context", field },
+					},
+				},
+			});
+		},
+	);
+
+	it.each([
+		{ right: "userid", admitted: true },
+		{ right: "appversion", admitted: false },
+	])(
+		"accounts for the list filter's owner clause when a device ID is ordered against $right",
+		async ({ right, admitted }) => {
+			// The list mirrors the same request. An unsupported ordering should
+			// yield the Search refusal alone, without a second list finding.
+			const expression = `if(instance('commcaresession')/session/context/deviceid < instance('commcaresession')/session/context/${right}, 'a', 'b')`;
+			const reading = await readLists(
+				doc({ excludedOwnerIds: term(literal("abc")) }),
+				{
+					edit: (app) => {
+						const menu = app.modules[0] as {
+							case_details: { short: { filter?: unknown } };
+							search_config: { blacklisted_owner_ids_expression?: unknown };
+						};
+						const swap = (text: unknown) =>
+							typeof text === "string"
+								? text.replaceAll("'abc'", expression)
+								: text;
+						menu.case_details.short.filter = swap(
+							menu.case_details.short.filter,
+						);
+						menu.search_config.blacklisted_owner_ids_expression = swap(
+							menu.search_config.blacklisted_owner_ids_expression,
+						);
+					},
+				},
+			);
+			if (admitted) {
+				expect(closedCodes(reading)).toEqual([]);
+				expect(searchOf(reading)?.excludedOwnerIds).toMatchObject({
+					kind: "if",
+					cond: {
+						kind: "lt",
+						left: term(sessionContext("deviceid")),
+						right: term(sessionContext("userid")),
+					},
+				});
+			} else {
+				expect(closedCodes(reading)).toEqual([
+					"case-search/blacklisted-owner-ids-expression-outside-valueexpression",
+				]);
+			}
+		},
+	);
 
 	it("reads the owner exclusion of a menu that offers no search from the list filter's clause alone", async () => {
 		const filter = neq(term(prop("patient", "notes")), term(literal("none")));
@@ -414,34 +509,39 @@ describe("a search's settings", () => {
 	// (`post_process/instances.py::_get_all_xpaths_for_entry`), so a session read over a list whose
 	// selection and forms read no session stops the list on the device: the reading refuses it.
 	// Over a list whose filter reads the session, the same condition is held.
-	it("refuses a Search button condition reading what its case list does not load", async () => {
-		const condition = neq(sessionContext("username"), literal("guest"));
-		const refused = await readLists(
-			patients([plainColumn(uuid(1), "case_name", "Name")], {
-				searchInputs: [field],
-				search: { searchButtonDisplayCondition: condition },
-			}),
-		);
-		expect(closedCodes(refused)).toContain(
-			"case-search/search-button-display-condition-reading-what-the-case-list-does-not-load",
-		);
-		const held = await readLists(
-			patients([plainColumn(uuid(1), "case_name", "Name")], {
-				searchInputs: [field],
-				list: {
-					filter: eq(
-						term(prop("patient", "owner_id")),
-						term(sessionContext("userid")),
-					),
-				},
-				search: { searchButtonDisplayCondition: condition },
-			}),
-		);
-		expect(codes(held)).toEqual([]);
-		expect(searchOf(held)).toMatchObject({
-			searchButtonDisplayCondition: condition,
-		});
-	});
+	it.each([
+		neq(sessionContext("username"), literal("guest")),
+		gt(sessionContext("username"), literal("m")),
+	])(
+		"requires a Search action’s worker session to be loaded by its list ($kind)",
+		async (condition) => {
+			const refused = await readLists(
+				patients([plainColumn(uuid(1), "case_name", "Name")], {
+					searchInputs: [field],
+					search: { searchButtonDisplayCondition: condition },
+				}),
+			);
+			expect(closedCodes(refused)).toContain(
+				"case-search/search-button-display-condition-reading-what-the-case-list-does-not-load",
+			);
+			const held = await readLists(
+				patients([plainColumn(uuid(1), "case_name", "Name")], {
+					searchInputs: [field],
+					list: {
+						filter: eq(
+							term(prop("patient", "owner_id")),
+							term(sessionContext("userid")),
+						),
+					},
+					search: { searchButtonDisplayCondition: condition },
+				}),
+			);
+			expect(codes(held)).toEqual([]);
+			expect(searchOf(held)).toMatchObject({
+				searchButtonDisplayCondition: condition,
+			});
+		},
+	);
 
 	// HQ's page keeps the text an author types, so a session value Nova reads inside its guard
 	// (`if(count(P) > 0, P, '')`, `absent-session-value-guard`) may be read bare. The expression
@@ -502,39 +602,46 @@ describe("a search's settings", () => {
 		expect(codes(reading)).toEqual([]);
 	});
 
-	it("raises `include_all_related_cases` stored where no field reads a related case", async () => {
+	it("keeps an explicit hierarchy where no field reads a related case", async () => {
 		const reading = await readLists(doc(), {
 			edit: (app) => {
 				const config = app.modules[0]?.search_config;
 				if (config !== undefined) config.include_all_related_cases = true;
 			},
 		});
-		expect(codes(reading)).toContain(
-			"case-search/include-all-related-cases-authored-without-relation-reads",
-		);
+		expect(codes(reading)).toEqual([]);
+		expect(searchOf(reading)).toMatchObject({ relatedRecords: "hierarchy" });
 	});
 
-	const instances: [string, string][] = [
-		[
-			"patients",
-			"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
-		],
+	it.each(["patients", "Client_Étage2"])(
+		"keeps the editor-safe search name %s",
+		async (name) => {
+			const reading = await readLists(doc(), {
+				edit: (app) => {
+					app.modules[0].search_config.instance_name = name;
+				},
+			});
+			expect(codes(reading)).toEqual([]);
+			expect(reading.ctx.draft.modules[0]?.module.searchResultsName).toBe(name);
+		},
+	);
+
+	it.each([
 		[
 			"my_casedb",
 			"case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session",
 		],
-	];
-	for (const [name, entry] of instances)
-		it(`raises the results instance \`${name}\` by its row`, async () => {
-			const reading = await readLists(doc(), {
-				edit: (app) => {
-					const config = app.modules[0]?.search_config;
-					if (config !== undefined) config.instance_name = name;
-				},
-				firstPassOnly: true,
-			});
-			expect(codes(reading)).toContain(entry);
+		["3patients", "case-search/results-name-outside-the-search-editor"],
+		["bad-name", "case-search/results-name-outside-the-search-editor"],
+	])("identifies why the name %s cannot be brought in", async (name, entry) => {
+		const reading = await readLists(doc(), {
+			edit: (app) => {
+				app.modules[0].search_config.instance_name = name;
+			},
+			firstPassOnly: true,
 		});
+		expect(codes(reading)).toContain(entry);
+	});
 
 	/** Two searching menus of patients, the second under the first, each with its own field. */
 	function twoMenus() {
@@ -709,7 +816,7 @@ describe("a search's settings", () => {
 			expect(second).not.toContain(
 				"unrecognized:schema:CaseSearch.instance_name",
 			);
-			expect(codes(reading)).toContain(
+			expect(codes(reading)).not.toContain(
 				"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
 			);
 		});
@@ -750,7 +857,7 @@ describe("a search's settings", () => {
 						? `unrecognized:${(one.detail as { name?: string }).name ?? ""}`
 						: one.code,
 				);
-			expect(all).toContain(
+			expect(all).not.toContain(
 				"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
 			);
 			expect(all).not.toContain(
@@ -835,7 +942,9 @@ describe("a search's default filters", () => {
 		expect(codes(sort)).toContain(sortKey);
 		expect(codes(sort)).not.toContain(runtime);
 		const type = await keyed("case_type", "'patient'");
-		expect(codes(type)).toContain(typeKey);
+		expect(listOf(type).searchFilters).toMatchObject([
+			{ kind: "request-record-type", caseType: "patient" },
+		]);
 		expect(codes(type)).not.toContain(runtime);
 	});
 
@@ -845,9 +954,26 @@ describe("a search's default filters", () => {
 			"'parent/name'",
 			"name",
 		);
-		expect(codes(reading)).toContain(
+		expect(closedCodes(reading)).toEqual([
 			"case-search/an-x-commcare-custom-related-case-property-entry-together-with",
-		);
-		expect(codes(reading)).not.toContain(sortKey);
+		]);
+	});
+});
+
+it("keeps a Search button condition that counts the worker's restored cases", async () => {
+	const authored =
+		"count(instance('casedb')/casedb/case[@case_type = 'patient']) > 1";
+	const reading = await readLists(doc(), {
+		edit: (app) => {
+			app.modules[0].search_config.search_button_display_condition = authored;
+		},
+	});
+	expect(closedCodes(reading), JSON.stringify(reading.findings)).toEqual([]);
+	expect(searchOf(reading)).toMatchObject({
+		searchButtonDisplayCondition: {
+			kind: "gt",
+			left: { kind: "count", via: { kind: "cases", source: "casedb" } },
+			right: { kind: "term", term: { kind: "literal", value: 1 } },
+		},
 	});
 });

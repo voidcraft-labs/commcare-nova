@@ -52,7 +52,7 @@ def archive_bytes(entries) -> bytes:
     return _zipped(entries)
 
 
-def release_archive(served) -> bytes:
+def release_archive(served, *, profile_key=None) -> bytes:
     """The released build of a served state as HQ's archive download hands it with the app's multimedia
     (``hqmedia/views.py::iter_app_files``, index files and multimedia both)."""
     from corehq.apps.hqmedia.views import iter_app_files
@@ -61,7 +61,7 @@ def release_archive(served) -> bytes:
     from proof.observe.build import ArrangementRefused, _bytes
 
     build = operations.held_app(served.unit, served.build_id)
-    entries, errors, _ = iter_app_files(build, True, True, build_profile_id=None)
+    entries, errors, _ = iter_app_files(build, True, True, build_profile_id=profile_key)
     # HQ's media errors are complete only once its iterator is exhausted (iter_media_files).
     entries = [(name, _bytes(content)) for name, content in entries]
     if errors:
@@ -189,6 +189,7 @@ def app(
     served,
     blobs,
     *,
+    installation_languages=None,
     label: str,
     archive: bytes,
     delivered: bool = False,
@@ -201,14 +202,22 @@ def app(
     device: str = "phone",
     commands=None,
     views: bool = False,
+    help_questions: tuple[str, ...] = (),
     type_refused: bool = False,
     keys: bool = False,
     controls: bool = False,
+    callouts=None,
+    case_lookup_returns=None,
+    case_lookup_legacy_mode=False,
     questions=None,
     repeat_additions=None,
     save_incomplete: str | None = None,
+    save_language: str | None = None,
+    first_screen_choice: str | None = None,
     reopen: bool = False,
+    reopen_restore: bytes | None = None,
     searches=None,
+    search_answers=None,
 ) -> dict:
     """The ``app`` request on ``archive`` over the served state; with ``delivered``, the device's requests made as
     the worker HQ made and its restore and forms delivered to HQ's own addresses for the worker and the app
@@ -229,9 +238,16 @@ def app(
     offered actions; ``questions``, the values for each question the answer table carries, by its reference
     (``Answers.java::valuesFor``); ``repeat_additions``, how many times the worker selects the button to add a repeat;
     ``save_incomplete``, a form whose first screen is answered and saved
-    incomplete; ``reopen``, that record reopened from home's incomplete forms and completed; and ``searches``,
+    incomplete; ``first_screen_choice``, an exact value to pick on the unfinished form's first single select;
+    ``reopen_restore``, the data pull applied after the save and before reopen; ``reopen``, that record reopened
+    from home's incomplete forms and completed; and ``searches``,
     terms each list the walk opens is searched for beside the words its rows show (``Lists.java::searched``),
-    what each finds held under the list's ``searches`` with fuzzy search as installed, on and off."""
+    what each finds held under the list's ``searches`` with fuzzy search as installed, on and off.
+    ``case_lookup_returns`` exercises the installed Android lookup action and records the list after each
+    controlled companion reply. ``case_lookup_legacy_mode`` sets the reporting-domain preference only during
+    the lookup list’s creation, while the test worker keeps its own HQ credentials.
+    ``search_answers`` supplies text by query datum and prompt name. The device records the result and answer
+    instances its session actually holds after each of those successful searches."""
     from proof.observe import walks
 
     answers = _answers()
@@ -245,7 +261,7 @@ def app(
         "answers": answers,
         "queryAnswer": QUERY_ANSWER,
         "device": device,
-        "languages": walks.chosen(served.languages),
+        "languages": walks.chosen(served.languages if installation_languages is None else installation_languages),
     }
     if fix != LANE_FIX:
         options["position"] = fix
@@ -257,16 +273,33 @@ def app(
         options["commands"] = list(commands)
     if views:
         options["views"] = True
+    if help_questions:
+        options["helpQuestions"] = list(help_questions)
     if type_refused:
         options["typeRefused"] = True
     if controls:
         options["controls"] = True
+    if callouts is not None:
+        options["callouts"] = callouts
+    if case_lookup_returns is not None:
+        options["caseLookupReturns"] = case_lookup_returns
+    if case_lookup_legacy_mode:
+        options["caseLookupLegacyMode"] = True
     if keys:
         options["keys"] = True
     if save_incomplete is not None:
         options["saveIncomplete"] = save_incomplete
+    if save_language is not None:
+        options["saveLanguage"] = save_language
+    if first_screen_choice is not None:
+        options["firstScreenChoice"] = first_screen_choice
+    inputs = {"archive": archive}
+    if reopen_restore is not None:
+        inputs["reopenRestore"] = reopen_restore
     if reopen:
         options["reopen"] = True
+    if search_answers is not None:
+        options["searchAnswers"] = search_answers
     if searches is not None:
         options["searches"] = list(searches)
     return _read(
@@ -274,7 +307,7 @@ def app(
         blobs,
         label,
         "app",
-        {"archive": archive},
+        inputs,
         options,
         delivered=delivered,
         sent=sent,

@@ -892,7 +892,12 @@ writable standard scalar like `external_id`
 and 255 characters, and no standard property every case carries: a case type
 holds it where the app saves or declares it. HQ's case search indexes no
 location (`corehq/pillows/case_search.py::_get_case_properties`), so a
-search's read of it is refused (`typeChecker.ts`, `location-not-in-search`).
+search expression's read of it is refused (`typeChecker.ts`,
+`location-not-in-search`). Both the dedicated request order and a saved
+`commcare_sort` default filter also refuse it. Both ways of
+asking Search to follow a record ID also refuse it because HQ follows
+the ID from the match’s dynamic properties. An order or a related record
+request can use `hq_user_id` where the requested case type carries it.
 A written `hq_user_id` is an ordinary property whose value the case store
 also copies into the case's external id, applied after the block's own
 `external_id` as HQ applies its known keys first; the submitting device keeps
@@ -994,12 +999,14 @@ reducer no-op to report success. No tool-side slug/path/id projection or
 rewrite layer exists. The operation id, write property, and link identifier
 vocabularies share one domain-owned grammar
 (`lib/domain/caseOperationIdentifiers.ts`) with the builder, validator, and
-tool schemas — an operation id or link identifier holds ASCII letters,
-digits, and underscores and starts with a letter or underscore; a write
-property takes the catalog's grammar, a letter first, then letters, digits,
-underscores, and hyphens — so action-illegal facet combinations, platform-owned case
-types, and reserved write properties are unconstructible at the shared tool
-boundary.
+tool schemas. An operation id or link identifier starts with an ASCII letter
+or underscore and can contain letters, digits, and underscores. A link
+identifier can also contain hyphens. A write property takes the catalog's
+grammar, a letter first followed by letters, digits, underscores, or hyphens.
+The shared authoring gate checks whether a link named `create` or `close`
+has the matching direct action in the source block where the case change is
+planned to run. The shared tool boundary also enforces legal combinations of
+action facets, platform-owned case types, and reserved write properties.
 
 Lookup-backed expressions use that same stored tree on the builder, SA, and MCP surfaces: reads return the lookup UUID leaves and
 all three editors may update them without hiding or partially projecting the
@@ -1094,7 +1101,11 @@ The local `.ccz` emits the preservable lookup wire. The binding facts:
 JavaRosa has no XPath-1.0 first-node coercion — a scalar use of a multi-node path
 throws (`XPathNodeset::unpack`) — and JavaRosa numeric predicates are **position**
 matches, not value matches. First-match lowering therefore carries an explicit
-positional `[1]` predicate structurally; coercion will never supply it.
+positional `[1]` predicate structurally. A single bare numeric predicate on a
+declared lookup itemset uses the truncated one-based index in Core. Nova reads
+an in-range positive integer or a nonintegral decimal with a positive integer
+part as an explicit position comparison. For example, `[2.5]` becomes
+`[position() = 2]`. An authored `[position() = 2.5]` still offers no row.
 
 The aggregate embedded-fixture budget is 10,000 rows, 100,000 cells, and 16 MiB of
 exact UTF-8 fixture bytes. These are declared Nova policy sized against an
@@ -1347,10 +1358,12 @@ name with HQ's own `user.name or user.raw_username` fallback because
 field.
 
 **A form can save an answer into it.** The worker's record is a case
-operation's target, `{ kind: "worker-record" }`, of at most one update of
-`commcare-user` per form, on any form including a survey with no case type of
-its own; one form writes one worker record, so its writes take no repeat. The
-destination must be
+operation's target, `{ kind: "worker-record" }`, on any form including a survey
+with no case type of its own. Separate direct updates can write different
+properties when each runs at most once. A basic managed worker update can
+accompany a namespaced repeated create because the worker has an independent
+UUID. A single direct Save to Case update can also run once for each entry of
+one top-level repeat, including a query-driven repeat. The destination must be
 a declared worker property (the slug is emitted as an XML element name), never
 a built-in worker field, and never `case_name`: HQ permits writing the name and
 its byte oracle asserts exactly that, but materialization owns the worker's
@@ -1546,6 +1559,8 @@ answer.
 
 Search value expressions preserve their suite context through native CSQL
 function arguments, including lookup fixture naming and worker/input identities.
+A Search can keep an imported first-row lookup value by table and column identity.
+A publish guards the missing first row and an unrepresentable quote pair.
 A table value can therefore be converted or used in date arithmetic without
 losing its declared instance. Later function arguments are explicitly grouped
 where they can begin with another function: HQ's pinned eulxml lexer otherwise
@@ -1553,11 +1568,15 @@ reads that function name as a path after a comma. Native Core-to-HQ payload
 proofs cover the conversion, calendar result and nested argument structure;
 `lib/commcare/CLAUDE.md` owns the emission detail.
 
+A simple text Search prompt can use a comparison of two session identities to choose its starting value. Core and Preview compare the worker name, worker ID and device ID numerically.
+
 Static search-value reachability follows emitted Core equality: null literals
 are empty text, boolean literals are text, and numeric equality uses Core's
 absolute tolerance. Unknown numeric/text conversions keep both branches
 reachable. This prevents admission from discarding the actual runtime branch
 when checking whether a fixed result can be quoted in the server query.
+
+For equality between a custom date property and a fractional number, HQ uses the exact text index. Preview compares the same JVM double spelling Elasticsearch queries. For example, `0.00001` matches stored `1.0E-5`. Calendar dates use their own comparison rules.
 
 A search reads `today()` as the worker's day: Nova sends Core's `today()` in a
 runtime segment, so the device's list, HQ's search and Preview read one day.
@@ -1567,6 +1586,12 @@ the day becomes the worker's (the rewrite `search-today-device-day`).
 Equality on a date-and-time property is sent as a closed instant range, which
 HQ answers by instant for every spelling its parser reads
 (`lib/commcare/csql/emitter.ts::readsInstantByRange`).
+
+#### Search request types and selectable records
+
+A case list's additional types are selectable and require a menu in the app. A request-only type contributes to the server's primary population and the results instance a form reads. The server orders all requested types and applies its result limit before the device selects the visible rows. A result carries its actual case type through details, selection and submission.
+
+Search includes an explicitly referenced related record before expanding the hierarchy or the paths required by the requested types' searchable details. Supporting cases retain their status and stay apart from selectable matches, including when reached through a supporting record. Claim admission repeats the current search under the worker's scope and checks prior selections in the same transaction.
 
 #### The search workflow
 
@@ -1653,9 +1678,45 @@ depends on the order HQ returns its results in is refused
 (`search-results-order`), and Preview supplies the set the search returned,
 capped at HQ's 500.
 
+#### A Search field matched against its parent
+
+A visible text field can send the project space the key of an ordinary property
+on a parent, grandparent, or great-grandparent. The key comes from one to three
+typed `parent` links
+and the property, so editing the field's Nova name leaves the request, generated
+labels and the field's UUID unchanged. Preview sends that same key to its
+native request compiler and uses the selected project's matching settings. The
+answer belongs to the match itself. Dependent formulas, other widgets and
+paths outside those three shapes stay unsupported.
+
+#### Search headings
+
+A Search heading has a UUID and its own translation unit. Each field belongs
+to one heading when the screen is grouped. Reordering or removing a heading
+changes the field sequence with it in one mutation batch. The heading never
+becomes a Search request parameter.
+
+CommCare HQ's Case List editor derives a group key from the heading's physical
+row position. Nova emits the same keys and restores a populated heading by
+its member field identity when HQ reorders the screen. Web Apps renders
+collapsible headings and keeps their answers when collapsed. Android renders
+the fields in the same order.
+
 #### Starting dates on a Search field
 
 A fixed range has two inclusive calendar dates. The editors share one expression slot for its starting value. Fixed dates compile to a single encoded answer that survives the worker’s time zone. Imported calculations can produce a human-readable pair. At the pinned Core revision, `RemoteQuerySessionManager.initUserAnswers` reads it through `DateRangeUtils.formatDateRangeAnswer`. A successful parse uses lenient Java calendar fields and formats the converted midnight in the JVM zone. On parse failure Core retains the evaluated text. Android shows that value and submits it through its query manager. The Web Apps query view decodes the text for its calendars and encodes the visible inputs again on explicit Search. A malformed value can prevent that view from opening. Preview keeps the original answer for an automatic query and identifies the field if Web Apps cannot display it. Its explicit Search encodes every readable piece, including a single date or three dates. Such a value remains visible and replaceable. A simple property criterion refuses an invalid encoded interval. An automatic Search can send an unwrapped value as ordinary property text. Only the saved field’s evaluated answer and its platform’s visible projection may supply a starting answer outside the paired picker.
+#### Searches that supply a form
+
+A menu may name its search results independently of whether it offers Search.
+The name persists in a menu brought in from HQ, including one whose search is
+inactive. Parent selectors and navigation parents that run an inline search
+need distinct effective names from the child. A child has a parent's results
+and search answers only when its physical entry acquired that parent's query.
+A structural menu alias contributes no query of its own. A field reference
+stores its prompt UUID and, for a parent, its supplier menu UUID. Preview
+binds the completed query for the current worker and history entry. A search
+answer that is unavailable on Android remains subject to the platforms the app
+declares.
 
 #### A search with no title
 
@@ -2027,8 +2088,9 @@ and reports a dangling or incompatible source at the selection that needs repair
 ### Grouped case tiles
 
 A tile can also GROUP its cases: `caseListConfig.tile.grouping` carries an
-`identifier` (a case-index name) and `headerRows`, and the cases sharing that
-connection are shown together under one heading. Grouping lives INSIDE the tile
+`identifier` (a case-index name that uses the case operation connection grammar,
+including hyphens) and `headerRows`. Cases sharing that connection appear
+together under one heading. Grouping lives INSIDE the tile
 layout, so "a group on a detail with no tile" is unrepresentable rather than
 merely rejected, and turning the tile off clears the grouping in the same write.
 
@@ -3665,6 +3727,13 @@ decides nothing.
 
 ### Case choices inside forms
 
+A case choice set can order the available rows by one property of the chosen
+case type. The writer emits a typed child or attribute reference as the
+itemset’s sort expression. Core compares the property’s text in Java string
+order and reindexes the choices. Preview applies the same stable comparison
+after the device-context filter and keeps record IDs as the answer values.
+
+
 Single- and multiple-choice questions can use the worker's available cases as a
 source, with a declared type, a label property and an optional typed filter.
 The source saves exact case IDs and emits standard casedb itemsets in both local
@@ -3672,6 +3741,15 @@ and HQ exports. Candidate records and the form's scalar selected record have
 distinct typed references. Filters admit earlier eligible answers, worker values
 and existing case relationships; no filter expands restore scope. Preview uses
 its existing captured device snapshot.
+
+A single-select question over all available cases emits the bare casedb case
+nodeset with `case_name` and `@case_id`. The optional `status: open` or
+`status: closed` adds the matching `@status` predicate over that same snapshot. It
+can offer retained cases outside the
+current Blueprint catalog because Preview's existing snapshot already covers
+the authorized worker restore closure for the app and Project. The form
+treats the answer as an opaque ID. A case operation checks the live target
+against its expected type when it resolves that ID.
 
 A batch attendance workflow uses a stable roster query, per-row identity, and
 explicit updates conditioned on final checklist membership. It does not bind
@@ -3726,3 +3804,63 @@ available. Web Apps submits no automatic fix. Nova Preview and app tests accept
 a simulated fix and return the committed submission location separately from
 question answers. These behaviors originate in HQ’s `FormBase.get_auto_gps_capture`
 and `XForm._add_meta_2`, and Android’s `PollSensorController`.
+
+### Searches supplied by a project space
+
+A menu can ask an external search in a CommCare HQ project space for matches.
+The app names that dependency once and menus reuse its identity. Visible or
+hidden answers and ordered named values describe the request. Result details
+and expressions describe which fields the app reads. A result needs a case ID
+for the worker to claim it. A returned field whose type is unknown is text.
+
+The destination owns the service ID, configuration and data. An import from
+HQ associates the observed ID with its source project space. Reviewing later
+HQ edits compares the two saved source definitions and the proposed local
+binding. On another destination a contributor chooses the ID. Direct publish,
+manual import files and Android packages check the destination's capability
+before writing or generating the artifact. The ledger fences the intended
+binding at each dispatch. A change to the query behind the same remote ID
+takes effect for installed apps and leaves the app's own source unchanged.
+
+HQ runs either its active Elasticsearch search or active ProjectDB query.
+Elasticsearch results can carry real case index edges. ProjectDB columns are
+text children, including a column named `index`. Inline selection under a
+parent still needs a real edge. Ordinary selection uses the returned case
+elements. Preview and App Tests show the prompts and explain where the search
+runs. They leave the actual search and claim to the connected project space.
+
+## Android answers from another app
+
+A text question can own an Android action, named expression inputs and
+named return destinations. A second input references the owning question by
+UUID and keeps its own datatype. A destination is a question in the same form
+whose concrete repeat row is known at each invoker. The action's head ID,
+input appearance and response paths derive from those identities at emission.
+Copying a group copies its internal request and result references. A callout
+owner's question ID is unique among the form's callout owners.
+
+HQ's `ApplicationBaseValidator._validate_intents` checks the action against
+the three actions in `vellum-app-callout-templates.yml`. Custom integration
+admits every action. Templated integration alone admits those three, including
+an existing configuration of their inputs and outputs. Vellum's
+`intentManager.js` requires the custom feature to create arbitrary actions or
+edit their mappings. Referencing a callout from another ordinary input adds no
+second plan requirement. The standalone control requires Android. On its own
+the auxiliary appearance is ignored in Web Apps.
+
+Android's `IntentWidget` supplies the current invoking answer on relaunch.
+`IntentCallout.processResponse` selects the native identity registration,
+verification or identification parcel, then Simprints registration, then the
+generic result. The latter writes the primary even when absent. Named values
+come from the bundle when supplied, otherwise the direct extras. Destinations
+keep their own datatypes and contextualize at the invoking repeat row.
+Cancellation, a missing handler and an unreadable parcel keep the current
+answers. When two present names fill one answer, Android's handler enumerates
+its form-side response table. Preview uses Android 15 libcore's
+`java.util.Hashtable` traversal of a newly parsed form. Different Android
+versions and restoring the table from a cached form (`ExtWrapMap.readExternal`)
+can change the surviving answer. The inspector identifies overlapping mappings.
+A local Preview result applies those same writes. File results go through the
+entry's attachment staging and submission ownership boundaries. The stored
+schema adds an optional field property, so documents saved before support keep
+their representation and can use the capability on their next edit.

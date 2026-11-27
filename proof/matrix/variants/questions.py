@@ -417,12 +417,8 @@ def model_iteration_outside_rule(authoring, app_id):
     )
 
 
-def model_iteration_hidden_first_row(authoring, app_id):
-    """The first row can hide while separately enabled later rows are created."""
-    _change(
-        authoring,
-        app_id,
-        "model-iteration-hidden-first-row",
+def _model_iteration_hidden_first_row(text):
+    return _replaced(text, [
         (
             '<input vellum:ref="#form/phone" ref="/data/phone" appearance="numeric">',
             '<input vellum:ref="#form/phone" ref="/data/phone">',
@@ -446,7 +442,28 @@ def model_iteration_hidden_first_row(authoring, app_id):
             """value="join(' ', 'a b c')" """.strip(),
             1,
         ),
-    )
+    ])
+
+
+def model_iteration_hidden_first_row(authoring, app_id):
+    """The first row can hide while separately enabled later rows are created."""
+    _edit(authoring, app_id, "model-iteration-hidden-first-row", _model_iteration_hidden_first_row)
+
+
+def model_iteration_relocated_answers(authoring, app_id):
+    """Earlier controls save their answers in another data group and can still hide the first row."""
+    def relocate(text):
+        return _replaced(_model_iteration_hidden_first_row(text), [
+            ("<full_name />", "", 1),
+            ("<phone />", "", 1),
+            ("</details>", "<full_name /><phone /></details>", 1),
+            ("/data/full_name", "/data/details/full_name", None),
+            ("/data/phone", "/data/details/phone", None),
+            ("#form/full_name", "#form/details/full_name", None),
+            ("#form/phone", "#form/details/phone", None),
+        ])
+
+    _edit(authoring, app_id, "model-iteration-relocated-answers", relocate)
 
 
 def model_iteration_container_condition(authoring, app_id):
@@ -577,6 +594,18 @@ def repeat_add_caption(authoring, app_id):
     )
 
 
+def long_form_on_repeat_action_caption(authoring, app_id):
+    """The add caption's own default text remains visible beside an unused long form."""
+    caption = '<text id="members-add"><value>Add a member</value><value form="long">Add another participant</value></text>'
+    _change(
+        authoring,
+        app_id,
+        "long-form-on-repeat-action-caption",
+        (MEMBERS_LABEL_VALUE, caption + MEMBERS_LABEL_VALUE, 1),
+        (MEMBER_NAME_OPEN, "<jr:addCaption ref=\"jr:itext('members-add')\"/>" + MEMBER_NAME_OPEN, 1),
+    )
+
+
 def repeat_caption_itext(authoring, app_id):
     """A remove caption on the repeat ``members`` that names the itext ``members-label``."""
     _change(
@@ -609,6 +638,22 @@ def callout(authoring, app_id):
     """``tag_code`` made an Android app callout: bind type ``intent``, appearance ``intent:scanner``, and the head's
     ``odkx:intent`` ``scanner``."""
     _edit(authoring, app_id, "callout", _callout)
+
+
+def android_app_question(authoring, app_id):
+    """The action and its input have the same ID, as Vellum's AndroidIntent writes;
+    the device calls it with a unit and writes the quantity into an integer answer."""
+    ops.set_json(authoring, app_id, "/cloudcare_enabled", False)
+    _edit(authoring, app_id, "android-app-question", lambda text: _callout(
+        text, inner='<extra key="unit" ref="&apos;litres&apos;" /><response key="measurement" ref="/data/household_size" />'
+    ).replace('id="scanner"', 'id="tag_code"').replace('appearance="intent:scanner"', 'appearance="intent:tag_code"'))
+
+
+def android_app_answer(authoring, app_id):
+    """A second ordinary input uses the same action, retaining its text datatype."""
+    android_app_question(authoring, app_id)
+    _change(authoring, app_id, "android-app-answer",
+            (FULL_NAME_INPUT, FULL_NAME_INPUT[:-1] + ' appearance="intent:tag_code">', 1))
 
 
 def callout_quick(authoring, app_id):
@@ -1046,6 +1091,19 @@ def data_root_named_survey(authoring, app_id):
         ("<data xmlns:jrm=", "<survey xmlns:jrm=", 1),
         ("</data>", "</survey>", 1),
         ("/data/", "/survey/", None),
+    )
+
+
+def data_root_named_survey_accented(authoring, app_id):
+    """The Android-only form's exact root, including the accent in every answer path."""
+    ops.set_json(authoring, app_id, "/cloudcare_enabled", False)
+    _change(
+        authoring,
+        app_id,
+        "data-root-named-survey-accented",
+        ("<data xmlns:jrm=", "<survéy xmlns:jrm=", 1),
+        ("</data>", "</survéy>", 1),
+        ("/data/", "/survéy/", None),
     )
 
 
@@ -1839,6 +1897,24 @@ def save_to_case_bare_name(authoring, app_id):
     )
 
 
+def save_to_case_bare_calculated_name(authoring, app_id):
+    """A calculated name with no explicit trim carries a distinct raw value."""
+    _save_to_case(
+        authoring, app_id, "save-to-case-bare-calculated-name",
+        (STC_NAME_BIND, f'<bind nodeset="{MAKE}/create/case_name" '
+                       'calculate="concat(/data/full_name, &apos; &apos;)"/>', 1),
+    )
+
+
+def save_to_case_bare_name_with_literal_prefix(authoring, app_id):
+    """A literal prefix falls outside the admitted answer-leading bare name."""
+    _save_to_case(
+        authoring, app_id, "save-to-case-bare-name-with-literal-prefix",
+        (STC_NAME_BIND, f'<bind nodeset="{MAKE}/create/case_name" '
+                       'calculate="concat(&apos;Mrs &apos;, /data/full_name)"/>', 1),
+    )
+
+
 def save_to_case_type_expression(authoring, app_id):
     """The create's case type calculated ``concat('house', 'hold')``."""
     _save_to_case(
@@ -1846,10 +1922,101 @@ def save_to_case_type_expression(authoring, app_id):
         app_id,
         "save-to-case-type-expression",
         (
+            'make_household vellum:role="SaveToCase" vellum:case_type="household"',
+            'make_household vellum:role="SaveToCase" vellum:case_type=""',
+            1,
+        ),
+        (
             STC_TYPE_BIND,
             f'<bind nodeset="{MAKE}/create/case_type" calculate="concat(&apos;house&apos;, &apos;hold&apos;)"/>',
             1,
         ),
+    )
+    _computed_type_references(authoring, app_id, guard_type="household")
+
+
+def _computed_type_references(authoring, app_id, *, guard_type):
+    # The source upload and the reference rows together reproduce a Vellum save.
+    ops.set_json(authoring, app_id, "/modules/0/forms/0/case_references_data/save", {
+        f"{OPS}/make_household": {
+            "doc_type": "CaseSaveReference",
+            "case_type": "",
+            "properties": ["head", "case_type", "case_name", "owner_id"],
+            "create": True,
+            "close": False,
+        },
+        f"{OPS}/nova_guard_make_household_text": {
+            "doc_type": "CaseSaveReference",
+            "case_type": guard_type,
+            "properties": ["case_type"],
+            "create": False,
+            "close": False,
+        },
+    })
+
+
+def save_to_case_declared_type_choice(authoring, app_id):
+    """Two declared case types, the same saved field and a guard reading the computed type."""
+    from corehq.apps.app_manager.xform_builder import XFormBuilder
+
+    from proof.matrix.bases import _pages
+
+    def visit_form(name):
+        form = XFormBuilder(name)
+        form.new_question("note", "Note", "string")
+        return form.tostring().decode("utf-8")
+
+    _pages.new_survey_module(authoring, app_id, name="Visits")
+    ops.upload_form_source(authoring, app_id, 1, 0, visit_form, "visit-type-carrier")
+    ops.set_json(authoring, app_id, "/modules/0/case_type", "household")
+    ops.set_json(authoring, app_id, "/modules/1/case_type", "visit")
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-declared-type-choice",
+        ('vellum:role="SaveToCase" vellum:case_type="household"',
+         'vellum:role="SaveToCase" vellum:case_type=""', 2),
+        (STC_TYPE_BIND,
+         f'<bind nodeset="{MAKE}/create/case_type" calculate="if(/data/age &gt; 5, &apos;household&apos;, &apos;visit&apos;)"/>',
+         1),
+        (f'<bind nodeset="{GUARD}/update/case_type" calculate="&apos;household&apos;"/>',
+         f'<bind nodeset="{GUARD}/update/case_type" calculate="current()/../../../../make_household/case/create/case_type"/>',
+         1),
+    )
+    _computed_type_references(authoring, app_id, guard_type="")
+
+
+def save_to_case_dynamic_type(authoring, app_id):
+    """Vellum clears the fixed-type metadata when the create's type uses an answer."""
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-dynamic-type",
+        (
+            'make_household vellum:role="SaveToCase" vellum:case_type="household"',
+            'make_household vellum:role="SaveToCase" vellum:case_type=""',
+            1,
+        ),
+        (
+            STC_TYPE_BIND,
+            f'<bind nodeset="{MAKE}/create/case_type" calculate="if(/data/age &gt; 5, &apos;household&apos;, &apos;visit&apos;)"/>',
+            1,
+        ),
+    )
+
+
+def save_to_case_undeclared_type_without_primary_restore(authoring, app_id):
+    """The final guard does not establish the primary type in this form."""
+    _save_to_case(
+        authoring, app_id, "save-to-case-undeclared-type-without-primary-restore",
+        ('make_household vellum:role="SaveToCase" vellum:case_type="household"',
+         'make_household vellum:role="SaveToCase" vellum:case_type=""', 1),
+        (STC_TYPE_BIND,
+         f'<bind nodeset="{MAKE}/create/case_type" calculate="if(/data/age &gt; 5, &apos;household&apos;, &apos;visit&apos;)"/>',
+         1),
+        (f'<bind nodeset="{GUARD}/update/case_type" calculate="&apos;household&apos;"/>',
+         f'<bind nodeset="{GUARD}/update/case_type" calculate="current()/../../../../make_household/case/create/case_type"/>',
+         1),
     )
 
 
@@ -1963,16 +2130,145 @@ def save_to_case_owner_condition(authoring, app_id):
         app_id,
         "save-to-case-owner-condition",
         (STC_OWNER_BIND, STC_OWNER_BIND[: -len("/>")] + ' relevant="/data/age &gt; 5"/>', 1),
+        (
+            f"string-length({GUARD_NAME}) &gt; 0 and string-length({GUARD_NAME}) &lt;= 255 and"
+            f" string-length({GUARD_OWNER}) &gt; 0 and string-length({GUARD_OWNER}) &lt;= 255",
+            f"(not(/data/age &gt; 5) or string-length({GUARD_OWNER}) &gt; 0 and"
+            f" string-length({GUARD_OWNER}) &lt;= 255) and string-length({GUARD_NAME}) &gt; 0 and"
+            f" string-length({GUARD_NAME}) &lt;= 255",
+            1,
+        ),
+    )
+
+
+def save_to_case_conditional_owner_aliased_create(authoring, app_id):
+    """The case can already exist when its conditional owner leaf is absent."""
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-conditional-owner-aliased-create",
+        (STC_OWNER_BIND, STC_OWNER_BIND[: -len("/>")] + ' relevant="/data/age &gt; 5"/>', 1),
+        (STC_ID_SETVALUE, STC_ID_SETVALUE.replace('uuid()', "'household-01'"), 1),
+    )
+
+
+def save_to_case_always_owner_aliased_create(authoring, app_id):
+    """An always-relevant owner remains present even for an existing case ID."""
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-always-owner-aliased-create",
+        (STC_ID_SETVALUE, STC_ID_SETVALUE.replace('uuid()', "'household-01'"), 1),
+        (STC_OWNER_BIND, STC_OWNER_BIND[:-2] + ' relevant="true()"/>', 1),
+        (
+            f"string-length({GUARD_NAME}) &gt; 0 and string-length({GUARD_NAME}) &lt;= 255 and"
+            f" string-length({GUARD_OWNER}) &gt; 0 and string-length({GUARD_OWNER}) &lt;= 255",
+            f"(not(true()) or string-length({GUARD_OWNER}) &gt; 0 and"
+            f" string-length({GUARD_OWNER}) &lt;= 255) and string-length({GUARD_NAME}) &gt; 0 and"
+            f" string-length({GUARD_NAME}) &lt;= 255",
+            1,
+        ),
+    )
+
+
+def save_to_case_update_owner_condition(authoring, app_id):
+    """The same conditional facet on a targeted update has its own standing."""
+    owner_path = GUARD_OWNER.replace("/create/", "/update/")
+    existing_household = (
+        "instance(&apos;casedb&apos;)/casedb/case"
+        "[@case_id = &apos;household-01&apos; and @case_type = &apos;household&apos;]/@case_id"
+    )
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-update-owner-condition",
+        (STC_CREATE + STC_UPDATE, '<update><owner_id/><head/></update>', 1),
+        (STC_TYPE_BIND, '', 1),
+        (STC_NAME_BIND, '', 1),
+        (
+            STC_OWNER_BIND,
+            STC_OWNER_BIND.replace('/create/owner_id', '/update/owner_id')[: -len("/>")] + ' relevant="/data/age &gt; 5"/>',
+            1,
+        ),
+        (STC_ID_SETVALUE, f'<bind nodeset="{MAKE}/@case_id" calculate="{existing_household}"/>', 1),
+        (
+            f"string-length({GUARD_NAME}) &gt; 0 and string-length({GUARD_NAME}) &lt;= 255 and"
+            f" string-length({GUARD_OWNER}) &gt; 0 and string-length({GUARD_OWNER}) &lt;= 255",
+            f"not(/data/age &gt; 5) or string-length({owner_path}) &gt; 0 and"
+            f" string-length({owner_path}) &lt;= 255",
+            1,
+        ),
+    )
+
+
+def save_to_case_create_with_conditioned_owner_update(authoring, app_id):
+    """A create's later update of the owner is a separate effect from its create owner."""
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-create-with-conditioned-owner-update",
+        (STC_UPDATE, "<update><head/><owner_id/></update>", 1),
+        (
+            STC_HEAD_BIND,
+            STC_HEAD_BIND
+            + f'<bind nodeset="{MAKE}/update/owner_id" calculate="/data/full_name"'
+            ' relevant="/data/age &gt; 5"/>',
+            1,
+        ),
+    )
+
+
+def save_to_case_create_with_other_unchecked_owner(authoring, app_id):
+    """The case-name guard does not check this separate owner calculation."""
+    _save_to_case(
+        authoring, app_id, "save-to-case-create-with-other-unchecked-owner",
+        (STC_UPDATE, "<update><head/><owner_id/></update>", 1),
+        (
+            STC_HEAD_BIND,
+            STC_HEAD_BIND
+            + f'<bind nodeset="{MAKE}/update/owner_id" calculate="concat(/data/full_name, &apos;x&apos;)"'
+            ' relevant="/data/age &gt; 5"/>',
+            1,
+        ),
+    )
+
+
+def save_to_case_fresh_create_with_later_owner(authoring, app_id):
+    """A fresh root create with a later guarded owner inside the same case block."""
+    condition = "/data/age &gt; 5"
+    owner = GUARD_OWNER.replace("/create/", "/update/")
+    existing_guard = (
+        f"string-length({GUARD_NAME}) &gt; 0 and string-length({GUARD_NAME}) &lt;= 255 and"
+        f" string-length({GUARD_OWNER}) &gt; 0 and string-length({GUARD_OWNER}) &lt;= 255"
+    )
+    _save_to_case(
+        authoring,
+        app_id,
+        "save-to-case-fresh-create-with-later-owner",
+        (STC_UPDATE, "<update><owner_id/><head/></update>", 1),
+        (
+            STC_HEAD_BIND,
+            f'<bind nodeset="{MAKE}/update/owner_id" calculate="replace(/data/full_name, {TRIM})"'
+            f' relevant="{condition}"/>' + STC_HEAD_BIND,
+            1,
+        ),
+        (
+            existing_guard,
+            f"(not({condition}) or string-length({owner}) &gt; 0 and string-length({owner}) &lt;= 255) and "
+            + existing_guard,
+            1,
+        ),
     )
 
 
 def save_to_case_create_and_close(authoring, app_id):
-    """The create's block also closing the case it creates."""
+    """A create that closes its new case only when the close condition holds."""
     _save_to_case(
         authoring,
         app_id,
         "save-to-case-create-and-close",
         (STC_UPDATE + "</case></make_household>", STC_UPDATE + "<close/></case></make_household>", 1),
+        (STC_HEAD_BIND, STC_HEAD_BIND + f'<bind nodeset="{MAKE}/close" relevant="/data/age &gt; 5"/>', 1),
     )
 
 
@@ -1981,9 +2277,34 @@ def save_to_case_link_long_name(authoring, app_id):
     _save_to_case_link(authoring, app_id, "save-to-case-link-long-name", "p" * 256)
 
 
+def save_to_case_hyphenated_link_name(authoring, app_id):
+    """The create keeps the exact spelling of its hyphenated connection."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-hyphenated-link-name", "par-ent")
+
+
 def save_to_case_link_name_outside_grammar(authoring, app_id):
-    """A link of the created case by the name ``par-ent``, outside Nova's link names."""
-    _save_to_case_link(authoring, app_id, "save-to-case-link-name-outside-grammar", "par-ent")
+    """The bind path contains a period that Vellum does not parse as an index bind."""
+    _save_to_case_link(authoring, app_id, "save-to-case-link-name-outside-grammar", "par.ent")
+
+
+def save_to_case_unicode_link_name(authoring, app_id):
+    """A valid XML index name outside Vellum's ASCII bind matcher."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-unicode-link-name", "parént")
+
+
+def save_to_case_unicode_link_name_cjk(authoring, app_id):
+    """An XML index name for which Nova's XPath layer cannot own the bind."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-unicode-link-name-cjk", "亲属")
+
+
+def save_to_case_link_stops_form_designer(authoring, app_id):
+    """An ordinary case link whose element uses the reserved instance name."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-link-stops-form-designer", "instance")
+
+
+def save_to_case_index_close_adds_action(authoring, app_id):
+    """This block creates a case without a close action, before Vellum saves it."""
+    _save_to_case_link(authoring, app_id, "save-to-case-index-close-adds-action", "close")
 
 
 def _save_to_case_link(authoring, app_id, what, name, value="'abc'"):
@@ -2024,6 +2345,14 @@ def save_to_case_untyped_value(authoring, app_id):
         app_id,
         "save-to-case-untyped-value",
         (STC_HEAD_BIND, f'<bind nodeset="{MAKE}/update/head" calculate="/data/age + /data/full_name"/>', 1),
+    )
+
+
+def save_to_case_number_call_in_write(authoring, app_id):
+    """A separate numeric function call stays outside the direct mixed sum."""
+    _save_to_case(
+        authoring, app_id, "save-to-case-number-call-in-write",
+        (STC_HEAD_BIND, f'<bind nodeset="{MAKE}/update/head" calculate="/data/age + number(/data/full_name)"/>', 1),
     )
 
 
@@ -2093,24 +2422,146 @@ def itemset_copy(authoring, app_id):
     )
 
 
-def itemset_filter_outside_predicate(authoring, app_id):
-    """The village select's filter made ``position() &lt; 3``, which no typed filter of Nova's holds."""
+def itemset_filter_by_row_position(authoring, app_id):
+    """The village select reads the first two fixture rows in source order."""
     _change(
         authoring,
         app_id,
-        "itemset-filter-outside-predicate",
+        "itemset-filter-by-row-position",
         ('villages[district = #form/district]"', 'villages[position() &lt; 3]"', 1),
         (VILLAGE_FILTER, 'villages[position() &lt; 3]"', 1),
     )
 
 
-def itemset_over_cases(authoring, app_id):
-    """The district select's choices read from every case the worker holds (``instance('casedb')``), declared in
-    the model, in place of the table."""
+def itemset_filter_outside_predicate(authoring, app_id):
+    """A position of an explicitly supplied reference is not the choice candidate's position."""
     _change(
         authoring,
         app_id,
-        "itemset-over-cases",
+        "itemset-filter-outside-predicate",
+        ('villages[district = #form/district]"', 'villages[position(/data/district) &lt; 3]"', 1),
+        (VILLAGE_FILTER, 'villages[position(/data/district) &lt; 3]"', 1),
+    )
+
+
+def itemset_filter_position_of_scalar(authoring, app_id):
+    """The Core position function with an argument expects a nodeset."""
+    _change(
+        authoring,
+        app_id,
+        "itemset-filter-position-of-scalar",
+        ('villages[district = #form/district]"', 'villages[position(3) &lt; 3]"', 1),
+        (VILLAGE_FILTER, 'villages[position(3) &lt; 3]"', 1),
+    )
+
+
+def _itemset_filter_numeric_row(authoring, app_id, predicate, what):
+    def change(tree, form):
+        itemset, = tree.xpath(
+            "//*[local-name()='select1' and @ref='/data/village']/*[local-name()='itemset']"
+        )
+        for key, value in itemset.attrib.items():
+            if key == "nodeset" or key.endswith("}nodeset"):
+                source, _, _ = value.partition("[")
+                itemset.set(key, source + f"[{predicate}]")
+    ops.set_form_source(authoring, app_id, 0, 0, change, what=what)
+
+
+def itemset_filter_numeric_row_index(authoring, app_id):
+    """A bare positive integer chooses one row by its position."""
+    _itemset_filter_numeric_row(authoring, app_id, "2", "itemset-filter-numeric-row-index")
+
+
+def itemset_filter_fractional_row_index(authoring, app_id):
+    """Core truncates this bare positive fraction before matching the second row."""
+    _itemset_filter_numeric_row(authoring, app_id, "2.5", "itemset-filter-fractional-row-index")
+
+
+def itemset_filter_zero_row_index(authoring, app_id):
+    """The one-based counter never matches zero."""
+    _itemset_filter_numeric_row(authoring, app_id, "0", "itemset-filter-zero-row-index")
+
+
+def itemset_filter_integral_decimal_row_index(authoring, app_id):
+    """A whole number spelled as a decimal chooses the same numeric position."""
+    _itemset_filter_numeric_row(authoring, app_id, "2.0", "itemset-filter-integral-decimal-row-index")
+
+
+def itemset_filter_overflow_row_index(authoring, app_id):
+    """A bare numeric filter greater than the native integer range."""
+    _itemset_filter_numeric_row(authoring, app_id, "2147483648", "itemset-filter-overflow-row-index")
+
+
+def itemset_filter_grouped_row_index(authoring, app_id):
+    """A literal fixture position wrapped in parentheses."""
+    _itemset_filter_numeric_row(authoring, app_id, "(2)", "itemset-filter-grouped-row-index")
+
+
+def itemset_filter_grouped_arithmetic_row_index(authoring, app_id):
+    """An arithmetic expression is a different predicate from a numeric literal."""
+    _itemset_filter_numeric_row(authoring, app_id, "(1 + 1)", "itemset-filter-grouped-arithmetic-row-index")
+
+
+def itemset_filter_function_row_index(authoring, app_id):
+    """A function-valued predicate stays outside constant fixture arithmetic."""
+    _itemset_filter_numeric_row(authoring, app_id, "number('2')", "itemset-filter-function-row-index")
+
+
+def itemset_over_cases(authoring, app_id):
+    """The district select's choices read from every case the worker holds (``instance('casedb')``), declared in
+    the model, in place of the table."""
+    _case_itemset(authoring, app_id, "itemset-over-cases", "")
+
+
+def itemset_over_open_cases(authoring, app_id):
+    """The district select filters the worker's cases across all case types."""
+    _case_itemset(authoring, app_id, "itemset-over-open-cases", "[@status = &apos;open&apos;]")
+
+
+def itemset_over_closed_cases(authoring, app_id):
+    """The district select offers only closed cases retained in the worker’s restore."""
+    _case_itemset(authoring, app_id, "itemset-over-closed-cases", "[@status = &apos;closed&apos;]")
+
+
+def itemset_filters_available_cases_by_survey_readiness(authoring, app_id):
+    """Vellum's advanced data source filters the worker's cases by a property shared across case types."""
+    return _filter_available_cases_in_vellum(authoring, app_id, "survey_ready = 'yes'")
+
+
+def itemset_filters_available_cases_by_multiple_values(authoring, app_id):
+    """One restored property accepts either of two distinct stored text values."""
+    return _filter_available_cases_in_vellum(authoring, app_id, "survey_ready = 'yes' or survey_ready = 'pending'")
+
+
+def itemset_filters_available_cases_by_multiple_properties(authoring, app_id):
+    """A disjunction of separate property names does not belong to one property's choices."""
+    return _filter_available_cases_in_vellum(authoring, app_id, "survey_ready = 'yes' or survey_phase = 'pending'")
+
+
+def itemset_requires_multiple_available_case_properties(authoring, app_id):
+    """A conjunction remains outside the restored case source's alternate matches."""
+    return _filter_available_cases_in_vellum(authoring, app_id, "survey_ready = 'yes' and survey_phase = 'pending'")
+
+
+def _filter_available_cases_in_vellum(authoring, app_id, predicate):
+    itemset_over_cases(authoring, app_id)
+    with authoring.step("variant:enable-advanced-itemsets"):
+        body, content_type = ops.form_body([("advanced_itemsets", "on")])
+        ops.post(authoring, "edit_add_ons", [app_id], body, content_type, "the advanced itemset add-on")
+    run = ops.builder_save(authoring, app_id, 0, 0, edit={
+        "way": "itemset-query",
+        "path": "/data/district",
+        "value": f"instance('casedb')/casedb/case[{predicate}]",
+    })
+    assert not run.question_errors(), run.question_errors()
+    return run
+
+
+def _case_itemset(authoring, app_id, name, predicate):
+    _change(
+        authoring,
+        app_id,
+        name,
         (
             '<instance id="item-list:seasons"',
             '<instance src="jr://instance/casedb" id="casedb" />\n<instance id="item-list:seasons"',
@@ -2118,7 +2569,8 @@ def itemset_over_cases(authoring, app_id):
         ),
         (
             DISTRICTS + "\n\t\t\t\t" + DISTRICT_LABEL,
-            '<itemset nodeset="instance(\'casedb\')/casedb/case">\n<label ref="case_name" />\n<value ref="@case_id" />',
+            f'<itemset nodeset="instance(\'casedb\')/casedb/case{predicate}">'
+            '\n<label ref="case_name" />\n<value ref="@case_id" />',
             1,
         ),
     )
@@ -2498,6 +2950,22 @@ def save_to_case_menu_case_in_survey(authoring, app_id):
     )
 
 
+def save_to_case_worker_under_condition(authoring, app_id):
+    """One root update of `commcare-user`, only when the submitted weight is positive."""
+    group = "/data/nova_operations/nova_condition_worker"
+    data, binds = _block(
+        "worker", "commcare-user", "<update><last_review/></update>", WORKER_CASE,
+        [("update/last_review", "calculate=\"'reviewed'\"")], group=group,
+    )
+    _change(
+        authoring, app_id, "save-to-case-worker-under-condition",
+        ("</data>", f"<nova_operations><nova_condition_worker>{data}</nova_condition_worker></nova_operations>\n</data>", 1),
+        (FIRST_SETVALUE, f'<bind nodeset="{group}" relevant="/data/weight &gt; 0"/>' + binds + FIRST_SETVALUE, 1),
+        ("</h:body>", f'<group ref="/data/nova_operations"><group ref="{group}"/></group>\n</h:body>', 1),
+        ("</instance>\n", "</instance>\n" + SESSION_INSTANCE + "\n", 1),
+    )
+
+
 def save_to_case_worker_in_repeat(authoring, app_id):
     """In each row of hq-questions' repeat ``members``, a Save to Case update of the worker's record
     (``commcare-user``) saving the row's ``member_name``."""
@@ -2526,12 +2994,79 @@ def save_to_case_worker_in_repeat(authoring, app_id):
     )
 
 
+def save_to_case_worker_under_repeat_condition(authoring, app_id):
+    """An extra condition around a repeated worker update is still a separate scope."""
+    group = "/data/members/nova_operations"
+    condition = f"{group}/nova_condition_worker"
+    read = "current()/../../../../../../member_name"
+    data, binds = _block(
+        "worker", "commcare-user", "<update><last_member/></update>", WORKER_CASE,
+        [("update/last_member", f'relevant="count({read}) &gt; 0" calculate="{read}"')],
+        group=condition,
+    )
+
+    def transform(text):
+        wrapped = _with_blocks(
+            text,
+            [(f"<nova_condition_worker>{data}</nova_condition_worker>",
+              f'<bind nodeset="{condition}" relevant="/data/weight &gt; 0"/>' + binds)],
+            data_before="</members>",
+            binds_before=FIRST_SETVALUE,
+            group_after=MEMBER_NAME_CLOSE,
+            group=group,
+        )
+        return _replaced(wrapped, [(f'<group ref="{group}"/>',
+                                    f'<group ref="{group}"><group ref="{condition}"/></group>', 1)])
+
+    _edit(authoring, app_id, "save-to-case-worker-under-repeat-condition", transform)
+
+
+def save_to_case_worker_in_query_repeat(authoring, app_id):
+    """A query-driven form row supplies its answer to the worker change."""
+    group = "/data/rounds/item/nova_operations"
+    read = "current()/../../../../../round_note"
+    block = _block(
+        "worker", "commcare-user", "<update><last_member/></update>", WORKER_CASE,
+        [("update/last_member", f'relevant="count({read}) &gt; 0" calculate="{read}"')],
+        group=group,
+    )
+    note_end = ROUNDS_CLOSE.split("</repeat>", 1)[0].rstrip()
+
+    def transform(text):
+        row_start = text.index(ROUNDS_DATA_OPEN)
+        row_end = text.index("</item>", row_start)
+        close = text[row_end:text.index("</rounds>", row_end)]
+        return _with_blocks(text, [block], data_before=close, binds_before=FIRST_SETVALUE,
+                            group_after=note_end, group=group)
+
+    _edit(authoring, app_id, "save-to-case-worker-in-query-repeat", transform)
+
+
+def nest_save_to_case_worker_query_repeat(authoring, app_id):
+    """Move the query repeat carrying the worker change inside the members repeat."""
+    note_end = ROUNDS_CLOSE.split("</repeat>", 1)[0].rstrip()
+    group = '<group ref="/data/rounds/item/nova_operations"/>'
+    with_block = note_end + "\n" + group + ROUNDS_CLOSE[len(note_end):]
+
+    def moved(text):
+        text = _moved(text, ROUNDS_DATA_OPEN, "</rounds>", "<member_name />")
+        text = _moved(text, ROUNDS_OPEN, with_block, MEMBER_NAME_CLOSE)
+        return _replaced(text, [
+            ('<setvalue event="xforms-ready" ref="/data/rounds/',
+             '<setvalue event="jr-insert" ref="/data/rounds/', 2),
+            ("/data/rounds", "/data/members/rounds", None),
+            ("#form/rounds", "#form/members/rounds", None),
+        ])
+
+    _edit(authoring, app_id, "save-to-case-worker-in-nested-query-repeat", moved)
+
+
 # hq-new-app's follow-up form, which a menu of case type ``case`` opens with its case chosen.
 FOLLOWUP_DATA = "<default_label />"
 FOLLOWUP_BIND = '<bind vellum:nodeset="#form/default_label" nodeset="/data/default_label" />'
 
 
-def _followup(authoring, app_id, what, *blocks):
+def _followup(authoring, app_id, what, *blocks, instances=(SESSION_INSTANCE,)):
     """hq-new-app's follow-up form with ``blocks`` put in."""
     _edit(
         authoring,
@@ -2543,6 +3078,7 @@ def _followup(authoring, app_id, what, *blocks):
             data_before=FOLLOWUP_DATA,
             binds_before="<itext>",
             group_after="<h:body>",
+            instances=instances,
         ),
         form=1,
     )
@@ -2559,6 +3095,18 @@ def save_to_case_close_only_condition(authoring, app_id):
     )
 
 
+def save_to_case_another_case_close_condition(authoring, app_id):
+    """A separate case whose block remains present when its close condition is false."""
+    case_id = "instance('casedb')/casedb/case[@case_id = 'another-case' and @case_type = 'case']/@case_id"
+    _followup(
+        authoring,
+        app_id,
+        "save-to-case-another-case-close-condition",
+        _block("shut", "case", "<close/>", case_id, [("close", "relevant=\"today() &gt; date('2020-01-01')\"")]),
+        instances=(SESSION_INSTANCE, '<instance src="jr://instance/casedb" id="casedb" />'),
+    )
+
+
 def save_to_case_other_type(authoring, app_id):
     """A Save to Case update of the menu's case, whose type is ``case``, naming it a ``household``."""
     _followup(
@@ -2566,6 +3114,17 @@ def save_to_case_other_type(authoring, app_id):
         app_id,
         "save-to-case-other-type",
         _block("again", "household", "<update><seen/></update>", MENU_CASE, [("update/seen", "calculate=\"'yes'\"")]),
+    )
+
+
+def save_to_case_close_other_type(authoring, app_id):
+    """A contradictory editor type label on a close is outside the update-only case."""
+    _followup(
+        authoring,
+        app_id,
+        "save-to-case-close-other-type",
+        _block("again", "household", "<close/>", MENU_CASE,
+               [("close", 'relevant="today() &gt; date(&apos;2020-01-01&apos;)"')]),
     )
 
 
@@ -2757,14 +3316,97 @@ def save_to_case_retype_keyed(authoring, app_id):
     )
 
 
-def save_to_case_retype_converts(authoring, app_id):
-    """A ``patient`` created with ``kept`` the date ``visit_date``, then given the type ``visit`` with ``kept`` the
-    text ``full_name``."""
+def save_to_case_update_under_earlier_type(authoring, app_id):
+    """The final update still names a patient after the same case becomes a visit."""
+    later_data, later_binds = _block(
+        "later", "patient", "<update><kept/></update>",
+        "current()/../../../mk/case/@case_id",
+        [("update/kept", 'calculate="/data/full_name"')],
+    )
+    data = RETYPE_CONVERTS_DATA.removesuffix("</nova_operations>") + later_data + "</nova_operations>"
+    # Both earlier writes are Text, so only the final update's case type differs.
+    model = RETYPE_CONVERTS_MODEL.replace(
+        'mk/case/update/kept" calculate="/data/visit_date"',
+        'mk/case/update/kept" calculate="/data/full_name"',
+    )
+    _edit(
+        authoring, app_id, "save-to-case-update-under-earlier-type",
+        lambda text: _transplanted(text, data, model + later_binds, RETYPE_CONVERTS_BODY),
+    )
+
+
+def save_to_case_date_as_text(authoring, app_id):
+    """A patient date and a visit text write share one property across a literal retype."""
     _edit(
         authoring,
         app_id,
-        "save-to-case-retype-converts",
+        "save-to-case-date-as-text",
         lambda text: _transplanted(text, RETYPE_CONVERTS_DATA, RETYPE_CONVERTS_MODEL, RETYPE_CONVERTS_BODY),
+    )
+
+
+def _save_to_case_retype_converts(authoring, app_id, *, required):
+    """Reverse the direct writers and optionally require the destination date."""
+    model = RETYPE_CONVERTS_MODEL.replace(
+        'mk/case/update/kept" calculate="/data/visit_date"',
+        'mk/case/update/kept" calculate="/data/full_name"',
+    ).replace(
+        'again/case/update/kept" calculate="/data/full_name"',
+        'again/case/update/kept" calculate="/data/visit_date"',
+    )
+    def change(text):
+        if required:
+            bind = 'nodeset="/data/visit_date" type="xsd:date"'
+            text = _replaced(text, [(bind, f'{bind} required="true()"', 1)])
+        return _transplanted(text, RETYPE_CONVERTS_DATA, model, RETYPE_CONVERTS_BODY)
+
+    _edit(authoring, app_id, "retype-required-date" if required else "save-to-case-retype-converts", change)
+
+
+def save_to_case_retype_converts(authoring, app_id):
+    _save_to_case_retype_converts(authoring, app_id, required=False)
+
+
+def save_to_case_retype_converts_with_hidden_date(authoring, app_id):
+    """The replacement field can disappear, so the retype may keep the earlier text."""
+    save_to_case_retype_converts(authoring, app_id)
+    bind = 'nodeset="/data/visit_date" type="xsd:date"'
+    _change(
+        authoring, app_id, "save-to-case-retype-converts-with-hidden-date",
+        (bind, f'{bind} relevant="/data/age &gt; 18"', 1),
+    )
+
+
+def save_to_case_retype_required_date(authoring, app_id):
+    _save_to_case_retype_converts(authoring, app_id, required=True)
+
+
+def save_to_case_keyed_from_outside_its_row(authoring, app_id):
+    """A create in members keys all its rows from the one root answer full_name."""
+    _edit(
+        authoring,
+        app_id,
+        "save-to-case-keyed-from-outside-its-row",
+        lambda text: _transplanted(
+            text,
+            KEYED_IN_REPEAT_DATA,
+            KEYED_IN_REPEAT_MODEL.replace("current()/../../../../member_name", "/data/full_name"),
+            KEYED_IN_REPEAT_BODY,
+            data_before="</members>",
+            body_after=MEMBER_NAME_CLOSE,
+        ),
+    )
+
+
+def save_to_case_keyed_by_number_from_outside_its_row(authoring, app_id):
+    """A repeated create still cannot key the same record with an unrelated numeric answer."""
+    _edit(
+        authoring, app_id, "save-to-case-keyed-by-number-from-outside-its-row",
+        lambda text: _transplanted(
+            text, KEYED_IN_REPEAT_DATA,
+            KEYED_IN_REPEAT_MODEL.replace("current()/../../../../member_name", "/data/age"),
+            KEYED_IN_REPEAT_BODY, data_before="</members>", body_after=MEMBER_NAME_CLOSE,
+        ),
     )
 
 
@@ -2803,19 +3445,39 @@ def save_to_case_keyed_beside_worker(authoring, app_id):
     )
 
 
+def save_to_case_keyed_beside_root_close(authoring, app_id):
+    """A root close may name a case that the repeated create will overwrite."""
+    case_id = "instance('casedb')/casedb/case[@case_id = /data/full_name and @case_type = 'visit']/@case_id"
+    close = _block(
+        "shut", "visit", "<close/>", case_id,
+        [("close", 'relevant="/data/weight &gt; 0"')],
+    )
+
+    def change(text):
+        text = _transplanted(
+            text, KEYED_IN_REPEAT_DATA, KEYED_IN_REPEAT_MODEL, KEYED_IN_REPEAT_BODY,
+            data_before="</members>", body_after=MEMBER_NAME_CLOSE,
+        )
+        return _with_blocks(
+            text, [close], data_before="<intro />", binds_before=FIRST_SETVALUE,
+            group_after="<h:body>", instances=(),
+        )
+
+    _edit(authoring, app_id, "save-to-case-keyed-beside-root-close", change)
+
+
 # hq-case-management's follow-up forms: the first writes the worker's record (``usercase_update``), the third the
 # household's ``note`` under a condition.
 
 
-def save_to_case_worker_twice(authoring, app_id):
-    """In hq-case-management's first follow-up form, which writes the worker's record, a Save to Case update of
-    the worker's record."""
+def save_to_case_worker_twice(authoring, app_id, property_name="visit_seen"):
+    """Add a root Save to Case worker update beside the basic managed block."""
     block = _block(
         "worker",
         "commcare-user",
-        "<update><visit_seen/></update>",
+        f"<update><{property_name}/></update>",
         WORKER_CASE,
-        [("update/visit_seen", "calculate=\"'yes'\"")],
+        [(f"update/{property_name}", "calculate=\"'yes'\"")],
     )
     _edit(
         authoring,
@@ -2833,11 +3495,15 @@ def save_to_case_worker_twice(authoring, app_id):
     )
 
 
-def save_to_case_own_case_beside(authoring, app_id):
+def save_to_case_worker_overlapping(authoring, app_id):
+    save_to_case_worker_twice(authoring, app_id, "last_visit_note")
+
+
+def save_to_case_own_case_beside(authoring, app_id, *, first_value="/data/new_member"):
     """In hq-case-management's third follow-up form, which writes the household's ``note``, a Save to Case update
     of the household writing ``note`` too."""
     block = _block(
-        "again", "household", "<update><note/></update>", MENU_CASE, [("update/note", 'calculate="/data/new_member"')]
+        "again", "household", "<update><note/></update>", MENU_CASE, [("update/note", f'calculate="{first_value}"')]
     )
     _edit(
         authoring,
@@ -2848,6 +3514,29 @@ def save_to_case_own_case_beside(authoring, app_id):
         ),
         form=2,
     )
+
+
+def save_to_case_positioned_beside_own(authoring, app_id, *, first_value="/data/new_member"):
+    """In the same household visit, the update stands in the authored form itself beside the managed write."""
+    data, binds = _block(
+        "again", "household", "<update><note/></update>", MENU_CASE,
+        [("update/note", f'calculate="{first_value}"')], group="/data",
+    )
+    _change(
+        authoring, app_id, "save-to-case-positioned-beside-own",
+        ("<visited />", data + "\n<visited />", 1),
+        ("<itext>", binds + "\n<itext>", 1),
+        ("</instance>\n", f"</instance>\n{SESSION_INSTANCE}\n", 1),
+        form=2,
+    )
+
+
+def save_to_case_own_case_beside_a_fixed_write(authoring, app_id):
+    save_to_case_own_case_beside(authoring, app_id, first_value="'fixed'")
+
+
+def save_to_case_positioned_fixed_write_beside_own(authoring, app_id):
+    save_to_case_positioned_beside_own(authoring, app_id, first_value="'fixed'")
 
 
 # More questions ------------------------------------------------------------------------------------------------------
@@ -3388,17 +4077,21 @@ def save_to_case_child_link(authoring, app_id):
     """The Save to Case create's ``household`` linked as a child (``index/parent``) to the ``household`` whose case
     id is the answer to ``full_name``, in the shape Nova writes a link: the index, its value, and the block that
     holds the linked case to its type."""
+    _save_to_case_link_with_guard(authoring, app_id, "save-to-case-child-link", "parent")
+
+
+def _save_to_case_link_with_guard(authoring, app_id, what, name):
     _save_to_case(
         authoring,
         app_id,
-        "save-to-case-child-link",
+        what,
         (
             STC_UPDATE + "</case></make_household>",
-            STC_UPDATE + '<index><parent case_type="household" relationship="child"/></index></case></make_household>',
+            STC_UPDATE + f'<index><{name} case_type="household" relationship="child"/></index></case></make_household>',
             1,
         ),
         ("</make_household>", "</make_household>" + TYPE_GUARD_DATA, 1),
-        (STC_HEAD_BIND, STC_HEAD_BIND + f'<bind nodeset="{MAKE}/index/parent" calculate="{PARENT_HOUSEHOLD}"/>', 1),
+        (STC_HEAD_BIND, STC_HEAD_BIND + f'<bind nodeset="{MAKE}/index/{name}" calculate="{PARENT_HOUSEHOLD}"/>', 1),
         (
             f'<bind nodeset="{GUARD}/update/case_type"',
             TYPE_GUARD_BINDS + f'<bind nodeset="{GUARD}/update/case_type"',
@@ -3544,6 +4237,28 @@ def video_inline_on_help(authoring, app_id):
         "help",
         '<value>Say what the animal is called</value><value form="video-inline">'
         "jr://file/commcare/video/data/animal_name.mp4</value>",
+    )
+
+
+def video_inline_as_only_help(authoring, app_id):
+    """An otherwise empty help element using the existing question video file."""
+    _animal_name_text(
+        authoring,
+        app_id,
+        "video-inline-as-only-help",
+        "help",
+        '<value/><value form="video-inline">jr://file/commcare/video/data/animal_name.mp4</value>',
+    )
+
+
+def video_as_only_help(authoring, app_id):
+    """An ordinary help video keeps its file even when help has no text."""
+    _animal_name_text(
+        authoring,
+        app_id,
+        "video-as-only-help",
+        "help",
+        '<value/><value form="video">jr://file/commcare/video/data/animal_name.mp4</value>',
     )
 
 

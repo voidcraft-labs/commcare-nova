@@ -171,6 +171,81 @@ async function readBody(doc: BlueprintDoc, body: Record<string, unknown>) {
 	);
 }
 
+it.each([
+	["/data/k", "term", "/data/k"],
+	["concat(/data/k, ' ')", "concat", "concat(/data/k, &apos; &apos;)"],
+])(
+	"keeps the bare case name %s from a standalone Survey",
+	async (calculate, kind, wire) => {
+		const doc = buildDoc(
+			{
+				appId: "app-1",
+				appName: "Clinics",
+				caseTypes: [{ name: "clinic", properties: [] }],
+				modules: [
+					{
+						name: "Survey",
+						forms: [
+							{
+								uuid: FORM,
+								name: "Survey",
+								type: "survey",
+								fields: [
+									f({ kind: "text", uuid: id("k"), id: "k", label: "Name" }),
+								],
+							},
+						],
+					},
+				],
+			},
+			(built) => {
+				built.forms[FORM] = {
+					...built.forms[FORM],
+					caseOperations: [
+						{
+							uuid: MAKE,
+							id: "make_clinic",
+							action: "create",
+							caseType: "clinic",
+							target: { kind: "new" },
+							name: term(formField(id("k"))),
+						},
+					],
+				} as never;
+			},
+		);
+		const storedBody = exportedBody(doc, {
+			xml(source) {
+				const xml = parseXml(source);
+				const bind = elementsOf(xml as { children?: unknown[] }).find(
+					(node) =>
+						node.name === "bind" && node.attribs.nodeset?.endsWith(NAME),
+				);
+				if (bind === undefined)
+					throw new Error("The form has no case name bind.");
+				bind.attribs.calculate = calculate;
+				return serializeXml(xml);
+			},
+		});
+		const result = await readBody(doc, storedBody);
+		if (result.kind !== "read")
+			throw new Error(JSON.stringify(result.findings));
+		expect(result.draft.doc.forms[FORM]?.caseOperations?.[0]).toMatchObject({
+			action: "create",
+			keepNameText: true,
+			name: { kind },
+		});
+		const printed = exportedBody(result.draft.doc);
+		const [xml] = Object.values(printed._attachments as Record<string, string>);
+		expect(xml).toContain(`calculate="${wire}"`);
+		const again = await readBody(doc, printed);
+		if (again.kind !== "read") throw new Error(JSON.stringify(again.findings));
+		expect(again.draft.doc.forms[FORM]?.caseOperations).toEqual(
+			result.draft.doc.forms[FORM]?.caseOperations,
+		);
+	},
+);
+
 describe("a Save to Case block the form builder wrote inside a repeat", () => {
 	it("reads a value read by its absolute path into the same repeat as the block's own read", async () => {
 		const doc = clinicsInARepeat();

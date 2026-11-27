@@ -446,6 +446,43 @@ def test_a_retained_location_write_needs_a_claim_on_its_own_update_member():
     assert parity.added_uses(variant, copy.deepcopy(variant), entries=[entry]) == []
 
 
+def test_a_retained_search_count_reads_the_missing_child_of_a_flat_property():
+    root = Path(__file__).resolve().parents[1]
+    rows = json.loads((root / "matrix/variants.json").read_text(encoding="utf-8"))
+    row = next(row for row in rows if row["id"] == "hq-search/required-counting-a-case-list-with-a-nested-property-comparison")
+    answer = root / "hq-apps" / row["base"] / "app-source.json"
+    base = json.loads(json.loads(answer.read_text(encoding="utf-8"))["body"])
+    variant = copy.deepcopy(base)
+    prompt = copy.deepcopy(row["change"]["value"])
+    variant["modules"][0]["search_config"]["properties"][1] = prompt
+    entry = parity.SEARCH_REQUIRED_CASE_COUNT
+    where = row["change"]["pointer"] + "/required"
+    key = "schema:CaseSearchProperty.required"
+
+    uses, differences = parity.variant_differences(base, variant, [], [entry])
+    assert [(use.use, use.standing, [item.id for item in use.entries]) for use in uses] == [
+        (Use(key, "app.json", where), HELD, [entry]),
+    ]
+    assert _whats(differences) == ["unclaimed"]
+    assert parity.variant_differences(base, variant, [
+        parity.Record("app.json", where, key, entry, "held"),
+    ], [entry])[1] == []
+    assert set(_whats(parity.variant_differences(base, variant, [
+        parity.Record("app.json", where, key, entry, "not-yet"),
+    ], [entry])[1])) == {"standing"}
+
+    original = prompt["required"]["test"]
+    for other in (
+        original.replace("household/village", "index/household"),
+        original.replace("household/village", "attachments/village"),
+        original.replace("household/village", "household//village"),
+        original.replace("household/village", "household/village/name"),
+        original.replace(" > 0", " >= 0"),
+    ):
+        prompt["required"]["test"] = other
+        assert parity.variant_differences(base, variant, [], [entry]) == ([], [])
+
+
 def test_each_private_language_and_alias_needs_a_claim_at_its_own_position():
     from proof.checks.manifest_usage import app_json_uses, Uses
 
@@ -534,9 +571,43 @@ def test_an_appearance_the_lane_does_not_decide_is_reported_and_not_joined():
     assert _whats(found) == ["unclaimed"]
 
 
+def test_saved_search_group_heading_uses_only_a_valid_grouped_layout():
+    entry = "application-and-settings/translations-generated-wording"
+    key = "search_property.m0.group_header_0"
+    head = {"doc_type": "CaseSearchProperty", "is_group": True, "name": "group_header_0",
+            "group_key": "group_header_0", "label": {"en": "Search fields"}}
+    field = {"doc_type": "CaseSearchProperty", "name": "name", "group_key": "group_header_0",
+             "label": {"en": "Name"}}
+    outside = {"doc_type": "CaseSearchProperty", "name": "unassigned", "label": {"en": "Unassigned"}}
+    base = {"doc_type": "Application", "langs": ["en"], "translations": {}, "modules": [{
+        "doc_type": "Module", "case_type": "client", "search_config": {
+            "doc_type": "CaseSearch", "properties": [field],
+        },
+    }]}
+    variant = copy.deepcopy(base)
+    variant["translations"] = {"en": {key: "Find a client"}}
+    rows = variant["modules"][0]["search_config"]["properties"]
+    rows.insert(0, head)
+    uses, differences = parity.variant_differences(base, variant, "", [entry])
+    assert [(use.standing, use.at) for use in uses] == [(HELD, f"/translations/en/{key}")]
+    assert _whats(differences) == ["unclaimed"]
+    for malformed in ([head, field, outside], [head, outside, field], [field, head]):
+        rows[:] = malformed
+        assert parity.variant_differences(base, variant, "", [entry]) == ([], [])
+
+
 @pytest.mark.parametrize(
     "entry,variant_id,key,artifact,where,standing,member",
     [
+        (
+            "menus-and-case-lists/detail-auto-select-multi-select", "hq-plain/auto-select-on-a-multi-select-list",
+            "schema:Detail.auto_select", "app.json", "/modules/0/case_details/short/auto_select", HELD, None,
+        ),
+        (
+            parity.LOCATION_WRITE, "hq-case-management/location-id-write",
+            "schema:UpdateCaseAction.update", "app.json",
+            "/modules/1/forms/0/actions/update_case/update", HELD, "location_id",
+        ),
         (
             parity.HYPHEN_TAG, "hq-advanced/tag-with-a-hyphen",
             "schema:LoadUpdateAction.case_tag", "app.json",
@@ -552,9 +623,21 @@ def test_an_appearance_the_lane_does_not_decide_is_reported_and_not_joined():
             "session-path:session/data/*", "form:1.0",
             "/h:html/h:head[1]/model[1]/bind[3]/@relevant", HELD, None,
         ),
+        (
+            parity.PARENT_FOLLOW_UP, "hq-case-management/registration-by-a-parent-follow-up",
+            "schema:Module.case_list_form", "app.json", "/modules/1/case_list_form", HELD, None,
+        ),
+        (
+            parity.CHILD_REGISTRATION, "hq-case-management/registration-of-a-child-case",
+            "schema:Module.case_list_form", "app.json", "/modules/1/case_list_form", HELD, None,
+        ),
+        (
+            parity.ADVANCED_REGISTRATION, "hq-case-lists/registration-on-an-advanced-list",
+            "schema:AdvancedModule.case_list_form", "app.json", "/modules/1/case_list_form", HELD, None,
+        ),
     ],
 )
-def test_retained_advanced_source_fact(
+def test_retained_variants_decide_the_specific_source_fact(
     monkeypatch, entry, variant_id, key, artifact, where, standing, member
 ):
     from types import SimpleNamespace

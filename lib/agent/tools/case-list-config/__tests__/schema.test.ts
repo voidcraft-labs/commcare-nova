@@ -196,6 +196,8 @@ describe("case-list author command boundaries", () => {
 		for (const selection of [
 			{ kind: "multiple", maximum: 1 },
 			{ kind: "multiple", maximum: 100 },
+			{ kind: "multiple", maximum: 101 },
+			{ kind: "multiple", maximum: 500 },
 			null,
 		]) {
 			expect(
@@ -208,7 +210,7 @@ describe("case-list author command boundaries", () => {
 		for (const selection of [
 			{ kind: "single", maximum: 1 },
 			{ kind: "multiple", maximum: 0 },
-			{ kind: "multiple", maximum: 101 },
+			{ kind: "multiple", maximum: 501 },
 			{ kind: "multiple", maximum: 1.5 },
 		]) {
 			expect(
@@ -240,6 +242,19 @@ describe("case-list author command boundaries", () => {
 				confirmedModuleUuids: [],
 			}).success,
 		).toBe(false);
+	});
+
+	it("setCaseListTile: accepts hyphens and periods inside one grouping connection", () => {
+		const accepts = (identifier: string) =>
+			setCaseListTileTool.inputSchema.safeParse({
+				moduleUuid: MODULE_UUID,
+				tile: { grouping: { identifier, headerRows: 1 } },
+			}).success;
+		expect(accepts("my-parent")).toBe(true);
+		expect(accepts("my.parent")).toBe(true);
+		expect(accepts("-my-parent")).toBe(false);
+		expect(accepts("my parent")).toBe(false);
+		expect(accepts("my/parent")).toBe(false);
 	});
 
 	it("setCaseListTile: both clears are expressible", () => {
@@ -334,6 +349,34 @@ describe("case-list author command boundaries", () => {
 			],
 		});
 		expect(result.success).toBe(true);
+	});
+
+	it("keeps the brought-in address default outside Search authoring", () => {
+		const searchInput = {
+			kind: "address",
+			type: "address",
+			name: "visit_address",
+			label: "Visit address",
+		};
+		for (const body of [
+			searchInput,
+			{ ...searchInput, savedDefault: "Old address" },
+		]) {
+			const expected = body === searchInput;
+			expect(
+				addSearchInputsTool.inputSchema.safeParse({
+					moduleUuid: MODULE_UUID,
+					searchInputs: [body],
+				}).success,
+			).toBe(expected);
+			expect(
+				updateSearchInputTool.inputSchema.safeParse({
+					moduleUuid: MODULE_UUID,
+					searchInputUuid: testUuid("address-search"),
+					searchInput: body,
+				}).success,
+			).toBe(expected);
+		}
 	});
 
 	it("addSearchInputs: parses a representative advanced payload", () => {

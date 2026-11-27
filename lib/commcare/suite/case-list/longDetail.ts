@@ -69,7 +69,9 @@ import {
 import { caseColumnRestingKey } from "@/lib/domain/caseListOrder";
 import { detailTabForColumn, detailTabSpans } from "@/lib/domain/detailTabs";
 import { detailColumnRowScope } from "@/lib/domain/expression/detailRowScope";
+import { detailTabWordingId } from "@/lib/domain/generatedWording";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
+import { resolveSearchResultDetailText } from "@/lib/domain/searchResultDetail";
 import { moduleExpressionContexts } from "../../expressionContext";
 import { detailTabVariableNames } from "../../formLinkProjection";
 import { lookupTypeIndexFromNaming } from "../../lookup/naming";
@@ -184,6 +186,11 @@ export function buildLongDetail(args: {
 		caseTypes.find((type) => type.name === mod.caseType)?.properties ?? [];
 	const ctx: CaseListEmitContext = {
 		detailBindings: detailBindings(args.doc, mod),
+		resultDetailText: (column) => {
+			const branch = column.searchResultDetail;
+			if (branch && !("onList" in branch && branch.onList))
+				return resolveSearchResultDetailText(args.doc, mod, column, branch);
+		},
 		wire: { mode: { target: "suite" }, instances },
 		moduleIndex,
 		sortByUuid: EMPTY_SORT_DIRECTIVES,
@@ -310,6 +317,7 @@ export function buildLongDetail(args: {
 		children = spans.map(({ tab, start, end }, index) => {
 			const locale = `m${moduleIndex}.${target}_long.tab.${index + 1}.title`;
 			strings[locale] = tab.title;
+			wordingUnits[locale] = detailTabWordingId(tab.uuid, target === "search");
 			translationUnits[locale] = makeTranslationUnitId(
 				"detail-tab",
 				tab.uuid,

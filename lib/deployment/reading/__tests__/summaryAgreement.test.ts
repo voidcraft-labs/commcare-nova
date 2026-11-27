@@ -43,6 +43,7 @@ import {
 import type { Field, Uuid } from "@/lib/domain";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
+import { positionedCaseCreate } from "@/proof/targeted/documents/positionedCaseCreate";
 import { readingEmission } from "../emission";
 import { identityDifferences } from "../identityAgreement";
 import {
@@ -414,6 +415,19 @@ describe("the text rule", () => {
 });
 
 describe("documentSummary", () => {
+	it("summarizes both questions around a positioned case change without a wrapper row", () => {
+		const doc = hydrated(positionedCaseCreate());
+		const [form] = Object.values(doc.forms);
+		if (form === undefined) throw new Error("Expected the visit form.");
+		expect(
+			doc.fieldOrder[form.uuid].map((uuid) => doc.fields[uuid]?.kind),
+		).toEqual(["text", "case_change", "text"]);
+		expect(documentSummary(doc, form.uuid).map((row) => row.path)).toEqual([
+			"/data/visit_name",
+			"/data/notes",
+		]);
+	});
+
 	it("compares the submitted activity leaves inside their actual group", () => {
 		const doc = buildDoc({
 			connectRoles: ["deliver"],

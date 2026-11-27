@@ -29,7 +29,7 @@ export const configureCaseSelectionInputSchema = moduleAddressSchema
 		selection: caseSelectionSchema
 			.nullable()
 			.describe(
-				'How workers choose cases from Results. Pass `{ kind: "multiple", maximum: N }` to let them choose a bounded set before continuing, where N is an integer from 1 through 100. Pass null to return to opening one case at a time.',
+				'How workers choose cases from Results. Pass `{ kind: "multiple", maximum: N }` to let them choose a bounded set before continuing, where N is an integer from 1 through 100. A single Web Apps list can use 101 when its only form closes the cases and up to 500 when its only form collects text answers without changing any records. Add `autoSelect: true` to continue automatically with every eligible case when the whole set fits the maximum. Pass null to return to opening one case at a time.',
 			),
 		confirmedModuleUuids: z
 			.array(uuidSchema)

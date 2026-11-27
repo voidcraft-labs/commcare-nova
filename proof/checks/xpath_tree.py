@@ -12,13 +12,18 @@ union, path), and ``same`` holds two texts to one tree where each is read in its
 value, a number by its value, a run of ``and`` or of ``or`` as one list of operands (each operator reads its
 operands in order and stops at the first that decides), ``instance('<id>')`` as the source its form declares
 for that id, and a path that starts at ``current()``, outside every predicate, as the path from the root of the
-node the expression is about (inside a predicate Core reads the two against different nodes: ``_resolved``). A text
-either reading does not read is never the same as another.
+node the expression is about (inside a predicate Core reads the two against different nodes: ``_resolved``).
+A numeric read of the companion lookup count inside the exact singleton guard can read its first node
+or the whole nodeset, since the guarded branch has exactly one node. A text either reading does not read
+is never the same as another.
 
 Pure: it reads the texts it is given and imports neither HQ nor Django.
 """
 
 from __future__ import annotations
+
+from functools import cache
+from math import isfinite
 
 from proof.rules import _xpath
 
@@ -194,6 +199,16 @@ def tree(text):
     return built if reader.i == len(found) else None
 
 
+SESSION_SOURCE = "jr://instance/session"
+
+
+@cache
+def _lookup_count_guard(indexed):
+    path = f"instance('{SESSION_SOURCE}')/session/data/fingerprintquery"
+    read = f"{path}[1]" if indexed else path
+    return tree(f"if(count({path}) = 1, number({read}), '')")
+
+
 def _resolved(node, instances, context, inside=False):
     """``node`` with each ``instance('<id>')`` read as the source ``instances`` gives the id, and a path that
     starts at ``current()`` read from the root through ``context`` (the steps of the node the expression is
@@ -230,7 +245,65 @@ def _resolved(node, instances, context, inside=False):
             else:
                 steps.append(_resolved(step, instances, context, inside))
         return ("path", "SLASH", None, tuple(steps))
-    return tuple(_resolved(part, instances, context, inside) for part in node)
+    resolved = tuple(_resolved(part, instances, context, inside) for part in node)
+    # The counted branch can read the whole nodeset only when there is one node.
+    # Both guards give the same scalar even when the session supplies zero or several
+    # counts (SessionContextRuntimeTest). Require the actual session instance.
+    if node[:2] == ("call", "if") and SESSION_SOURCE in instances.values() and resolved == _lookup_count_guard(True):
+        return _lookup_count_guard(False)
+    return resolved
+
+
+def _fixture_itemset_path(node, instances):
+    """The sole predicate of a declared lookup fixture's row step, and its source."""
+    match node:
+        case ("path", "SLASH", ("call", "instance", (("str", identity),)), (
+            ("step", "child", root, ()), ("step", "child", row, (predicate,)),
+        )):
+            source = instances.get(identity)
+            if source == f"jr://fixture/item-list:{row}" and root == f"{row}_list":
+                return (source, predicate)
+    return None
+
+
+def _fixture_constant_number(predicate):
+    match predicate:
+        case ("num", number):
+            return number
+        case (("PLUS" | "MINUS" | "MULT") as op, left, right):
+            left = _fixture_constant_number(left)
+            right = _fixture_constant_number(right)
+            if left is not None and right is not None:
+                if op == "PLUS":
+                    return left + right
+                if op == "MINUS":
+                    return left - right
+                return left * right
+    return None
+
+
+def fixture_itemset_number(text, instances):
+    """A finite constant on a declared fixture and its nonnegative Java-int ordinal, if any."""
+    shape = _fixture_itemset_path(tree(text), instances)
+    if shape is None:
+        return None
+    source, predicate = shape
+    number = _fixture_constant_number(predicate)
+    if number is None:
+        return None
+    ordinal = min(int(number), 2_147_483_647) if isfinite(number) and number >= 0 else None
+    return source, number, ordinal
+
+
+def fixture_itemset_ordinal_spelling(before, after, instances):
+    """A constant fixture ordinal written as the same row predicate's position check."""
+    numeric = fixture_itemset_number(before, instances[0])
+    if numeric is None or numeric[2] is None:
+        return False
+    source, _, ordinal = numeric
+    return _fixture_itemset_path(tree(after), instances[1]) == (
+        source, ("EQ", ("call", "position", ()), ("num", ordinal)),
+    )
 
 
 def same(before, after, *, instances=({}, {}), context=None) -> bool:

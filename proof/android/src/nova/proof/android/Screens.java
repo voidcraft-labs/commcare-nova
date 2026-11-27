@@ -128,13 +128,22 @@ final class Screens {
         Device.prefer(request.optJSONObject("preferences"));
         found.put("home", Home.read());
         Lists.searches = request.optJSONArray("searches");
+        Lists.lookupReturns = request.optJSONArray("caseLookupReturns");
+        Lists.legacyLookupMode = request.optBoolean("caseLookupLegacyMode");
         Queries.answer = request.has("queryAnswer") ? request.getString("queryAnswer") : null;
         Queries.findsNothing = request.optBoolean("queryFindsNothing");
+        Queries.namedAnswers = request.optJSONObject("searchAnswers");
+        if (Queries.namedAnswers != null) {
+            Queries.completed = new JSONArray();
+            found.put("completedSearches", Queries.completed);
+        }
         Answers.table = request.optJSONObject("answers");
         Forms.views = request.optBoolean("views");
+        Forms.helpQuestions = request.optJSONArray("helpQuestions");
         Forms.typeRefused = request.optBoolean("typeRefused");
         Forms.keys = request.optBoolean("keys");
         Forms.controls = request.optBoolean("controls");
+        AndroidAppAnswers.start(request.optJSONObject("callouts"));
         JSONObject walks = new JSONObject();
         JSONArray commands = request.optJSONArray("commands");
         if (commands != null) {
@@ -191,8 +200,12 @@ final class Screens {
         if (request.has("saveIncomplete")) {
             // A form saved incomplete from the command, and the record Android keeps of it (its name among it).
             JSONObject saved = new JSONObject();
-            Integer record = Updates.saveIncomplete(request.getString("saveIncomplete"), saved);
+            Integer record = Updates.saveIncomplete(request.getString("saveIncomplete"), saved,
+                    request.optString("saveLanguage"), request.optString("firstScreenChoice", null));
             if (request.optBoolean("reopen") && record != null) {
+                if (request.has("reopenRestore")) {
+                    saved.put("reopenRestore", Device.restore(request.getString("reopenRestore")));
+                }
                 // The worker reopens that record from home's incomplete forms and completes it: walked to its
                 // end with the request's answers, finished, saved and sent where the device is served.
                 saved.put("reopened", Updates.reopen(record, true));

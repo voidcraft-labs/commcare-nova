@@ -1,3 +1,9 @@
+import { authoredBoundedFlatSelection } from "@/lib/domain/boundedFlatClose";
+import {
+	BOUNDED_FLAT_CLOSE_MAXIMUM,
+	BOUNDED_FLAT_FOLLOWUP_MAXIMUM,
+	STANDARD_CASE_SELECTION_MAXIMUM,
+} from "@/lib/domain/caseSelectionLimits";
 import { bindCalculationText } from "./calculationText";
 import { mappingIdentityAt } from "./mappingIdentity";
 /**
@@ -13,10 +19,12 @@ import { type Draft, produce } from "immer";
 import {
 	type BlueprintDoc,
 	type CaseListConfig,
+	type CaseListDeviceLookup,
 	type CaseProperty,
 	type Column,
 	type ColumnSort,
 	type ColumnVia,
+	caseListDeviceLookupSchema,
 	caseListWordingUnitId,
 	casePropertyOptionTranslationUnitId,
 	columnFieldText,
@@ -42,17 +50,28 @@ import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { CASE_TYPE_PATTERN } from "@/lib/domain/expression/types";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
 import {
+	CASE_LIST_LOOKUP_WORKER_FIELDS,
 	caseListColumnTextShows,
+	caseListLookupResultPropertySchema,
 	columnSortLabelShows,
+	type DeviceLookupExtra,
 } from "@/lib/domain/modules";
+import { mediaAssetIdSchema } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
 import { recordFromEntries } from "@/lib/domain/records";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import { sharedSources } from "../../hq/suiteDetailSources";
 import { emptyShortListColumns } from "../../hqJson/caseList";
+import { hqXPath, hqXPathText } from "../../hqJson/xpath";
+import {
+	isLookupEvaluateExtrasControl,
+	lookupCaseKeyWire,
+} from "../../suite/case-list/deviceLookup";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
+import type { FormSyntax } from "../../xpath/formSyntax";
 import { scannedInstances } from "../../xpath/instanceSources";
+import { sessionContextPath } from "../../xpath/wire/fromExpression";
 import { applicationReading } from "../appShell";
 import { withCandidate } from "../candidate";
 import { indexTarget } from "../caseManagement/basicActions";
@@ -86,7 +105,9 @@ import { pendingPlaceholder } from "../pendingExpressions";
 import { listFilterWithoutOwnerClause } from "../search/settings";
 import { sourceFactories } from "../sourceFactories";
 import { recordSyntaxKey, sameXPathText } from "../syntaxCompare";
+import { sharedFormSyntax } from "../syntaxRead";
 import type { SameStateRegister } from "../types";
+import { readMediaMap } from "../xform/media";
 import { storedColumnKind } from "./columnIdentity";
 import {
 	appCodes,
@@ -104,6 +125,7 @@ import {
 	sourceText,
 	translatedTexts,
 } from "./columns";
+import { literalText } from "./literalText";
 import { CALCULATED_FIELD, readSortElements, type SortReading } from "./order";
 import { claimRestUnderFinding } from "./refusedWhole";
 import {
@@ -164,8 +186,28 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}detail-max-select-value-on-a-multi-select-basic-list`,
 		"schema:Detail.max_select_value",
 	),
+	maxSelectFlatClose: take(
+		`${A}detail-max-select-value-for-flat-close`,
+		"schema:Detail.max_select_value",
+	),
+	maxSelectFlatFollowup: take(
+		`${A}detail-max-select-value-for-flat-followup`,
+		"schema:Detail.max_select_value",
+	),
+	maxSelect101Elsewhere: refuse(
+		`${A}detail-max-select-value-101-outside-flat-close`,
+		"schema:Detail.max_select_value",
+	),
+	maxSelectAboveAndroidOnly: refuse(
+		`${A}detail-max-select-value-above-101-on-android-only-app`,
+		"schema:Detail.max_select_value",
+	),
 	maxSelectAbove: refuse(
 		`${A}detail-max-select-value-above-100`,
+		"schema:Detail.max_select_value",
+	),
+	maxSelectOutsideRuntime: refuse(
+		`${A}detail-max-select-value-above-2147483647`,
 		"schema:Detail.max_select_value",
 	),
 	maxSelectZero: refuse(
@@ -180,7 +222,7 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}multi-select-auto-select-or-max-select-value-on-an-advanced-or`,
 		"schema:Detail.max_select_value",
 	),
-	autoSelectMulti: refuse(
+	autoSelectMulti: take(
 		`${A}detail-auto-select-multi-select`,
 		"schema:Detail.auto_select",
 	),
@@ -377,6 +419,14 @@ export const DETAIL_CLAIMS = defineClaims("caseList.details", {
 		`${A}a-custom-long-tile-row-mixing-fields-of-two-tabs-in-an-advanced`,
 		"schema:DetailTab.starting_index",
 	),
+	lookupRelativeExtra: refuse(
+		`${A}lookup-extra-relative-without-case-context`,
+		"schema:Detail.lookup_extras",
+	),
+	lookupMissingResultHeader: refuse(
+		`${A}lookup-case-id-result-without-a-header-map`,
+		"schema:Detail.lookup_display_results",
+	),
 	lookupNoExtras: refuse(
 		`${A}callout-with-no-extras-or-no-responses`,
 		"schema:Detail.lookup_extras",
@@ -443,6 +493,317 @@ const LOOKUP_ON_KEYS = defineClaims("caseList.details.lookupOn", {
 		"schema:Detail.lookup_action",
 	),
 });
+
+const LOOKUP_EVALUATED_EXTRAS = defineClaims(
+	"caseList.details.evaluatedLookup",
+	{
+		extras: take(
+			`${A}lookup-extras-explicit-evaluation`,
+			"schema:Detail.lookup_extras",
+		),
+	},
+);
+
+const LOOKUP_WITH_INTEGER_SUM = defineClaims(
+	"caseList.details.integerSumLookup",
+	{
+		extras: take(
+			`${A}lookup-extra-with-a-fixed-integer-sum`,
+			"schema:Detail.lookup_extras",
+		),
+	},
+);
+
+const TEXT_LOOKUP_FIELD_ENTRIES = new Map<string, string>([
+	["lookup_name", "lookup-name"],
+	["lookup_autolaunch", "lookup-autolaunch"],
+	["lookup_responses", "lookup-responses-key"],
+	["lookup_extras", "lookup-extras-fixed-text"],
+	["lookup_image", "lookup-image-jr"],
+]);
+
+const TEXT_LOOKUP_KEYS = defineClaims(
+	"caseList.details.textLookup",
+	recordFromEntries(
+		CALLOUT_KEYS.map((key) => [
+			key,
+			take(
+				`${A}${TEXT_LOOKUP_FIELD_ENTRIES.get(key) ?? "lookup-with-text-extras"}`,
+				`schema:Detail.${key}`,
+			),
+		]),
+	) as Record<string, Claim<"take">>,
+);
+
+const LOOKUP_WITH_WORKER_EXTRA = defineClaims("caseList.details.workerLookup", {
+	extras: take(
+		`${A}lookup-extras-worker-context`,
+		"schema:Detail.lookup_extras",
+	),
+});
+
+/** Android evaluates the extra when it creates the list's click listener.
+ * A relative child path needs a main instance, which the list session
+ * has not got. Keep more complex expressions under the general refusal. */
+function lookupHasPlainRelativeExtra(extras: unknown[]): boolean {
+	return (
+		!extras.some(
+			(extra) => isJsonObject(extra) && extra.key === "force_xpath_parsing",
+		) &&
+		extras.some((extra) => {
+			if (
+				!isJsonObject(extra) ||
+				typeof extra.key !== "string" ||
+				typeof extra.value !== "string"
+			)
+				return false;
+			const parsed = sharedFormSyntax(extra.value);
+			if (!parsed.ok || parsed.node === undefined) return false;
+			const node = parsed.node;
+			if (node.kind === "name") return !node.wildcard;
+			return (
+				node.kind === "child" &&
+				!node.descendant &&
+				node.left?.kind === "name" &&
+				!node.left.wildcard &&
+				node.step.kind === "name" &&
+				!node.step.wildcard &&
+				extra.value.trim() === `${node.left.name}/${node.step.name}`
+			);
+		})
+	);
+}
+
+const workerExtraText = CASE_LIST_LOOKUP_WORKER_FIELDS.map((field) => ({
+	field,
+	text: hqXPathText(hqXPath(sessionContextPath(field))),
+}));
+
+const LOOKUP_CONFIDENCE_KEYS = defineClaims(
+	"caseList.details.lookupConfidence",
+	{
+		lookup_display_results: take(
+			`${A}lookup-case-id-confidence`,
+			"schema:Detail.lookup_display_results",
+		),
+		lookup_field_header: take(
+			`${A}lookup-case-id-confidence`,
+			"schema:Detail.lookup_field_header",
+		),
+		lookup_field_template: take(
+			`${A}lookup-case-id-confidence`,
+			"schema:Detail.lookup_field_template",
+		),
+	},
+);
+const LOOKUP_PROPERTY_CONFIDENCE_KEYS = defineClaims(
+	"caseList.details.lookupPropertyConfidence",
+	{
+		lookup_display_results: take(
+			`${A}lookup-case-property-confidence`,
+			"schema:Detail.lookup_display_results",
+		),
+		lookup_field_header: take(
+			`${A}lookup-case-property-confidence`,
+			"schema:Detail.lookup_field_header",
+		),
+		lookup_field_template: take(
+			`${A}lookup-case-property-confidence`,
+			"schema:Detail.lookup_field_template",
+		),
+	},
+);
+const lookupCaseKey = hqXPathText(hqXPath(lookupCaseKeyWire()));
+
+/** The installed case list can send this calculation as a number's text or
+ * as the exact saved spelling. Count only the canonical two-literal sum. */
+function nativeLookupIntegerSum(
+	source: string,
+	node: FormSyntax | undefined,
+): [number, number] | undefined {
+	if (
+		node?.kind === "binary" &&
+		node.op === "+" &&
+		node.left.kind === "number" &&
+		node.right.kind === "number" &&
+		Number.isInteger(node.left.value) &&
+		Number.isInteger(node.right.value) &&
+		node.left.value >= 0 &&
+		node.right.value >= 0 &&
+		node.left.value + node.right.value <= 2_147_483_647 &&
+		source === `${node.left.value} + ${node.right.value}`
+	)
+		return [node.left.value, node.right.value];
+	return undefined;
+}
+
+function lookupResultTextProperty(template: string): string | undefined {
+	const parsed = sharedFormSyntax(template);
+	let node = parsed.ok ? parsed.node : undefined;
+	while (node?.kind === "group") node = node.value;
+	// Core's detail Text already converts the key to text. These two
+	// wrappers keep the same key, even when its property is absent.
+	if (
+		node?.kind === "call" &&
+		((node.name === "string" && node.args.length === 1) ||
+			(node.name === "concat" &&
+				node.args.length === 2 &&
+				literalText(node.args[1]) === ""))
+	)
+		node = node.args[0];
+	while (node?.kind === "group") node = node.value;
+	if (node?.kind === "axis" && node.axis === "child") node = node.value;
+	const property = caseListLookupResultPropertySchema.safeParse(
+		node?.kind === "name" && !node.wildcard ? node.name : undefined,
+	);
+	return property.success ? property.data : undefined;
+}
+
+type LookupRead = { lookup: CaseListDeviceLookup; heading?: HeldTexts };
+
+function textDeviceLookup(
+	ctx: ReadContext,
+	module: DraftModule,
+	detail: JsonCursor,
+): LookupRead | undefined {
+	const image = detail.peek("lookup_image");
+	const results = detail.peek("lookup_display_results");
+	const automatic = detail.peek("lookup_autolaunch");
+	const action = detail.peek("lookup_action");
+	const label = detail.peek("lookup_name");
+	const rawExtras = detail.peek("lookup_extras");
+	const rawResponses = detail.peek("lookup_responses");
+	if (
+		(image !== undefined && image !== null && typeof image !== "string") ||
+		(results !== undefined &&
+			results !== null &&
+			typeof results !== "boolean") ||
+		(automatic !== undefined &&
+			automatic !== null &&
+			typeof automatic !== "boolean") ||
+		typeof action !== "string" ||
+		action.trim() !== action ||
+		typeof label !== "string" ||
+		label.trim() !== label ||
+		!Array.isArray(rawExtras) ||
+		!Array.isArray(rawResponses)
+	)
+		return undefined;
+	const evaluateExtras = isLookupEvaluateExtrasControl(rawExtras.at(-1));
+	const argumentRows = evaluateExtras ? rawExtras.slice(0, -1) : rawExtras;
+	const extras: DeviceLookupExtra[] = [];
+	for (const entry of argumentRows) {
+		if (
+			!isJsonObject(entry) ||
+			Object.keys(entry).length !== 2 ||
+			typeof entry.key !== "string" ||
+			entry.key.trim() !== entry.key ||
+			entry.key === "force_xpath_parsing" ||
+			typeof entry.value !== "string"
+		)
+			return undefined;
+		const source = entry.value;
+		const parsed = sharedFormSyntax(source);
+		const value = parsed.ok ? literalText(parsed.node) : undefined;
+		if (value !== undefined) {
+			extras.push({ name: entry.key, value });
+			continue;
+		}
+		const sum = parsed.ok
+			? nativeLookupIntegerSum(source, parsed.node)
+			: undefined;
+		if (sum !== undefined) {
+			const [left, right] = sum;
+			extras.push({
+				name: entry.key,
+				expression: {
+					kind: "arith",
+					op: "+",
+					left: { kind: "term", term: { kind: "literal", value: left } },
+					right: { kind: "term", term: { kind: "literal", value: right } },
+				},
+			});
+			continue;
+		}
+		const field = workerExtraText.find(({ text }) =>
+			sameXPathText(source, text),
+		)?.field;
+		if (field === undefined) return undefined;
+		extras.push({
+			name: entry.key,
+			expression: { kind: "term", term: { kind: "session-context", field } },
+		});
+	}
+	const responses = [];
+	for (const entry of rawResponses) {
+		if (
+			!isJsonObject(entry) ||
+			Object.keys(entry).length !== 1 ||
+			typeof entry.key !== "string" ||
+			entry.key.trim() !== entry.key
+		)
+			return undefined;
+		responses.push(entry.key);
+	}
+	let heading: HeldTexts | undefined;
+	let resultProperty: string | undefined;
+	if (results === true) {
+		const template = detail.peek("lookup_field_template");
+		if (detail.peek("case_tile_template") || typeof template !== "string")
+			return undefined;
+		if (!sameXPathText(template, lookupCaseKey)) {
+			const property = lookupResultTextProperty(template);
+			const search = module.json.peek("search_config");
+			const additional = isJsonObject(search)
+				? search.additional_case_types
+				: undefined;
+			if (
+				property === undefined ||
+				module.module.caseType === undefined ||
+				(Array.isArray(additional) &&
+					additional.some((type) => type !== module.module.caseType))
+			)
+				return undefined;
+			resultProperty = property;
+		}
+		heading = heldTextsIn(
+			detail.peek("lookup_field_header"),
+			appCodes(ctx),
+			sourceCode(ctx),
+			"case-list-lookup-result-heading",
+		);
+		if (heading === undefined) return undefined;
+	}
+	const value = caseListDeviceLookupSchema.safeParse({
+		action,
+		label,
+		extras,
+		responses,
+		...(automatic === true && { automatic: true }),
+		...(evaluateExtras && { evaluateExtras: true }),
+		...(heading !== undefined && {
+			resultHeading: sourceText(ctx, heading.texts),
+		}),
+		...(resultProperty !== undefined && { resultProperty }),
+	});
+	if (!value.success) return undefined;
+	return { lookup: value.data, heading };
+}
+
+/** HQ writes an empty width-zero header for an empty map. Core requires a text child there. */
+function lookupHasEmptyResultHeader(detail: JsonCursor): boolean {
+	const header = detail.peek("lookup_field_header");
+	const template = detail.peek("lookup_field_template");
+	return (
+		!detail.peek("case_tile_template") &&
+		detail.peek("lookup_display_results") === true &&
+		isJsonObject(header) &&
+		Object.keys(header).length === 0 &&
+		typeof template === "string" &&
+		(sameXPathText(template, lookupCaseKey) ||
+			lookupResultTextProperty(template) !== undefined)
+	);
+}
 
 const LOOKUP_LONG_KEYS = defineClaims(
 	"caseList.details.lookupLong",
@@ -530,7 +891,9 @@ export interface JoinedDetails {
 function sameProposal(a: ColumnProposal, b: ColumnProposal): boolean {
 	const slots = (proposal: ColumnProposal) =>
 		recordFromEntries(
-			Object.entries(proposal.column).filter(([key]) => key !== "header"),
+			Object.entries(proposal.column).filter(
+				([key]) => key !== "header" && key !== "entryPointUuid",
+			),
 		);
 	const restA = slots(a);
 	const restB = slots(b);
@@ -1078,7 +1441,7 @@ function readDetailTexts(
 	detail: JsonCursor,
 	codes: readonly string[],
 	screen: "short" | "long",
-	wording?: CaseListWordingReading,
+	wording?: CaseListShortReading,
 ): boolean {
 	let ok = true;
 	const texts = (
@@ -1168,9 +1531,11 @@ function readDetailTexts(
 }
 
 /** A case list's own texts as the reading of its short detail holds them, each language's. */
-interface CaseListWordingReading {
+interface CaseListShortReading {
 	empty?: HeldTexts;
 	select?: HeldTexts;
+	deviceLookup?: CaseListDeviceLookup;
+	lookup?: HeldTexts;
 }
 
 /**
@@ -1213,7 +1578,7 @@ function readDetailKeys(
 	detail: JsonCursor,
 	screen: "short" | "long",
 	competingLine = false,
-	wording?: CaseListWordingReading,
+	wording?: CaseListShortReading,
 ): boolean {
 	let ok = true;
 	detail.drop("display", D.display);
@@ -1230,11 +1595,11 @@ function readDetailKeys(
 		detail.drop("multi_select", D.multiSelectAdvanced);
 		detail.drop("max_select_value", D.maxSelectAdvanced);
 		detail.drop("auto_select", D.autoSelectAdvanced);
-	} else if (detail.peek("auto_select") === true) {
-		detail.refuse(
-			"auto_select",
-			multi ? D.autoSelectMulti : D.autoSelectSingle,
-		);
+	} else if (
+		detail.peek("auto_select") === true &&
+		(screen !== "short" || !multi)
+	) {
+		detail.refuse("auto_select", D.autoSelectSingle);
 		ok = false;
 	}
 	for (const [key, claim] of [
@@ -1300,6 +1665,10 @@ function readDetailKeys(
 		if (primary !== undefined || screen !== "long") ok = false;
 	}
 	if (detail.peek("lookup_enabled") === true) {
+		const parsedLookup =
+			screen === "short" && wording
+				? textDeviceLookup(ctx, module, detail)
+				: undefined;
 		if (
 			screen === "short" &&
 			detail.peek("case_tile_template") === "icon_text_grid"
@@ -1314,10 +1683,84 @@ function readDetailKeys(
 				if (claim !== undefined) detail.refuse(key, claim);
 			}
 			ok = false;
+		} else if (wording && parsedLookup !== undefined) {
+			const { lookup, heading } = parsedLookup;
+			wording.lookup = heading;
+			const confidenceKeys =
+				lookup.resultProperty === undefined
+					? LOOKUP_CONFIDENCE_KEYS
+					: LOOKUP_PROPERTY_CONFIDENCE_KEYS;
+			const storedResultKey = detail.peek("lookup_field_template");
+			if (
+				heading !== undefined &&
+				lookup.resultProperty !== undefined &&
+				typeof storedResultKey === "string" &&
+				!sameXPathText(
+					storedResultKey,
+					hqXPathText(hqXPath(lookupCaseKeyWire(lookup.resultProperty))),
+				)
+			)
+				sameState(
+					ctx,
+					confidenceKeys.lookup_field_template.entry,
+					`${detail.pointer}/lookup_field_template`,
+					"list-settings-respelled",
+				);
+			noteRespelled(
+				ctx,
+				confidenceKeys.lookup_field_header.entry,
+				`${detail.pointer}/lookup_field_header`,
+				detail.peek("lookup_field_header"),
+				heading,
+			);
+			const image = detail.peek("lookup_image");
+			if (typeof image === "string" && image !== "") {
+				const ref = readMediaMap(
+					ctx,
+					recordFromEntries(appCodes(ctx).map((language) => [language, image])),
+					{
+						site: { json: detail, key: "lookup_image" },
+						place: detail.place,
+						slot: "case_list_lookup_icon",
+						mediaKind: "image",
+					},
+				);
+				if (ref.kind === "asset") {
+					const assetId = mediaAssetIdSchema.safeParse(ref.assetId);
+					if (assetId.success) lookup.icon = assetId.data;
+				}
+			}
+			for (const key of CALLOUT_KEYS) {
+				const resultClaim =
+					heading !== undefined &&
+					(key === "lookup_display_results" ||
+						key === "lookup_field_header" ||
+						key === "lookup_field_template")
+						? confidenceKeys[key]
+						: undefined;
+				const extrasClaim =
+					lookup.evaluateExtras === true
+						? LOOKUP_EVALUATED_EXTRAS.extras
+						: lookup.extras.some(
+									(extra) =>
+										"expression" in extra && extra.expression.kind === "arith",
+								)
+							? LOOKUP_WITH_INTEGER_SUM.extras
+							: lookup.extras.some((extra) => "expression" in extra)
+								? LOOKUP_WITH_WORKER_EXTRA.extras
+								: TEXT_LOOKUP_KEYS.lookup_extras;
+				const claim =
+					resultClaim ??
+					(key === "lookup_extras" ? extrasClaim : TEXT_LOOKUP_KEYS[key]);
+				if (
+					claim !== undefined &&
+					detail.used(key) &&
+					(key !== "lookup_image" || lookup.icon !== undefined || !image)
+				)
+					wording.deviceLookup = detail.take(key, claim, () => lookup).value;
+			}
 		} else {
-			// A callout is one finding: one with no extras or no responses, which HQ's build
-			// refuses, is refused as that, any other as a callout, and every other key of it is
-			// claimed under that one finding.
+			// Report the decisive failure once and claim the remaining lookup keys under it.
 			const extras = detail.peek("lookup_extras");
 			const responses = detail.peek("lookup_responses");
 			const unready =
@@ -1325,22 +1768,32 @@ function readDetailKeys(
 				extras.length === 0 ||
 				!Array.isArray(responses) ||
 				responses.length === 0;
+			const relativeExtra =
+				!unready &&
+				typeof detail.peek("lookup_action") === "string" &&
+				typeof detail.peek("lookup_name") === "string" &&
+				lookupHasPlainRelativeExtra(extras);
+			let cause: Claim<"refuse">;
 			if (unready) {
-				detail.refuse("lookup_extras", D.lookupNoExtras);
+				cause = D.lookupNoExtras;
+				detail.refuse("lookup_extras", cause);
 				detail.refuse("lookup_responses", D.lookupNoResponses);
 				ctx.accounting.finding(D.lookupNoExtras, detail.place);
+			} else if (relativeExtra) {
+				cause = D.lookupRelativeExtra;
+				detail.refuse("lookup_extras", cause);
+			} else if (lookupHasEmptyResultHeader(detail)) {
+				cause = D.lookupMissingResultHeader;
+				detail.refuse("lookup_display_results", cause);
 			} else {
-				detail.refuse("lookup_enabled", LOOKUP_ON_KEYS.lookup_enabled);
+				cause = LOOKUP_ON_KEYS.lookup_enabled;
+				detail.refuse("lookup_enabled", cause);
 				detail.refuse("lookup_action", LOOKUP_ON_KEYS.lookup_action);
 			}
 			claimRestUnderFinding(
 				ctx,
 				detail,
-				{
-					code: (unready ? D.lookupNoExtras : LOOKUP_ON_KEYS.lookup_enabled)
-						.entry,
-					place: detail.place,
-				},
+				{ code: cause.entry, place: detail.place },
 				(key) => CALLOUT_KEYS.includes(key),
 			);
 			ok = false;
@@ -1366,6 +1819,48 @@ function readDetailKeys(
 	return ok;
 }
 
+// The form's own close action, expressions and outgoing route all settle
+// after this list has to declare its datum for binding.
+const deferredFlatCloseLimits = new WeakMap<
+	ReadContext,
+	{ module: DraftModule; short: JsonCursor }[]
+>();
+
+export function settleFlatCloseSelectionLimits(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	webAppsOnly: boolean,
+): void {
+	const awaiting = deferredFlatCloseLimits.get(ctx);
+	if (!awaiting) return;
+	for (const { module, short } of awaiting) {
+		const candidate = {
+			...doc,
+			appSettings: { ...doc.appSettings, runsOnlyOn: "web-apps" as const },
+		};
+		const formUuid = doc.formOrder[module.uuid]?.[0];
+		if (
+			formUuid &&
+			webAppsOnly &&
+			authoredBoundedFlatSelection(candidate, module.uuid, formUuid)
+		) {
+			const claim =
+				doc.forms[formUuid].type === "close"
+					? D.maxSelectFlatClose
+					: D.maxSelectFlatFollowup;
+			short.take("max_select_value", claim, Number).value;
+		} else {
+			short.refuse(
+				"max_select_value",
+				short.peek("max_select_value") === BOUNDED_FLAT_CLOSE_MAXIMUM
+					? D.maxSelect101Elsewhere
+					: D.maxSelectAbove,
+			);
+		}
+	}
+	deferredFlatCloseLimits.delete(ctx);
+}
+
 /** The menu's selection: one case, or several up to a maximum. */
 function readSelection(
 	ctx: ReadContext,
@@ -1380,6 +1875,16 @@ function readSelection(
 		return { ok: true };
 	}
 	short.take("multi_select", D.multiSelect, Boolean).value;
+	const automatic =
+		short.peek("auto_select") === true
+			? {
+					autoSelect: short.take(
+						"auto_select",
+						D.autoSelectMulti,
+						() => true as const,
+					).value,
+				}
+			: {};
 	// A null is HQ's model's `None`, for which HQ's build writes no `max-select-value`
 	// (`suite_xml/xml_models.py`, an `IntegerField`, which leaves out `None`), and Core then
 	// takes 100 (`SessionDatumParser.DEFAULT_MAX_SELECT_VAL`), Nova's own maximum.
@@ -1391,7 +1896,10 @@ function readSelection(
 			`${short.pointer}/max_select_value`,
 			"list-settings-respelled",
 		);
-		return { ok: true, selection: { kind: "multiple", maximum: 100 } };
+		return {
+			ok: true,
+			selection: { kind: "multiple", maximum: 100, ...automatic },
+		};
 	}
 	// Any other value that is no number is one HQ's model refuses as it wraps the app
 	// (`IntegerProperty`, an `AssertTypeProperty`), so no source HQ serves holds it: no entry
@@ -1399,6 +1907,39 @@ function readSelection(
 	if (typeof max !== "number") return { ok: false };
 	if (max === 0 || max < -1) {
 		short.refuse("max_select_value", D.maxSelectZero);
+		return { ok: false };
+	}
+	// Core's SessionDatumParser parses the suite attribute as a signed Java integer.
+	if (max > 2_147_483_647) {
+		short.refuse("max_select_value", D.maxSelectOutsideRuntime);
+		return { ok: false };
+	}
+	// A multiple-case datum selects a different Core session state on Android.
+	// A higher integer changes the Web Apps screen limit, never that state.
+	if (
+		max > BOUNDED_FLAT_CLOSE_MAXIMUM &&
+		module.docType === "Module" &&
+		ctx.input.source.raw.cloudcare_enabled === false
+	) {
+		short.refuse("max_select_value", D.maxSelectAboveAndroidOnly);
+		return { ok: false };
+	}
+	if (
+		max > STANDARD_CASE_SELECTION_MAXIMUM &&
+		max <= BOUNDED_FLAT_FOLLOWUP_MAXIMUM &&
+		module.docType === "Module" &&
+		ctx.facts.webAppsOnInHq
+	) {
+		const awaiting = deferredFlatCloseLimits.get(ctx) ?? [];
+		awaiting.push({ module, short });
+		deferredFlatCloseLimits.set(ctx, awaiting);
+		return {
+			ok: true,
+			selection: { kind: "multiple", maximum: max, ...automatic },
+		};
+	}
+	if (max === BOUNDED_FLAT_CLOSE_MAXIMUM) {
+		short.refuse("max_select_value", D.maxSelect101Elsewhere);
 		return { ok: false };
 	}
 	if (max > 100) {
@@ -1415,7 +1956,11 @@ function readSelection(
 		);
 	return {
 		ok: true,
-		selection: { kind: "multiple", maximum: maximum === -1 ? 100 : maximum },
+		selection: {
+			kind: "multiple",
+			maximum: maximum === -1 ? 100 : maximum,
+			...automatic,
+		},
 	};
 }
 
@@ -1553,7 +2098,7 @@ export function readCaseDetails(
 		return;
 	}
 	// Both details are read whatever the first holds, so every finding is raised in one pass.
-	const wording: CaseListWordingReading = {};
+	const wording: CaseListShortReading = {};
 	const shortKeys = readDetailKeys(ctx, module, short, "short", false, wording);
 	// HQ generates a single shared detail ID for every enabled line on this
 	// menu. Core keeps the last definition. A long-only line is unreferenced,
@@ -1607,6 +2152,40 @@ export function readCaseDetails(
 	// whose search launches by itself (`helpers/validators.py::validate_detail_columns`).
 	const search = module.json.peek("search_config");
 	const autoLaunch = isJsonObject(search) && search.auto_launch === true;
+	const inlineResultProperty =
+		autoLaunch &&
+		search.inline_search === true &&
+		(search.instance_name == null || search.instance_name === "inline");
+	const standalonePromptRoute =
+		isJsonObject(search) &&
+		search.auto_launch === true &&
+		search.inline_search !== true &&
+		search.default_search !== true;
+	const standaloneResultDetailText =
+		ctx.facts.webAppsOnInHq && standalonePromptRoute;
+	const caseList = module.json.peek("case_list");
+	const standaloneAndroidTextAnswers =
+		ctx.input.source.cloudcareEnabled === false &&
+		standalonePromptRoute &&
+		!search.case_search_endpoint_id &&
+		!inTile &&
+		short.peek("multi_select") !== true &&
+		(!isJsonObject(caseList) || caseList.show !== true) &&
+		Array.isArray(search.properties)
+			? new Set(
+					search.properties.flatMap((prompt) =>
+						isJsonObject(prompt) &&
+						typeof prompt.name === "string" &&
+						!prompt.hidden &&
+						!prompt.appearance &&
+						(prompt.input_ == null ||
+							prompt.input_ === "" ||
+							prompt.input_ === "text")
+							? [prompt.name]
+							: [],
+					),
+				)
+			: undefined;
 	const shortOptions: Omit<ColumnOptions, "filterChangesBuild"> = {
 		...shared,
 		inTile,
@@ -1614,6 +2193,9 @@ export function readCaseDetails(
 		formats: formatCounts(short),
 		searchInstancesRead:
 			autoLaunch || short.peek("instance_name") === "results",
+		inlineResultProperty,
+		standaloneResultDetailText,
+		standaloneAndroidTextAnswers,
 	};
 	const longOptions: ColumnOptions = {
 		...shared,
@@ -1621,6 +2203,7 @@ export function readCaseDetails(
 		formats: formatCounts(long),
 		filterChangesBuild: false,
 		searchInstancesRead: autoLaunch || long.peek("instance_name") === "results",
+		standaloneResultDetailText,
 	};
 	const shortReadings = shortCursors.map((column, index) =>
 		readDetailColumn(ctx, module, column, "short", {
@@ -1765,6 +2348,11 @@ export function readCaseDetails(
 	});
 	if (
 		caseType !== undefined &&
+		wording.deviceLookup?.resultProperty !== undefined
+	)
+		properties.push([caseType, wording.deviceLookup.resultProperty]);
+	if (
+		caseType !== undefined &&
 		properties.length > 0 &&
 		ctx.draft.caseTypes != null
 	)
@@ -1840,6 +2428,9 @@ export function readCaseDetails(
 		}),
 		...(wording.select !== undefined && {
 			selectButtonText: sourceText(ctx, wording.select.texts),
+		}),
+		...(wording.deviceLookup !== undefined && {
+			deviceLookup: wording.deviceLookup,
 		}),
 		// Claimed by the menu's reading (`menus/modules.ts`), held here with the list it serves.
 		...(module.json.peek("show_case_list_optimization_options") === true && {
@@ -2434,6 +3025,7 @@ export function readCaseDetails(
 	for (const [slot, held] of [
 		["empty", wording.empty],
 		["select", wording.select],
+		["lookup", wording.lookup],
 	] as const)
 		if (held !== undefined)
 			ctx.translations.set(

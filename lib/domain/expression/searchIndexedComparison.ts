@@ -60,6 +60,20 @@ export function searchIndexedComparison(
 			? right.term.value
 			: undefined;
 	if (equality) {
+		// HQ sends numeric literals to the exact text index of a custom date.
+		// The wire emits a plain decimal. Preview compares its Elasticsearch
+		// keyword spelling, which can use an exponent. Calendar dates stay on
+		// their own index.
+		if (
+			leftType === "date" &&
+			typeof value === "number" &&
+			((rightType === "int" &&
+				canonicalIntegerText(String(value)) !== undefined) ||
+				(rightType === "decimal" &&
+					Number.isFinite(value) &&
+					!Number.isInteger(value)))
+		)
+			return "exact-text";
 		if (rightType !== "text") return;
 		if (leftType === "datetime") return "exact-text";
 		if (!STORED_TEXT_EQUALITY_TYPES.has(leftType)) return;
@@ -74,6 +88,15 @@ export function searchIndexedComparison(
 			return;
 		return "exact-text";
 	}
+	// A literal number orders stored numeric values in HQ’s numeric index.
+	// A calendar date has no numeric index value.
+	if (
+		leftType === "date" &&
+		(rightType === "int" || rightType === "decimal") &&
+		typeof value === "number" &&
+		Number.isFinite(value)
+	)
+		return "number";
 	if (leftType !== "text" && leftType !== "time") return;
 	if (rightType === "int" || rightType === "decimal") return "number";
 	if (rightType === "date" || rightType === "datetime") return rightType;

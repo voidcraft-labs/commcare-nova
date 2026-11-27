@@ -61,7 +61,14 @@ import {
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
-import { eq, formField, literal, prop, term } from "@/lib/domain/expression";
+import {
+	eq,
+	formField,
+	literal,
+	matchAll,
+	prop,
+	term,
+} from "@/lib/domain/expression";
 import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
 import {
 	type ExportEdits,
@@ -80,8 +87,8 @@ const VOCABULARY =
 	"questions/savetocase-expressions-outside-nova-s-typed-vocabularies-case-id";
 const AUTHORED_ID =
 	"questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside";
-const TYPE_CHANGE =
-	"questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type";
+const TARGET_ID =
+	"questions/a-savetocase-change-a-device-refuses-a-blank-case-id-or-a-link-of-its-case-to-itself";
 const LIVE_CREATE_ID =
 	"questions/create-case-id-live-calculate-outside-a-repeat";
 const HAND_WRITTEN =
@@ -118,6 +125,7 @@ interface AppOptions {
 	}[];
 	/** A second menu, of case type `visit`, whose case list shows `kept`. */
 	readonly visitMenu?: true;
+	readonly nestedSource?: boolean;
 }
 
 function app(
@@ -171,7 +179,13 @@ function app(
 							name: "Visit",
 							type: options.type ?? "followup",
 							fields: [
-								f({ kind: "text", id: "note", uuid: NOTE }),
+								options.nestedSource
+									? f({
+											kind: "group",
+											id: "source_group",
+											children: [f({ kind: "text", id: "note", uuid: NOTE })],
+										})
+									: f({ kind: "text", id: "note", uuid: NOTE }),
 								f({ kind: "date", id: "day", uuid: DAY } as never),
 								f({
 									kind: "multi_select",
@@ -654,18 +668,24 @@ describe("a Save to Case change the gate refuses, as its one finding", () => {
 			`${AUTHORED_ID} @question:nova_operations/nova_keyed_mk/mk`,
 		],
 		[
-			"a change of a case's type to a type holding one of its properties as another type",
+			"a change of a case's type that would turn existing text into a date",
 			() =>
 				app([
 					own,
 					visitCreate({
 						caseType: "patient",
-						writes: [{ property: "kept", value: term(formField(DAY)) }],
+						writes: [{ property: "kept", value: answer }],
 					}),
 					update("one-cause-u1", "again", {
 						target: { kind: "op", opUuid: VISIT },
 						retype: "visit",
-						writes: [{ property: "kept", value: answer, condition: onYes }],
+						writes: [
+							{
+								property: "kept",
+								value: term(formField(DAY)),
+								condition: onYes,
+							},
+						],
 					}),
 				]),
 			undefined,
@@ -689,7 +709,7 @@ describe("a Save to Case change the gate refuses, as its one finding", () => {
 			`${HAND_WRITTEN} @question:nova_operations/mk`,
 		],
 		[
-			"a change of the type of a survey's case keyed by an answer",
+			"a change of a survey case's type when its case id can be blank",
 			() =>
 				app(
 					[
@@ -703,7 +723,7 @@ describe("a Save to Case change the gate refuses, as its one finding", () => {
 					{ type: "survey" },
 				),
 			undefined,
-			`${TYPE_CHANGE} @form`,
+			`${TARGET_ID} @question:nova_operations/again`,
 		],
 	];
 	for (const [name, make, xml, finding] of cases)
@@ -777,7 +797,7 @@ describe("a change of a case's type to one that holds none of a property", () =>
 			expect(outcome.kind).toBe("read");
 		});
 
-	it("refuses a later type whose own writer types the property otherwise", async () => {
+	it("keeps an existing date as text where the destination writes the same property", async () => {
 		const doc = app(
 			[
 				own,
@@ -791,12 +811,21 @@ describe("a change of a case's type to one that holds none of a property", () =>
 					writes: [{ property: "kept", value: answer, condition: onYes }],
 				}),
 			],
-			{ visitMenu: true },
+			{
+				visitMenu: true,
+				visit: [{ name: "kept", data_type: "text" }, { name: "photo" }],
+			},
 		);
-		expect(gateCodes(doc)).toContain("CASE_OPERATION_RETYPE_UNSAFE");
-		expect(account(await readBack(doc))).toEqual([
-			`${RETYPE_CONVERTS} @question:nova_operations/again`,
-		]);
+		expect(gateCodes(doc)).not.toContain("CASE_OPERATION_RETYPE_UNSAFE");
+		const outcome = await readBack(doc);
+		expect(account(outcome)).toEqual([]);
+		if (outcome.kind !== "read")
+			throw new Error("The date widening was refused.");
+		expect(
+			outcome.draft.doc.caseTypes
+				?.find(({ name }) => name === "visit")
+				?.properties.find(({ name }) => name === "kept"),
+		).toMatchObject({ data_type: "text" });
 	});
 
 	it("reads back a document whose later type declares the property", async () => {
@@ -821,6 +850,107 @@ describe("a change of a case's type to one that holds none of a property", () =>
 		const outcome = await readBack(doc);
 		expect(account(outcome)).toEqual([]);
 		expect(outcome.kind).toBe("read");
+	});
+});
+
+describe("a survey's date replaces a newly created case's text", () => {
+	function retypeDoc(
+		mode:
+			| "required"
+			| "optional"
+			| "conditional-write"
+			| "hidden"
+			| "nested-source"
+			| "linked-producer",
+	) {
+		const parent = create("one-cause-retype-parent", "parent_case", {
+			caseType: "patient",
+		});
+		const doc = app(
+			[
+				...(mode === "linked-producer" ? [parent] : []),
+				visitCreate({
+					caseType: "patient",
+					writes: [{ property: "kept", value: answer }],
+					...(mode === "linked-producer" && {
+						links: [
+							{
+								identifier: "parent",
+								targetType: "patient",
+								relationship: "child",
+								target: { kind: "op", opUuid: parent.uuid },
+							},
+						],
+					}),
+				}),
+				update("one-cause-u1", "again", {
+					target: { kind: "op", opUuid: VISIT },
+					retype: "visit",
+					writes: [
+						{
+							property: "kept",
+							value: term(formField(DAY)),
+							...(mode === "conditional-write" && { condition: onYes }),
+						},
+					],
+				}),
+			],
+			{
+				type: "survey",
+				visit: [{ name: "kept", data_type: "date" }, { name: "photo" }],
+				nestedSource: mode === "nested-source",
+			},
+		);
+		const day = doc.fields[DAY];
+		if (day?.kind !== "date")
+			throw new Error("The survey must hold its date question.");
+		const menuUuid = doc.moduleOrder[0];
+		return {
+			...doc,
+			modules: {
+				...doc.modules,
+				[menuUuid]: { ...doc.modules[menuUuid], caseType: undefined },
+			},
+			fields: {
+				...doc.fields,
+				[DAY]: {
+					...day,
+					...(mode !== "optional" && { required: matchAll() }),
+					...(mode === "hidden" && { relevant: onYes }),
+				},
+			},
+		};
+	}
+
+	it.each(["required", "optional"] as const)(
+		"admits a %s visible date before export and holds it when reading the wire",
+		async (mode) => {
+			const doc = retypeDoc(mode);
+			expect(gateCodes(doc)).toEqual([]);
+			const outcome = await readBack(doc);
+			expect(account(outcome)).toEqual([]);
+			if (outcome.kind !== "read")
+				throw new Error("Expected the date overwrite to read.");
+			expect(outcome.draft.doc.forms[FORM]?.caseOperations?.[1]).toMatchObject({
+				action: "update",
+				retype: "visit",
+				writes: [{ property: "kept" }],
+			});
+		},
+	);
+
+	it.each([
+		"conditional-write",
+		"hidden",
+		"nested-source",
+		"linked-producer",
+	] as const)("refuses a date with %s scope", async (mode) => {
+		const doc = retypeDoc(mode);
+		expect(gateCodes(doc)).toContain("CASE_OPERATION_RETYPE_UNSAFE");
+		const outcome = await readBack(doc);
+		expect(account(outcome)).toEqual([
+			`${RETYPE_CONVERTS} @question:nova_operations/again`,
+		]);
 	});
 });
 

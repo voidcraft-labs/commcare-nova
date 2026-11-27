@@ -312,6 +312,192 @@ def test_web_apps_makes_a_grouped_tiles_cards_from_the_rows_a_search_leaves(
     assert searched_cards[1][1] == ["Nurse Baraka", "Cal", "Referred"]
 
 
+def _edit_tile_group_identifier(project, editor_driver, identifier):
+    from django.urls import reverse
+    from urllib.parse import parse_qsl
+
+    from proof.editors.hq import HQAnswers, editor_build
+
+    unit = project.unit
+    args = [unit.domain, project.app_id, project.module_id(0)]
+    page = pages.CASE_LIST
+    save_path = reverse(page.save, args=args)
+    editor_build()
+    answers = HQAnswers(unit, unit)
+    edited = editor_driver.run([
+        {"goto": reverse(page.view, args=args)},
+        {"until": "pages/ready", "arg": {"bar": page.bar}},
+        {"settle": True},
+        {"eval": """identifier => {
+            const field = document.getElementById('id_case_tile_group_by');
+            field.value = identifier;
+            field.dispatchEvent(new Event('change', { bubbles: true }));
+        }""", "arg": identifier},
+        {"click": f"{page.bar} > .btn:not(.disabled)"},
+        {"awaitRequest": {"method": "POST", "pathname": save_path}},
+        {"settle": True},
+    ], answer=answers)
+    answers.check()
+    assert edited["pageErrors"] == []
+    saved, = [exchange for exchange in answers.exchanges
+              if exchange.method == "POST" and exchange.path == save_path]
+    assert saved.status == 200, saved.response
+    return dict(parse_qsl(saved.body.decode("utf-8"), keep_blank_values=True))
+
+
+def test_current_editor_saves_a_tile_group_whose_path_core_may_reject(
+    hq, core_runner, editor_driver, webapps_documents, evidence, tmp_path,
+):
+    import json
+
+    from lxml import etree
+
+    from proof.editors import compare
+    from proof.hq import operations
+    from proof.observe.build import admit, arrange
+
+    document = webapps_documents[GROUP_FILTER]
+    observed = {}
+    with webapps_hq.project(document, "maximum") as project:
+        unit = project.unit
+        for identifier in ("my-parent", "my.parent", "-my-parent", "my parent"):
+            posted = _edit_tile_group_identifier(project, editor_driver, identifier)
+            assert json.loads(posted["case_tile_group"])["index_identifier"] == identifier
+            reopened = pages.fresh_section_save(
+                editor_driver, unit, pages.CASE_LIST, project.app_id, project.module_id(0), unit=unit,
+            )
+            assert reopened.save and reopened.save.status == 200 and not reopened.refused, reopened.alerts
+            group = operations.held_app(unit, project.app_id).modules[0].case_details.short.case_tile_group
+            assert (group.index_identifier, group.header_rows) == (identifier, 1)
+
+            built = compare.build(unit, project.app_id, unit.record)
+            assert not built.errors, built.errors
+            suite = etree.fromstring(built.files["suite.xml"])
+            function, = suite.xpath("//detail/group/@function")
+            assert function == f"string(./index/{identifier})"
+            companions = suite.xpath("//datum[contains(@id, '_parent_ids')]/@function")
+            assert companions and all(f"]/index/{identifier}))" in fn for fn in companions)
+            parsed = core_runner.request("xpathParse", deadline=30, expressions=[function, *companions])["results"]
+            admission = admit(core_runner, arrange(built.files, tmp_path / identifier))
+            if identifier in {"my-parent", "my.parent"}:
+                assert all("error" not in result for result in parsed), parsed
+                assert admission["admitted"], admission["problems"]
+            else:
+                assert all("XPathSyntaxException" in result.get("error", "") for result in parsed), parsed
+                assert not admission["admitted"], admission
+                assert any(problem["stage"] == "install" for problem in admission["problems"]), admission["problems"]
+            observed[identifier] = {
+                "function": function, "companions": companions, "headerRows": group.header_rows,
+                "parser": parsed, "admitted": admission["admitted"], "problems": admission["problems"],
+            }
+    evidence("tile-grouping-locator-syntax", observed)
+
+
+@pytest.mark.parametrize("identifier", ["my-parent", "my.parent"])
+def test_tile_connection_survives_editor_grouping_and_selection(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence, identifier
+):
+    from lxml import etree
+
+    from proof.hq import operations
+    from proof.matrix.authoring import Authoring
+    from proof.matrix.ops import set_form_source
+
+    document = webapps_documents[GROUP_FILTER]
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    kijiji = "targeted-kijiji-household"
+    riverside = "targeted-riverside-household"
+    targets = {
+        "Ada": riverside,
+        "Cal": riverside,
+        "Ben": kijiji,
+        "Dot": kijiji,
+    }
+    database = replace(database, cases=tuple(
+        replace(case, indices=(
+            ("parent", "household", kijiji, "child"),
+            *(((identifier, "household", targets[case.name], "child"),) if case.name in targets else ()),
+        )) if case.case_type == "visit" else case
+        for case in database.cases
+    ))
+
+    def show_companion(root, _form):
+        xforms = "http://www.w3.org/2002/xforms"
+        model = root.find(f".//{{{xforms}}}model")
+        etree.SubElement(model, f"{{{xforms}}}instance", id="commcaresession", src="jr://instance/session")
+        notes = root.find(f".//{{{xforms}}}input[@ref='/data/notes']/{{{xforms}}}label")
+        notes.attrib.pop("ref", None)
+        notes.text = "Grouping target "
+        etree.SubElement(notes, f"{{{xforms}}}output", value="instance('commcaresession')/session/data/case_id_parent_ids")
+
+    with webapps_hq.project(document, "maximum") as project:
+        unit = project.unit
+        _edit_tile_group_identifier(project, editor_driver, identifier)
+        group = operations.held_app(unit, project.app_id).modules[0].case_details.short.case_tile_group
+        assert (group.index_identifier, group.header_rows) == (identifier, 1)
+
+        authoring = Authoring(unit, {}, "tile-grouping-session", operation=unit.operation)
+        set_form_source(authoring, project.app_id, 0, 0, show_companion)
+        with project.released(formplayer_runner, database=database) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Grouped visits"),
+                *steps.choose("Visits"),
+                steps.SCREEN,
+                *steps.click("#menu-region [id='row-targeted-ada-visit']"),
+                *steps.click("#select-case", visible=True, within=steps.WITHIN_MS),
+                steps.SCREEN,
+                *steps.choose("Follow up"),
+                steps.SCREEN,
+            ])
+    listed, selected, opened = run.screens
+    evidence(f"tile-grouping-{identifier}", {"listed": listed, "selected": selected, "opened": opened})
+    assert run.page_errors == []
+    assert listed["list"]["tiles"] is True
+    assert [_card(row) for row in listed["list"]["rows"]] == [
+        ("row-targeted-ada-visit", ["Nurse Amani", "Ada", "Seen", "Cal", "Referred"]),
+        ("row-targeted-ben-visit", ["Nurse Chiku", "Ben", "Referred", "Dot", "Referred"]),
+        ("row-targeted-eve-visit", ["Nurse Imani", "Eve", "Seen"]),
+    ]
+    assert selected["breadcrumbs"][-1] == "Ada"
+    assert opened["form"]["title"] == "Follow up"
+    assert [question["label"] for question in opened["form"]["questions"]] == [f"Grouping target {riverside}"]
+
+
+def test_web_apps_rejects_tile_group_paths_through_a_scalar_index(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    import json
+
+    document = webapps_documents[GROUP_FILTER]
+    database = casedata.database_of_restore((document.root / "restore.xml").read_bytes())
+    for position, identifier in enumerate(("parent", "parent/parent", "parent/*")):
+        with webapps_hq.project(document, "maximum") as project:
+            if identifier != "parent":
+                posted = _edit_tile_group_identifier(project, editor_driver, identifier)
+                assert json.loads(posted["case_tile_group"])["index_identifier"] == identifier
+            with project.released(formplayer_runner, database=database) as release:
+                run = Session(release, editor_driver).run([
+                    *steps.open_app("Grouped visits"), *steps.choose("Visits"), steps.SCREEN,
+                ])
+        screen = run.screens[0]
+        native = [reply.json() for reply in run.answered("navigate_menu")]
+        evidence(f"tile-grouping-locator-{position}", {
+            "identifier": identifier, "screen": screen, "native": native, "pageErrors": run.page_errors,
+        })
+        assert run.page_errors == []
+        if identifier == "parent":
+            listing = screen["list"]
+            assert listing["tiles"] is True
+            assert [row["id"] for row in listing["rows"]] == [
+                "row-targeted-ada-visit", "row-targeted-ben-visit", "row-targeted-eve-visit",
+            ]
+        else:
+            assert "list" not in screen
+            [refusal] = [response for response in native if response.get("status") == "error"]
+            assert f"Logic references index/{identifier}" in refusal["exception"]
+            assert refusal["exception"] in screen["alerts"]
+
+
 def _to_visits(scenario):
     return steps.path(steps.open_app(f"Tile {scenario}"), steps.choose("Visits"), steps.choose("Record visit"))
 

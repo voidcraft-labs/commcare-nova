@@ -38,8 +38,6 @@ import { knownCaseTypesOf } from "../../index";
 import { inWireScopeOrder } from "../operationOrder";
 import { readHqApp } from "./heldReading";
 
-const NO_ORDER =
-	"questions/a-keyed-savetocase-create-in-no-order-nova-holds-beside-the-form-s-other-changes";
 const TYPE_CHANGE =
 	"questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type";
 const FORM = testUuid("order-form");
@@ -213,7 +211,7 @@ describe("the order a reading gives a form's case operations", () => {
 		expect(changes(canonical(doc).forms[FORM]?.caseOperations)).toEqual(ORDER);
 	});
 
-	it("refuses a keyed create in a repeat once HQ turns on a write of the worker's record, at the form", async () => {
+	it("keeps a namespaced repeated create beside HQ's managed worker write", async () => {
 		const keyedKid: CaseOperation = {
 			uuid: testUuid("order-keyed-kid"),
 			id: "kid",
@@ -249,10 +247,13 @@ describe("the order a reading gives a form's case operations", () => {
 			return modules;
 		});
 		expect(outcome.defects).toEqual([]);
-		if (outcome.kind !== "account")
-			throw new Error("A form in no order Nova holds was read.");
-		expect(outcome.findings.map((one) => one.code)).toEqual([NO_ORDER]);
-		expect(outcome.findings[0]?.place).toMatchObject({ kind: "form" });
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(outcome.findings));
+		expect(changes(outcome.draft.doc.forms[FORM]?.caseOperations)).toEqual([
+			"update commcare-user",
+			"create kid keyed",
+		]);
+		expect(gateCaseCodes(outcome.draft.doc)).toEqual([]);
 	});
 
 	it("compares a change whose scope is unranked with none, as the gate does", () => {

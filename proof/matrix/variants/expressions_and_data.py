@@ -166,6 +166,26 @@ def fingerprint_query(authoring, app_id):
     _language(authoring, app_id, f"{SESSION}/data/fingerprintquery", "fingerprint-query")
 
 
+def fingerprint_query_guarded(authoring, app_id):
+    """The adjacent no-result guard lets Core open the Survey, but does not name a supported lookup supplier."""
+    read = f"{SESSION}/data/fingerprintquery"
+    _language(authoring, app_id, f"if(count({read}) = 0, 'No lookup result', string({read}[1]))",
+              "fingerprint-query-guarded")
+
+
+def fingerprint_query_second_result(authoring, app_id):
+    """The absent-count guard takes the fallback before the second position is read."""
+    read = f"{SESSION}/data/fingerprintquery"
+    _language(authoring, app_id, f"if(count({read}) = 0, 'No lookup result', string({read}[2]))",
+              "fingerprint-query-second-result")
+
+
+def fingerprint_query_singleton_guard_on_second_result(authoring, app_id):
+    """A singleton check does not guard the second-position read when the frame is empty."""
+    read = f"{SESSION}/data/fingerprintquery"
+    _language(authoring, app_id, f"if(count({read}) = 1, 'No lookup result', string({read}[2]))",
+              "fingerprint-query-singleton-guard-on-second-result")
+
 def window_width_in_form_logic(authoring, app_id):
     """A read of ``session/context/window_width`` in a calculation."""
     _language(authoring, app_id, f"{SESSION}/context/window_width", "window-width-in-form-logic")
@@ -383,6 +403,55 @@ def search_input_read_after_search(authoring, app_id):
     )
 
 
+def _optional_search_detail(authoring, app_id, prompt):
+    path = f"instance('search-input:results')/input/field[@name = '{prompt}']"
+    formula = (
+        "if(count(current()/../../results) > 0, concat('Entered [', "
+        f"if(count({path}) > 0, string({path}), ''), ']'), 'Unsearched case')"
+    )
+    ops.set_json(authoring, app_id, "/cloudcare_enabled", True)
+    ops.set_json(
+        authoring, app_id, "/modules/0/case_details/long/columns/-",
+        _calculated_column("Submitted village", formula),
+    )
+
+
+def optional_standalone_search_detail(authoring, app_id):
+    """A long-only field guarding the roster and the Search's actual text prompt."""
+    _optional_search_detail(authoring, app_id, "village")
+
+
+def standalone_search_detail_with_wrong_prompt(authoring, app_id):
+    """The same guards address a different, unoffered prompt."""
+    _optional_search_detail(authoring, app_id, "not_offered")
+
+
+def standalone_search_detail_with_date_prompt(authoring, app_id):
+    """The guarded detail addresses an offered date prompt rather than plain text."""
+    _optional_search_detail(authoring, app_id, "dob")
+
+
+def standalone_search_detail_with_date_range_prompt(authoring, app_id):
+    """The guarded Details value displays the Search submission’s range encoding."""
+    _optional_search_detail(authoring, app_id, "last_visit")
+
+
+def standalone_search_detail_with_barcode_prompt(authoring, app_id):
+    """The submitted Web Apps barcode value is plain text."""
+    _optional_search_detail(authoring, app_id, "client_code")
+
+
+def standalone_search_detail_with_choice_prompt(authoring, app_id):
+    """The calculation sees the selected lookup value, not its rendered label."""
+    _optional_search_detail(authoring, app_id, "district")
+
+
+def standalone_search_detail_with_hidden_prompt(authoring, app_id):
+    """A hidden request value does not become a visible submitted answer."""
+    _optional_search_detail(authoring, app_id, "village")
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties/1/hidden", True)
+
+
 # Expressions --------------------------------------------------------------------------------------------------------
 
 
@@ -399,6 +468,29 @@ def location_data_no_property_takes(authoring, app_id):
 def text_ordered_comparison(authoring, app_id):
     """A calculation ordering a text answer against text (``/data/code < 'm'``), which Core compares as numbers."""
     _language(authoring, app_id, "if(/data/code < 'm', 'early', 'late')", "text-ordered-comparison")
+
+
+def assembled_text_ordered_against_a_literal(authoring, app_id):
+    """A root text answer plus literal suffix retains Core's numeric ordering."""
+    _language(authoring, app_id, "if(concat(/data/code, 'x') < 'm', 'early', 'late')", "assembled-text-ordered-as-a-number")
+
+
+def multiple_answers_assembled_for_ordering(authoring, app_id):
+    """Two root Text answers are joined before numeric conversion."""
+    _language(authoring, app_id, "if(concat(/data/code, /data/code_again) < 'm', 'early', 'late')",
+              "multiple-answers-assembled-for-ordering")
+
+
+def three_parts_assembled_for_ordering(authoring, app_id):
+    """A three-part concatenation uses a separate source shape."""
+    _language(authoring, app_id, "if(concat(/data/code, '-', /data/code_again) < 'm', 'early', 'late')",
+              "three-parts-assembled-for-ordering")
+
+
+def text_with_literal_prefix_ordered_against_text(authoring, app_id):
+    """A literal prefix is outside the admitted answer-leading assembly."""
+    _language(authoring, app_id, "if(concat('prefix', /data/code) < 'm', 'early', 'late')",
+              "text-with-literal-prefix-ordered-against-text")
 
 
 def choice_name_on_a_lookup_select(authoring, app_id):

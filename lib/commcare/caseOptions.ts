@@ -1,8 +1,11 @@
-import type {
-	CaseOptionsSource,
-	Field,
-	MultiSelectField,
-	SingleSelectField,
+import {
+	type AvailableCasesOptionsSource,
+	type CaseOptionsSource,
+	type DeviceCaseOptionsSource,
+	type Field,
+	isDeviceCaseOptionsSource,
+	type MultiSelectField,
+	type SingleSelectField,
 } from "@/lib/domain";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import type { RewriteControl } from "./emissionRewrites";
@@ -10,7 +13,43 @@ import type { FormNodeProjection } from "./xpath/formNodeProjection";
 import { w } from "./xpath/wire/builders";
 import { toWire, type WireTermBindings } from "./xpath/wire/fromExpression";
 import { caseDbInstance } from "./xpath/wire/instances";
+import { casePropertyStep } from "./xpath/wire/rowScope";
 import type { WireExpr } from "./xpath/wire/tree";
+
+/** The local device case path, with the predicates of the chosen source. */
+function deviceCasesNodeset(predicates: readonly WireExpr[] = []): WireExpr {
+	return w.instance(caseDbInstance(), [
+		w.step("casedb"),
+		w.step("case", predicates),
+	]);
+}
+
+/** Restored cases narrowed by optional row-local status and property checks. */
+export function availableCasesNodeset(
+	source: Pick<AvailableCasesOptionsSource, "status" | "propertyMatch">,
+): WireExpr {
+	const predicates: WireExpr[] = [];
+	if (source.status !== undefined)
+		predicates.push(w.eq(w.context([w.attr("status")]), w.str(source.status)));
+	const match = source.propertyMatch;
+	if (match !== undefined) {
+		const matches = (property: string, text: string) =>
+			w.eq(w.context([casePropertyStep(property)]), w.str(text));
+		const equals = matches(match.property, match.text);
+		predicates.push(
+			match.alternateText === undefined
+				? equals
+				: w.or(
+						equals,
+						matches(
+							match.alternateProperty ?? match.property,
+							match.alternateText,
+						),
+					),
+		);
+	}
+	return deviceCasesNodeset(predicates);
+}
 
 /** Standard device itemsets, evaluated against the worker's local case database.
  * current() is the question, so candidate relations use immediate-scope joins.
@@ -37,10 +76,7 @@ export function caseOptionsNodeset(
 				...(rewrites === undefined ? {} : { rewrites }),
 			}),
 		);
-	return w.instance(caseDbInstance(), [
-		w.step("casedb"),
-		w.step("case", predicates),
-	]);
+	return deviceCasesNodeset(predicates);
 }
 
 /**
@@ -57,10 +93,10 @@ export function fieldTakesCaseChoices(field: Field): field is (
 	| SingleSelectField
 	| MultiSelectField
 ) & {
-	optionsSource: CaseOptionsSource;
+	optionsSource: DeviceCaseOptionsSource;
 } {
 	return (
 		(field.kind === "single_select" || field.kind === "multi_select") &&
-		field.optionsSource.kind === "cases"
+		isDeviceCaseOptionsSource(field.optionsSource)
 	);
 }

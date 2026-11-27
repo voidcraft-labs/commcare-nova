@@ -18,7 +18,10 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildExpressionEditorContext } from "@/lib/codemirror/expressionEditorContext";
+import { parseFormExpressionForSlot } from "@/lib/doc/expressionText";
 import { expressionEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	advancedSearchInputDef,
 	type BlueprintDoc,
@@ -31,6 +34,7 @@ import {
 	type LookupTableId,
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
+	NEW_APP_SETTINGS,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
@@ -52,6 +56,7 @@ import {
 	tableLookup,
 	term,
 } from "@/lib/domain/expression";
+import { androidAppInputMember } from "@/lib/domain/fields/androidApp";
 import { proseText } from "@/lib/domain/prose";
 import {
 	FIELD_REFERENCE_SLOTS,
@@ -93,6 +98,10 @@ const FOLLOWUP = testUuid("parity-followup");
 const REGISTER = testUuid("parity-register");
 const CASE_PICK = testUuid("parity-case-pick");
 const TABLE_PICK = testUuid("parity-table-pick");
+const VISIT_NOTE = testUuid("parity-visit-note");
+const ANDROID_APP = testUuid("parity-android-app");
+const ANDROID_APP_VALUE = term({ kind: "field", uuid: VISIT_NOTE });
+const ANDROID_APP_VALUES = [{ name: "note", value: ANDROID_APP_VALUE }];
 const COLUMN_UUID = testUuid("parity-column");
 const SORT_UUID = testUuid("parity-sort");
 const MAPPING_UUID = testUuid("parity-mapping");
@@ -107,6 +116,9 @@ const ADVANCED_INPUT = testUuid("parity-advanced-input");
 const HIDDEN_INPUT = testUuid("parity-hidden-input");
 const SELECT_INPUT = testUuid("parity-select-input");
 const SEARCH_FILTER = testUuid("parity-search-filter");
+const PROJECT_SEARCH_MENU = testUuid("parity-project-search-menu");
+const PROJECT_SEARCH = testUuid("parity-project-search");
+const PROJECT_SEARCH_PARAMETER = testUuid("parity-project-search-parameter");
 const UPDATE = testUuid("parity-update");
 const RUNTIME = testUuid("parity-runtime");
 const CREATE = testUuid("parity-create");
@@ -120,6 +132,9 @@ function updateOperation(uuid: typeof UPDATE): CaseOperation {
 		target: { kind: "session" },
 		writes: [{ property: "visit_note", value: term(literal("seen")) }],
 		owner: term(literal("owner-id")),
+		ownerCondition: matchAll(),
+		closeAfter: true,
+		closeCondition: matchAll(),
 		links: [
 			{
 				identifier: "household",
@@ -131,11 +146,15 @@ function updateOperation(uuid: typeof UPDATE): CaseOperation {
 	};
 }
 
-/** Two modules: one whose every form opens a case (so a form's display
+/** One module whose every form opens a case (so a form's display
  * condition reads the chosen case), and one that also registers (so it reads
- * none). Every record slot has a real owner in one of them. */
+ * none). A separate menu holds a connected project search. */
 function fixture(): BlueprintDoc {
 	const doc = buildDoc({
+		appSettings: {
+			...NEW_APP_SETTINGS,
+			projectSearches: { [PROJECT_SEARCH]: { name: "Patients" } },
+		},
 		caseTypes: [
 			{
 				name: "patient",
@@ -318,6 +337,18 @@ function fixture(): BlueprintDoc {
 								kind: "single_select",
 								optionsSource: LOOKUP_OPTIONS,
 							}),
+							f({ uuid: VISIT_NOTE, id: "note", kind: "text" }),
+							f({
+								uuid: ANDROID_APP,
+								id: "app_result",
+								kind: "text",
+								androidApp: {
+									kind: "open-app",
+									action: "org.example.VISIT",
+									send: ANDROID_APP_VALUES,
+									receive: [{ name: "result", question: ANDROID_APP }],
+								},
+							}),
 						],
 					},
 				],
@@ -327,6 +358,24 @@ function fixture(): BlueprintDoc {
 				name: "Households",
 				caseType: "household",
 				forms: [{ uuid: REGISTER, name: "Register", type: "registration" }],
+			},
+			{
+				uuid: PROJECT_SEARCH_MENU,
+				name: "Connected search",
+				caseType: "patient",
+				caseSearchConfig: {
+					projectSearch: {
+						searchUuid: PROJECT_SEARCH,
+						defaults: [
+							{
+								uuid: PROJECT_SEARCH_PARAMETER,
+								name: "site",
+								value: term(literal("north")),
+							},
+						],
+					},
+				},
+				forms: [],
 			},
 		],
 	});
@@ -348,8 +397,13 @@ function fixture(): BlueprintDoc {
 			caseType: "household",
 			target: { kind: "new" },
 			name: term(literal("Household")),
+			typeChoice: { condition: matchAll(), otherwise: "patient" },
 			writes: [{ property: "visit_note", value: term(literal("new")) }],
 			owner: term(literal("owner-id")),
+			ownerAfterCreate: {
+				value: term(literal("later-owner-id")),
+				condition: matchAll(),
+			},
 		},
 	];
 	return doc;
@@ -390,6 +444,42 @@ const SLOTS: readonly ExpressionSlotRef[] = [
 	{ entity: "form", uuid: REGISTER, slot: "form_badge" },
 	...operationSlots(FOLLOWUP, UPDATE),
 	...operationSlots(REGISTER, CREATE),
+	{
+		entity: "form",
+		uuid: FOLLOWUP,
+		slot: "case_operation_close_condition",
+		member: { operationUuid: UPDATE },
+	},
+	{
+		entity: "form",
+		uuid: FOLLOWUP,
+		slot: "case_operation_owner_condition",
+		member: { operationUuid: UPDATE },
+	},
+	{
+		entity: "form",
+		uuid: REGISTER,
+		slot: "case_operation_later_owner",
+		member: { operationUuid: CREATE },
+	},
+	{
+		entity: "form",
+		uuid: REGISTER,
+		slot: "case_operation_later_owner_condition",
+		member: { operationUuid: CREATE },
+	},
+	{
+		entity: "form",
+		uuid: REGISTER,
+		slot: "case_operation_type_condition",
+		member: { operationUuid: CREATE },
+	},
+	{
+		entity: "module",
+		uuid: PROJECT_SEARCH_MENU,
+		slot: "project_search_parameter",
+		member: { parameterUuid: PROJECT_SEARCH_PARAMETER },
+	},
 	{
 		entity: "form",
 		uuid: FOLLOWUP,
@@ -641,6 +731,31 @@ describe("the editor's axes are the slot's profile", () => {
 		).toBe("on-device");
 	});
 
+	it("uses the question's form-logic context for values sent to an Android app", () => {
+		const slot = {
+			entity: "field",
+			uuid: ANDROID_APP,
+			slot: "android_app_input",
+			member: androidAppInputMember(ANDROID_APP_VALUES, 0),
+		} as const satisfies ExpressionSlotRef;
+		const context = slotContext(doc, slot, LOOKUP_TYPES);
+		expect(context).toMatchObject({
+			ruleSet: "form",
+			profile: { scope: "form", expectation: { kind: "value" } },
+		});
+		const editor = buildExpressionEditorContext(
+			doc,
+			slot,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(editor?.reference.validPaths).toContain("/data/note");
+		expect(editor?.check("#form/note")).toEqual([]);
+		expect(editor?.check("#form/missing")).not.toEqual([]);
+		expect(
+			parseFormExpressionForSlot(doc, slot, "#form/note", "unavailable"),
+		).toMatchObject({ ok: true, expression: ANDROID_APP_VALUE });
+	});
+
 	it("covers every record slot the reference tables declare", () => {
 		const declared = new Set<string>(
 			[
@@ -676,6 +791,7 @@ describe("the editor's axes are the slot's profile", () => {
 			"required",
 			"repeat_count",
 			"ids_query",
+			"android_app_input",
 			"form_link_condition",
 			"form_link_datum_xpath",
 			"assessment_user_score",
@@ -683,10 +799,11 @@ describe("the editor's axes are the slot's profile", () => {
 			"deliver_entity_name",
 			"deliver_work_area_id",
 		]);
-		for (const slot of declared)
-			expect(
-				record.has(slot) || formLogic.has(slot),
-				`${slot} is neither a covered record slot nor a form-logic slot`,
-			).toBe(true);
+		const unclassified = [...declared].filter(
+			(slot) => !record.has(slot) && !formLogic.has(slot),
+		);
+		expect(unclassified, "expression slots missing an editor profile").toEqual(
+			[],
+		);
 	});
 });

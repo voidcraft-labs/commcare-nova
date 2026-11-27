@@ -19,9 +19,10 @@ import { requiresLookupProjection } from "@/lib/lookup/source";
 import "server-only";
 
 import type { PreparedLookupWire } from "@/lib/commcare/lookup/fixtures";
-import type {
-	LookupTableWireNaming,
-	LookupWireNaming,
+import {
+	type LookupTableWireNaming,
+	type LookupWireNaming,
+	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
 import type { LookupWorkbook } from "@/lib/commcare/lookup/workbook";
 import {
@@ -62,6 +63,7 @@ import {
 	type ExportMode,
 	exportCarrierFindings,
 	type LookupTarget,
+	lookupFixtureBudgetFindings,
 	type ManagedLookupTable,
 	type ManagedLookupWorkbook,
 } from "./boundaryFindings";
@@ -88,7 +90,21 @@ import {
 	planLargeWorkbooks,
 	type StreamLookupWorkbook,
 } from "@/lib/commcare/lookup/archiveWorkbooks";
-import { describeLookupCarrierAlternative } from "@/lib/commcare/lookup/carrier";
+import {
+	alternativeLookupCarrier,
+	describeLookupCarrierAlternative,
+} from "@/lib/commcare/lookup/carrier";
+import {
+	PAGED_LOOKUP_JSON_BYTES,
+	PAGED_LOOKUP_JSON_ROWS,
+	type PagedLookupJsonRow,
+	stagePagedLookupJson,
+} from "@/lib/commcare/lookup/pagedJsonRows";
+import { lookupRuntimeValueFinding } from "@/lib/commcare/lookup/runtimeStrings";
+import {
+	measureStreamedLookupFixtures,
+	plannedLookupFixtureBudget,
+} from "@/lib/commcare/lookup/streamSuite";
 import { prepareArchiveTables } from "@/lib/deployment/prepareArchiveTables";
 import type {
 	ArchiveLookupAccess,
@@ -96,6 +112,8 @@ import type {
 } from "@/lib/lookup/archiveRows";
 
 export interface PrepareExportBoundaryInput {
+	/** Include an authenticated data-install manifest in an HQ import package. */
+	readonly manualLookupInstaller?: boolean;
 	readonly mode: ExportMode;
 	readonly installTarget?: { server: string; domain: string; appId: string };
 	readonly streamMedia?: boolean;
@@ -218,6 +236,13 @@ export interface PreparedExportBoundary {
 	 * where none does.
 	 */
 	readonly jsonLookupTables?: readonly LookupTableWireNaming[];
+	readonly pagedJsonRows?: ReadonlyMap<
+		LookupTableId,
+		{
+			readonly rows: readonly PagedLookupJsonRow[];
+			readonly bytes: number;
+		}
+	>;
 }
 
 export type PrepareExportBoundaryResult =
@@ -445,6 +470,43 @@ async function prepareWithRegistry(
 		);
 	}
 	const lookupContext = availableLookupContext(lookupSnapshot);
+	/* The mode's carrier and its row and mode verdicts, over this one
+	 * snapshot. The selection findings are read only once the document's own
+	 * verdict has passed. */
+	const buildCarrier = () =>
+		exportCarrierFindings({
+			doc: input.doc,
+			mode: input.mode,
+			manualLookupInstaller: input.manualLookupInstaller,
+			fixtureData,
+			assignments: assignment?.owners,
+			restoreTableIds: new Set(restoreIds),
+			...(input.lookupTarget !== undefined && {
+				lookupTarget: input.lookupTarget,
+			}),
+			...(input.jsonDestinationTableIds !== undefined && {
+				jsonDestinationTableIds: input.jsonDestinationTableIds,
+			}),
+			...(input.workbookLookupTags !== undefined && {
+				workbookLookupTags: input.workbookLookupTags,
+			}),
+		});
+	const ccZCarrier =
+		input.mode === "ccz" && lookupSnapshot.streamedTables?.size
+			? buildCarrier()
+			: undefined;
+	const compiledFixtures = ccZCarrier?.lookupWire?.fixtures;
+	const ccZBudget =
+		compiledFixtures && lookupSnapshot.streamedTables
+			? plannedLookupFixtureBudget(
+					compiledFixtures,
+					lookupSnapshot.streamedTables,
+				)
+			: undefined;
+	if (ccZBudget) {
+		const findings = lookupFixtureBudgetFindings(ccZBudget);
+		if (findings.length) return { ok: false, violations: findings };
+	}
 	const actor = lookupSnapshot.streamedTables?.size
 		? input.archiveActor?.()
 		: undefined;
@@ -461,53 +523,101 @@ async function prepareWithRegistry(
 		input.mode === "hq-upload",
 	);
 	if (streamed.issues.length) return { ok: false, violations: streamed.issues };
+	const continuedJson = [...streamed.tables.values()].filter(
+		(table) =>
+			input.mode === "hq-upload" &&
+			input.jsonDestinationTableIds?.has(table.definition.id),
+	);
 	const workbookPlan =
 		input.mode === "ccz"
 			? { files: [], alternatives: [] }
-			: await planLargeWorkbooks([...streamed.tables.values()]);
-	if (workbookPlan.alternatives.length)
-		return {
-			ok: false,
-			violations: workbookPlan.alternatives.map((item) =>
-				validationError(
-					"LOOKUP_WORKER_SOURCE_UNAVAILABLE",
-					"app",
-					/* Only a table held as a streamed generation reaches here, and
-					 * no carrier takes one exactly yet, the direct publish included. */
-					describeLookupCarrierAlternative(
-						item.table.definition.name,
-						item.carrier,
-						"too-large",
+			: await planLargeWorkbooks(
+					[...streamed.tables.values()].filter(
+						(table) => !continuedJson.includes(table),
 					),
-					{},
-					{
-						tableId: item.table.definition.id,
-						tableName: item.table.definition.name,
-						delivery: item.carrier.kind,
-					},
-				),
+				);
+	const pagedJsonRows = new Map<
+		LookupTableId,
+		{
+			rows: readonly PagedLookupJsonRow[];
+			bytes: number;
+		}
+	>();
+	const pagedJsonTables: LookupTableWireNaming[] = [];
+	let remainingRows = PAGED_LOOKUP_JSON_ROWS;
+	let remainingBytes = PAGED_LOOKUP_JSON_BYTES;
+	const blocked: ValidationError[] = [];
+	for (const { table, carrier, runtimeValueTooLong } of [
+		...workbookPlan.alternatives,
+		...continuedJson.map((table) => ({
+			table,
+			runtimeValueTooLong: undefined,
+			carrier: alternativeLookupCarrier(
+				table.definition,
+				"This table already uses the destination’s JSON resources.",
 			),
-		};
+		})),
+	]) {
+		const { definition } = table;
+		const tableNaming = lookupWireNaming([definition]).tableFor(definition.id);
+		const inWorkbook =
+			!input.jsonDestinationTableIds?.has(definition.id) &&
+			input.workbookLookupTags?.get(definition.id)?.has(tableNaming.tag);
+		const direct = input.mode === "hq-upload";
+		const jsonAllowed =
+			direct || (input.mode === "hq-json" && input.manualLookupInstaller);
+		let issue: string;
+		let code: ValidationError["code"] = "LOOKUP_WORKER_SOURCE_UNAVAILABLE";
+		let delivery: string = carrier.kind;
+		if (runtimeValueTooLong) {
+			blocked.push(lookupRuntimeValueFinding(definition));
+			continue;
+		}
+		if (jsonAllowed && carrier.kind === "json" && !inWorkbook) {
+			const staged = await stagePagedLookupJson(table, tableNaming, {
+				rows: remainingRows,
+				bytes: remainingBytes,
+			});
+			if (!("issue" in staged)) {
+				pagedJsonTables.push(tableNaming);
+				pagedJsonRows.set(definition.id, staged);
+				remainingRows -= staged.rows.length;
+				remainingBytes -= staged.bytes;
+				continue;
+			}
+			if (staged.problem === "runtime-value-length") {
+				blocked.push(lookupRuntimeValueFinding(definition));
+				continue;
+			}
+			issue = staged.issue;
+			code = staged.excess
+				? "LOOKUP_HQ_PUSH_TOO_LARGE"
+				: "LOOKUP_CELL_TEXT_UNREPRESENTABLE";
+			if (staged.excess === "definition") delivery = "json-definition";
+		} else {
+			issue = describeLookupCarrierAlternative(
+				definition.name,
+				carrier,
+				direct && inWorkbook ? "workbook-there" : "too-large",
+			);
+		}
+		blocked.push(
+			validationError(
+				code,
+				"app",
+				issue,
+				{},
+				{
+					tableId: definition.id,
+					tableName: definition.name,
+					delivery,
+				},
+			),
+		);
+	}
+	if (blocked.length) return { ok: false, violations: blocked };
 
-	/* The mode's carrier and its row and mode verdicts, over this one
-	 * snapshot. The selection findings are read only once the document's own
-	 * verdict has passed. */
-	const carrier = exportCarrierFindings({
-		doc: input.doc,
-		mode: input.mode,
-		fixtureData,
-		assignments: assignment?.owners,
-		restoreTableIds: new Set(restoreIds),
-		...(input.lookupTarget !== undefined && {
-			lookupTarget: input.lookupTarget,
-		}),
-		...(input.jsonDestinationTableIds !== undefined && {
-			jsonDestinationTableIds: input.jsonDestinationTableIds,
-		}),
-		...(input.workbookLookupTags !== undefined && {
-			workbookLookupTags: input.workbookLookupTags,
-		}),
-	});
+	const carrier = ccZCarrier ?? buildCarrier();
 	const {
 		naming,
 		lookupWire,
@@ -533,6 +643,22 @@ async function prepareWithRegistry(
 	}
 	if (carrier.selectionFindings.length > 0) {
 		return { ok: false, violations: carrier.selectionFindings };
+	}
+
+	if (ccZBudget) {
+		const { budget, incomplete, runtimeValueTable } =
+			await measureStreamedLookupFixtures(
+				ccZBudget,
+				[...streamed.tables.values()],
+				true,
+			);
+		if (runtimeValueTable)
+			return {
+				ok: false,
+				violations: [lookupRuntimeValueFinding(runtimeValueTable)],
+			};
+		const findings = lookupFixtureBudgetFindings(budget, incomplete);
+		if (findings.length) return { ok: false, violations: findings };
 	}
 
 	/* Bytes are resolved only after the complete boundary succeeds. All three
@@ -570,9 +696,11 @@ async function prepareWithRegistry(
 			...(lookupWorkbook !== undefined && { lookupWorkbook }),
 			managedLookupTables,
 			managedLookupWorkbooks,
-			...(carrier.jsonLookupTables.length > 0 && {
-				jsonLookupTables: carrier.jsonLookupTables,
+			...((carrier.jsonLookupTables.length > 0 ||
+				pagedJsonTables.length > 0) && {
+				jsonLookupTables: [...carrier.jsonLookupTables, ...pagedJsonTables],
 			}),
+			...(pagedJsonRows.size > 0 && { pagedJsonRows }),
 		},
 	};
 }

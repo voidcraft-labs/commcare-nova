@@ -397,6 +397,37 @@ describe("PostgresCaseStore.queryGrouped", () => {
 		]);
 	});
 
+	it.each(["my-parent", "my.parent"])(
+		"groups by the full connection identifier %s",
+		async (identifier) => {
+			const store = makeStore();
+			const { north, south } = await seed(store);
+			await dbHandle.pool.query(
+				"UPDATE case_indices SET identifier = $1 WHERE identifier = $2",
+				[identifier, "parent"],
+			);
+
+			const grouped = await store.queryGrouped({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+				caseTypeSchemas: schemas(),
+				indexIdentifier: identifier,
+				sort: byName,
+				groupOffset: 0,
+				groupLimit: 10,
+			});
+			expect(grouped.groups.map((group) => group.key)).toEqual([
+				north,
+				south,
+				"",
+			]);
+			expect(
+				grouped.groups.map((group) => group.rows.map((row) => row.case_name)),
+			).toEqual([["Ada", "Cal"], ["Ben", "Dot"], ["Eve"]]);
+		},
+	);
+
 	it("counts the cases that carry no such index", async () => {
 		const store = makeStore();
 		await seed(store);

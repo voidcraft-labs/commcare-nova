@@ -11,6 +11,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { validEntryPoints } from "../../../validator/rules/app";
 import { codesOf, formNamed, moduleNamed, readMenusOf } from "./menuReading";
 
 function app(): BlueprintDoc {
@@ -122,7 +123,95 @@ async function sharedFirstMenuReading(
 	return reading;
 }
 
+function firstMenuWithHouseholdSearch(inlineSearch: boolean): BlueprintDoc {
+	const patients = testUuid("first-menu-patients");
+	const visit = testUuid("first-menu-visit");
+	const households = testUuid("first-menu-households");
+	return buildDoc(
+		{
+			caseTypes: ["patient", "household"].map((name) => ({
+				name,
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			})),
+			modules: [
+				{
+					uuid: patients,
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: visit,
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+				{
+					uuid: households,
+					name: "Households",
+					caseType: "household",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Check",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+			],
+		},
+		(draft) => {
+			draft.modules[patients].formsInMenuAbove = true;
+			draft.forms[visit].entryPoint = {
+				uuid: testUuid("visit-link"),
+				id: "visit",
+			};
+			if (inlineSearch) {
+				draft.appSettings.runsOnlyOn = "web-apps";
+				draft.modules[households].caseSearchConfig = {
+					workflow: "skipToResults",
+					formsReadSearch: true,
+				};
+			}
+		},
+	);
+}
+
 describe("deep links", () => {
+	it("keeps a first-menu deep link when another menu's search limits the app to Web Apps", async () => {
+		const exported = firstMenuWithHouseholdSearch(true);
+		expect(validEntryPoints(exported)).toEqual([]);
+
+		const reading = await readMenusOf(exported);
+		expect(codesOf(reading)).toEqual([]);
+		expect(reading.outcome).toMatchObject({
+			kind: "read",
+			draft: {
+				declaration: {
+					kind: "choices",
+					choices: [expect.objectContaining({ runsOnlyOn: "web-apps" })],
+				},
+			},
+		});
+		expect(reading.doc && formNamed(reading.doc, "Visit").entryPoint?.id).toBe(
+			"visit",
+		);
+	});
+
+	it("still refuses a first-menu deep link with incompatible Android case reuse", async () => {
+		const reading = await readMenusOf(firstMenuWithHouseholdSearch(false));
+		expect(codesOf(reading)).toContain(
+			"forms-and-case-writes/first-menu-selection-used-for-different-records",
+		);
+	});
+
 	it("reads each slot with its id, and a form's link that ignores display conditions", async () => {
 		const reading = await readMenusOf(app());
 		expect(codesOf(reading)).toEqual([]);

@@ -3,12 +3,19 @@
 import { v7 } from "uuid";
 import { afterEach, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
+import { evaluateCommit } from "@/lib/commcare/validator/gate";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { reclaimExpiredFormOpeningData } from "@/lib/db/formOpeningData";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { FormSelectionSource } from "@/lib/domain";
+import {
+	effectiveCaseTypes,
+	type FormSelectionSource,
+	NEW_APP_SETTINGS,
+} from "@/lib/domain";
 import { eq, literal, matchAll, tableLookup } from "@/lib/domain/expression";
 import {
 	lookupColumnIdSchema,
@@ -21,7 +28,10 @@ import { independentChoicesBlueprint } from "@/proof/targeted/documents/independ
 import { submitFormAction } from "../caseDataBinding";
 import { blueprintRevisionDigest } from "../caseDataBindingClient";
 import { EngineController } from "../engineController";
-import { readFormOpeningAction } from "../formOpeningAction";
+import {
+	authorizeSavedFormReceiptRun,
+	readFormOpeningAction,
+} from "../formOpeningAction";
 import {
 	formNeedsOpeningEvidence,
 	restoreOpeningCases,
@@ -29,7 +39,8 @@ import {
 } from "../formOpeningSnapshot";
 import { previewAsPersona } from "../identity";
 import { resolveAuthorizedPreviewContext } from "../previewAuthorization";
-import { webAppsDevice } from "./fixtures/previewDevices";
+import { signFormOpening } from "../signedFormOpening";
+import { androidDevice, webAppsDevice } from "./fixtures/previewDevices";
 
 const member = vi.hoisted(() => ({
 	id: "signed-entry-member",
@@ -263,6 +274,7 @@ async function openPracticeForm(
 		blueprint: ReturnType<typeof independentChoicesBlueprint>,
 	) => void | Promise<void>,
 	withOpeningValues = false,
+	device = webAppsDevice(),
 ) {
 	vi.stubEnv("BETTER_AUTH_SECRET", "synthetic signed opening secret");
 	await h.seedProjectMember(member.id, project, "owner");
@@ -296,7 +308,6 @@ async function openPracticeForm(
 			($1,$2,'protected-other-worker','person','Unavailable','open','another-worker','{"first_note":"outside this restore"}')`,
 		[app, project, member.id],
 	);
-	const device = webAppsDevice();
 	const context = await resolveAuthorizedPreviewContext({
 		appId: app,
 		required: "edit",
@@ -326,6 +337,271 @@ async function openPracticeForm(
 		throw new Error(`Could not open first choice: ${first.kind}`);
 	return { app, pool, device, doc, module, request, first, next: first.next };
 }
+
+it("rejects an over-limit bound selection before reading the signed worker restore", async () => {
+	vi.stubEnv("BETTER_AUTH_SECRET", "synthetic signed selection secret");
+	const app = "signed-bound-selection";
+	const doc = buildDoc({
+		appId: app,
+		caseTypes: [{ name: "person", properties: [] }],
+		modules: [
+			{
+				name: "Visits",
+				caseType: "person",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Follow up",
+						type: "followup",
+						fields: [{ kind: "text", id: "note", label: "Note" }],
+					},
+				],
+			},
+		],
+	});
+	await h.seedAppWithBlueprint(doc, {
+		id: app,
+		owner: member.id,
+		projectId: project,
+	});
+	await h.seedProjectMember(member.id, project, "viewer");
+	const pool = h.pool();
+	await pool.query(
+		`INSERT INTO auth_session (id,"userId",token,"createdAt","updatedAt","expiresAt")
+		VALUES ($1,$2,$1,now(),now(),now()+interval '1 day')`,
+		[member.session, member.id],
+	);
+	await pool.query(
+		`INSERT INTO cases (app_id,project_id,case_id,case_type,case_name,status,owner_id,properties)
+		VALUES ($1,$2,'training-1','person','First record','open',$3,'{}'),
+		       ($1,$2,'training-2','person','Second record','open',$3,'{}')`,
+		[app, project, member.id],
+	);
+	const module = doc.moduleOrder[0];
+	const opening = {
+		app,
+		module,
+		form: doc.formOrder[module][0],
+		entry: testUuid("review-with-a-bound-selection"),
+		run: testUuid("bound-selection-run"),
+		blueprintDigest: await blueprintRevisionDigest(doc),
+	};
+	const device = webAppsDevice();
+	const readRestore = vi.spyOn(
+		PostgresCaseStore.prototype,
+		"readDeviceCaseDatabase",
+	);
+	try {
+		expect(
+			await readFormOpeningAction(
+				{ ...opening, bound: ["training-1", "training-2"] },
+				device,
+			),
+		).toEqual({ kind: "record-unavailable" });
+		expect(readRestore).not.toHaveBeenCalled();
+		const allowed = await readFormOpeningAction(
+			{ ...opening, bound: ["training-2"] },
+			device,
+		);
+		expect(allowed.kind).toBe("opening");
+		if (allowed.kind !== "opening")
+			throw new Error("Expected a signed opening.");
+		expect(allowed.projection.primaryCaseIds).toEqual(["training-2"]);
+		expect(readRestore).toHaveBeenCalledTimes(1);
+	} finally {
+		readRestore.mockRestore();
+	}
+});
+
+it.each([false, true])(
+	"signs and atomically closes an ordered flat selection without restoring unrelated records (automatic %s)",
+	async (automatic) => {
+		vi.stubEnv("BETTER_AUTH_SECRET", "synthetic flat close secret");
+		const app = "bounded-flat-close-app";
+		const doc = buildDoc({
+			appId: app,
+			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+			caseTypes: [{ name: "person", properties: [] }],
+			modules: [
+				{
+					name: "Visits",
+					caseType: "person",
+					caseListConfig: {
+						...caseListConfig([{ field: "case_name", header: "Name" }]),
+						selection: {
+							kind: "multiple",
+							maximum: 101,
+							...(automatic && { autoSelect: true }),
+						},
+					},
+					forms: [
+						{
+							name: "Close these visits",
+							type: "close",
+							postSubmit: "app_home",
+							fields: [{ kind: "hidden", id: "done", calculate: "'yes'" }],
+						},
+					],
+				},
+			],
+		});
+		await h.seedAppWithBlueprint(doc, {
+			id: app,
+			owner: member.id,
+			projectId: project,
+		});
+		await h.seedProjectMember(member.id, project, "editor");
+		const pool = h.pool();
+		await pool.query(
+			`INSERT INTO auth_session (id,"userId",token,"createdAt","updatedAt","expiresAt")
+		VALUES ($1,$2,$1,now(),now(),now()+interval '1 day')`,
+			[member.session, member.id],
+		);
+		await pool.query(
+			`INSERT INTO cases (app_id,project_id,case_id,case_type,case_name,status,owner_id,properties)
+		VALUES ($1,$2,'training-1','person','First record','open',$3,'{}'),
+		       ($1,$2,'training-2','person','Second record','open',$3,'{}'),
+		       ($1,$2,'unrelated','person','Large unrelated record','open',$4,jsonb_build_object('payload',repeat('Ω',200000)))`,
+			[app, project, member.id, automatic ? "another-worker" : member.id],
+		);
+		const module = doc.moduleOrder[0];
+		const request = {
+			app,
+			module,
+			form: doc.formOrder[module][0],
+			entry: testUuid("bounded-flat-close-entry"),
+			run: testUuid("bounded-flat-close-run"),
+			blueprintDigest: await blueprintRevisionDigest(doc),
+		};
+		const selected = automatic
+			? ["training-1", "training-2"]
+			: ["training-2", "training-1"];
+		const device = webAppsDevice();
+		const readRestore = vi.spyOn(
+			PostgresCaseStore.prototype,
+			"readDeviceCaseDatabase",
+		);
+		try {
+			const opened = await readFormOpeningAction(
+				{ ...request, bound: selected },
+				device,
+			);
+			if (opened.kind !== "opening")
+				throw new Error(`Expected a bounded opening, got ${opened.kind}.`);
+			expect(opened.projection.boundedFlatClose).toBeDefined();
+			expect(opened.projection.primaryCaseIds).toEqual(selected);
+			expect(
+				opened.projection.cases.rows.map((row) => row.case_id).toSorted(),
+			).toEqual(selected.toSorted());
+			if (automatic) {
+				await pool.query(
+					`INSERT INTO cases (app_id,project_id,case_id,case_type,case_name,status,owner_id,properties)
+				VALUES ($1,$2,'later','person','Newly available','open',$3,'{}')`,
+					[app, project, member.id],
+				);
+				expect(
+					await readFormOpeningAction({ ...request, bound: selected }, device),
+				).toMatchObject({ kind: "record-unavailable" });
+			}
+			expect(
+				(
+					await readFormOpeningAction(
+						{ ...request, previous: opened.evidence, restore: true },
+						device,
+					)
+				).kind,
+			).toBe("opening");
+			const submit = (caseIds: string[], evidence?: typeof opened.evidence) =>
+				submitFormAction(
+					{
+						kind: "close",
+						caseIds,
+						formUuid: request.form,
+						entryKey: request.entry,
+						attachmentRefs: [],
+						...(evidence && {
+							formOpening: { module, run: request.run, evidence },
+						}),
+						operationAnswers: { root: [], repeats: [] },
+					},
+					app,
+					request.blueprintDigest,
+					undefined,
+					undefined,
+					undefined,
+					device,
+				);
+			expect(await submit(selected)).toMatchObject({
+				kind: "error",
+				message:
+					"Reopen this form to load its opening records before submitting.",
+			});
+			if (!automatic) {
+				const context = await resolveAuthorizedPreviewContext({
+					appId: app,
+					device,
+					required: "view",
+				});
+				if (
+					context.kind !== "ready" ||
+					context.baseSeq === undefined ||
+					!context.sessionId
+				)
+					throw new Error("Expected the fixture's authorized session.");
+				const { boundedFlatClose: _bounded, ...ordinary } = opened.projection;
+				const ordinaryEvidence = await signFormOpening(
+					"synthetic flat close secret",
+					{
+						app,
+						project: context.scope.projectId,
+						actor: context.identity.actorUserId,
+						session: context.sessionId,
+						worker: context.identity.ownerId,
+						persona: context.identity.personaUuid ?? null,
+						device: context.device,
+						run: request.run,
+						module,
+						form: request.form,
+						entry: request.entry,
+						revision: context.baseSeq,
+						blueprintDigest: request.blueprintDigest,
+					},
+					ordinary,
+				);
+				expect(
+					await readFormOpeningAction(
+						{ ...request, previous: ordinaryEvidence, restore: true },
+						device,
+					),
+				).toMatchObject({ kind: "reopen" });
+				expect(await submit(selected, ordinaryEvidence)).toMatchObject({
+					kind: "error",
+					message: "Reopen this form to choose the records again.",
+				});
+			}
+			expect(
+				(await submit(selected.toReversed(), opened.evidence)).kind,
+			).not.toBe("close");
+			const closed = await submit(selected, opened.evidence);
+			expect(closed).toMatchObject({ kind: "close", caseIds: selected });
+			expect(await submit(selected, opened.evidence)).toEqual(closed);
+			const stored = await pool.query<{ case_id: string; status: string }>(
+				"SELECT case_id,status FROM cases WHERE app_id=$1 AND case_id=ANY($2) ORDER BY case_id",
+				[app, [...selected, "unrelated"]],
+			);
+			expect(stored.rows).toEqual([
+				{ case_id: "training-1", status: "closed" },
+				{ case_id: "training-2", status: "closed" },
+				{ case_id: "unrelated", status: "open" },
+			]);
+			expect(readRestore).not.toHaveBeenCalled();
+		} finally {
+			readRestore.mockRestore();
+		}
+	},
+);
 
 it("restores a signed projection above one MiB only for the original entry, run and device", async () => {
 	const { pool, device, request, first, app } = await openPracticeForm(1850);
@@ -671,7 +947,7 @@ it("writes each chosen record and replays the committed receipt after the saved 
 			repeats: [],
 		},
 	};
-	const submit = (payload = mutation, run = request.run) =>
+	const submit = (payload = mutation) =>
 		submitFormAction(
 			payload,
 			app,
@@ -680,8 +956,6 @@ it("writes each chosen record and replays the committed receipt after the saved 
 			undefined,
 			undefined,
 			device,
-			undefined,
-			run,
 		);
 	expect((await submit({ ...mutation, caseIds: ["training-3"] })).kind).toBe(
 		"error",
@@ -723,10 +997,6 @@ it("writes each chosen record and replays the committed receipt after the saved 
 	).toBe("reopen");
 	expect(await reclaimExpiredFormOpeningData()).toBe(1);
 	expect(await submit()).toEqual(result);
-	expect(await submit(mutation, testUuid("replay-in-another-run"))).toEqual({
-		...result,
-		receiptOutsideRun: true,
-	});
 });
 
 it("saves the rich lookup value from the signed opening after its live row changes", async () => {
@@ -1044,8 +1314,9 @@ it("pins the original form's write with each entry's own lookup choice", async (
 	expect(saved.rows[2].first).toBe("Shared route");
 });
 
-it("opens the next form on the device its submission left, a case the restore no longer holds among it", async () => {
+it("carries the submission into its continuing device run even when the signed entry ran separately", async () => {
 	const otherWorker = testUuid("carry-other-worker");
+	const continuingRun = testUuid("carry-continuing-run");
 	const { pool, device, request, first, app, next, doc, module } =
 		await openPracticeForm(
 			3,
@@ -1056,6 +1327,7 @@ it("opens the next form on the device its submission left, a case the restore no
 				blueprint.personaOrder = [otherWorker];
 			},
 			true,
+			androidDevice(),
 		);
 	const second = await readFormOpeningAction(
 		{
@@ -1078,27 +1350,52 @@ it("opens the next form on the device its submission left, a case the restore no
 	if (opened.kind !== "opening") throw new Error("Could not finish choices");
 	const note = Object.values(doc.fields).find((field) => field.id === "note");
 	if (!note) throw new Error("Fixture is missing its visit note");
-	const result = await submitFormAction(
+	const resumed = await authorizeSavedFormReceiptRun(
 		{
-			kind: "followup" as const,
-			caseIds: ["training-2"],
-			entryKey: request.entry,
-			formUuid: request.form,
-			attachmentRefs: [],
-			formOpening: { run: request.run, module, evidence: opened.evidence },
-			operationAnswers: {
-				root: [{ fieldUuid: note.uuid, value: "Seen today" }],
-				repeats: [],
-			},
+			...request,
+			previous: opened.evidence,
+			restore: true,
+			resumeInto: continuingRun,
 		},
-		app,
-		request.blueprintDigest,
-		undefined,
-		undefined,
-		undefined,
 		device,
 	);
+	if (!resumed)
+		throw new Error("Could not authorize the saved entry's new device run");
+	const mutation = {
+		kind: "followup" as const,
+		caseIds: ["training-2"],
+		entryKey: request.entry,
+		formUuid: request.form,
+		attachmentRefs: [],
+		formOpening: { run: request.run, module, evidence: opened.evidence },
+		operationAnswers: {
+			root: [{ fieldUuid: note.uuid, value: "Seen today" }],
+			repeats: [],
+		},
+	};
+	const submit = (run: string, transition?: typeof resumed) =>
+		submitFormAction(
+			mutation,
+			app,
+			request.blueprintDigest,
+			undefined,
+			undefined,
+			undefined,
+			device,
+			undefined,
+			run,
+			transition,
+		);
+	expect(
+		(await submit(continuingRun, { ...resumed, to: request.run })).kind,
+	).not.toBe("followup");
+	const result = await submit(continuingRun, resumed);
 	expect(result.kind).toBe("followup");
+	expect(await submit(continuingRun, resumed)).toEqual(result);
+	expect(await submit(request.run)).toEqual({
+		...result,
+		receiptOutsideRun: true,
+	});
 	// The case leaves this worker's restore, as a case the entry closed does;
 	// the device keeps it until it syncs.
 	await pool.query(
@@ -1115,6 +1412,7 @@ it("opens the next form on the device its submission left, a case the restore no
 	if (!review || !reviewMenu) throw new Error("Fixture is missing its review");
 	const following = {
 		...request,
+		run: continuingRun,
 		module: reviewMenu,
 		form: review.uuid,
 		entry: testUuid("following-entry"),
@@ -1134,6 +1432,7 @@ it("opens the next form on the device its submission left, a case the restore no
 	expect(afterSubmission.projection.primaryCaseIds).toEqual(["training-2"]);
 	expect(afterSubmission.projection.submittedCaseIds).toContain("training-2");
 	for (const wrongScope of [
+		{ run: request.run },
 		{ run: testUuid("new-run") },
 		{ persona: otherWorker },
 	]) {
@@ -1184,6 +1483,7 @@ it("opens the next form on the device its submission left, a case the restore no
 	const linkedChoices = await readFormOpeningAction(
 		{
 			...request,
+			run: continuingRun,
 			entry: testUuid("linked-entry-to-the-same-form"),
 			carried: [...opened.projection.choices],
 			afterSubmission: [request.entry],
@@ -1204,6 +1504,7 @@ it("opens the next form on the device its submission left, a case the restore no
 	);
 	const newChoice = {
 		...request,
+		run: continuingRun,
 		entry: testUuid("new-choice-after-submission"),
 	};
 	const newChoiceOpening = await readFormOpeningAction(
@@ -1250,4 +1551,164 @@ it("opens the next form on the device its submission left, a case the restore no
 			)
 		).kind,
 	).toBe("reopen");
+});
+
+it("matches the device's numeric only-if-changed write onto a retained text property", async () => {
+	vi.stubEnv("BETTER_AUTH_SECRET", "synthetic numeric edit opening secret");
+	const app = "mixed-text-numeric-edit";
+	const number = testUuid("mixed-members-number");
+	const text = testUuid("mixed-members-text");
+	const doc = buildDoc({
+		appId: app,
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+		caseTypes: [{ name: "household", properties: [] }],
+		modules: [
+			{
+				name: "Households",
+				caseType: "household",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Count members",
+						type: "followup",
+						fields: [
+							{
+								kind: "int",
+								id: "count",
+								uuid: number,
+								label: "Members",
+								caseWrite: { caseType: "household", property: "members" },
+							},
+						],
+					},
+					{
+						name: "Describe members",
+						type: "followup",
+						fields: [
+							{
+								kind: "text",
+								id: "description",
+								uuid: text,
+								label: "Members",
+								caseWrite: { caseType: "household", property: "members" },
+							},
+						],
+					},
+				],
+			},
+		],
+	});
+	const module = doc.moduleOrder[0];
+	const [count, describe] = doc.formOrder[module];
+	const numberForm = doc.forms[count];
+	// The fixture planner normally preloads an existing case field when
+	// adding its write. Both actual HQ questions start blank in this slice.
+	for (const field of [doc.fields[number], doc.fields[text]]) {
+		if ("default_value" in field) delete field.default_value;
+	}
+	const write = numberForm.caseOperations?.find(
+		(operation) => operation.action === "own",
+	)?.writes?.[0];
+	if (!write) throw new Error("Expected the numeric own-case write");
+	write.onlyIfChanged = true;
+	expect(numberForm.openingAssignments ?? []).toEqual([]);
+	expect(
+		evaluateCommit({ nextDoc: doc, lookupContext: LOOKUP_CONTEXT_UNAVAILABLE }),
+	).toEqual({ ok: true });
+	expect(
+		effectiveCaseTypes(doc).find((type) => type.name === "household")
+			?.properties,
+	).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({ name: "members", data_type: "text" }),
+		]),
+	);
+
+	await h.seedAppWithBlueprint(doc, {
+		id: app,
+		owner: member.id,
+		projectId: project,
+	});
+	await h.seedProjectMember(member.id, project, "editor");
+	const pool = h.pool();
+	await pool.query(
+		`INSERT INTO auth_session (id,"userId",token,"createdAt","updatedAt","expiresAt")
+		VALUES ($1,$2,$1,now(),now(),now()+interval '1 day')`,
+		[member.session, member.id],
+	);
+	// The prior writer keeps these lexical strings. The typed count compares
+	// as a number even though the property stores text.
+	const cases = [
+		{ id: "date-text", before: "1970-01-08", answer: "7", after: "1970-01-08" },
+		{ id: "decimal", before: "007.0", answer: "7", after: "007.0" },
+		{ id: "leading-zero", before: "007", answer: "7", after: "007" },
+		{ id: "missing", before: null, answer: "0", after: "0" },
+		{ id: "negative-trim", before: " -007 ", answer: "-7", after: " -007 " },
+		{ id: "ordinary-text", before: "several", answer: "7", after: "7" },
+		{ id: "plus-sign", before: "+007", answer: "7", after: "7" },
+	];
+	await pool.query(
+		`INSERT INTO cases (app_id,project_id,case_id,case_type,case_name,status,owner_id,properties)
+		SELECT $1,$2,id,'household',id,'open',$3,'{}'::jsonb FROM unnest($4::text[]) AS id`,
+		[app, project, member.id, cases.map(({ id }) => id)],
+	);
+	const blueprintDigest = await blueprintRevisionDigest(doc);
+	const device = webAppsDevice();
+	const run = testUuid("mixed-members-edit-run");
+	const submit = async (
+		form: typeof count,
+		fieldUuid: typeof number,
+		caseId: string,
+		value: string,
+	) => {
+		const entry = testUuid(`${caseId}-${form}`);
+		const opening = await readFormOpeningAction(
+			{ app, module, form, entry, run, blueprintDigest, bound: [caseId] },
+			device,
+		);
+		if (opening.kind !== "opening")
+			throw new Error(`Expected a signed opening, got ${opening.kind}`);
+		expect(opening.projection.primaryCaseIds).toEqual([caseId]);
+		const result = await submitFormAction(
+			{
+				kind: "followup",
+				caseIds: [caseId],
+				formUuid: form,
+				entryKey: entry,
+				attachmentRefs: [],
+				formOpening: { module, run, evidence: opening.evidence },
+				operationAnswers: { root: [{ fieldUuid, value }], repeats: [] },
+			},
+			app,
+			blueprintDigest,
+			undefined,
+			undefined,
+			undefined,
+			device,
+			undefined,
+			run,
+		);
+		expect(result).toMatchObject({ kind: "followup" });
+	};
+	const read = async () =>
+		(
+			await pool.query<{ case_id: string; members: string | null }>(
+				"SELECT case_id, properties->>'members' AS members FROM cases WHERE app_id = $1 AND project_id = $2 AND case_type = 'household' ORDER BY case_id",
+				[app, project],
+			)
+		).rows;
+	for (const { id, before } of cases) {
+		if (before !== null) await submit(describe, text, id, before);
+	}
+	expect(await read()).toEqual(
+		cases.map(({ id, before }) => ({ case_id: id, members: before })),
+	);
+	for (const { id, answer } of cases) {
+		await submit(count, number, id, answer);
+	}
+	expect(await read()).toEqual(
+		cases.map(({ id, after }) => ({ case_id: id, members: after })),
+	);
 });

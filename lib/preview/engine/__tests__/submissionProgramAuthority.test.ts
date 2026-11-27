@@ -1,9 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import {
+	addFixtureField,
+	buildDoc,
+	caseListConfig,
+	f,
+} from "@/lib/__tests__/docHelpers";
+import { sharedWorkerRepeat } from "@/lib/__tests__/sharedWorkerRepeat";
 import { CaptureSubmissionRejectedError } from "@/lib/case-store/errors";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { CaseOperation } from "@/lib/domain";
-import { eq, formField, literal, term } from "@/lib/domain/expression";
+import {
+	eq,
+	formField,
+	literal,
+	matchAll,
+	term,
+} from "@/lib/domain/expression";
+import { proseText } from "@/lib/domain/prose";
 import {
 	androidDevice,
 	webAppsDevice,
@@ -42,6 +56,147 @@ const IDENTITY: ResolvedPreviewIdentity = {
 	},
 	usercase: { role: "supervisor" },
 };
+
+it("derives the exact fresh-case date overwrite only from the committed required question", () => {
+	const source = testUuid("retype-projection-text");
+	const date = testUuid("retype-projection-date");
+	const update = testUuid("retype-projection-update");
+	const doc = buildDoc({
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "kept", label: "Kept", data_type: "text" }],
+			},
+			{
+				name: "visit",
+				properties: [{ name: "kept", label: "Kept", data_type: "date" }],
+			},
+		],
+		modules: [
+			{
+				name: "Survey",
+				forms: [
+					{
+						name: "Capture date",
+						type: "survey",
+						fields: [
+							f({ uuid: source, id: "written_text", kind: "text" }),
+							f({
+								uuid: date,
+								id: "written_date",
+								kind: "date",
+								required: matchAll(),
+							} as never),
+						],
+					},
+				],
+			},
+		],
+	});
+	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+	doc.forms[formUuid] = {
+		...doc.forms[formUuid],
+		caseOperations: [
+			{
+				uuid: OP_ROOT,
+				id: "created",
+				action: "create",
+				caseType: "patient",
+				target: { kind: "new" },
+				name: term(literal("Sample")),
+				writes: [{ property: "kept", value: term(formField(source)) }],
+			},
+			{
+				uuid: update,
+				id: "retyped",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "op", opUuid: OP_ROOT },
+				retype: "visit",
+				writes: [{ property: "kept", value: term(formField(date)) }],
+			},
+		],
+	};
+	const engine = engineFor(doc, formUuid);
+	engine.setValue("/data/written_text", "blue");
+	engine.setValue("/data/written_date", "2025-12-01");
+	const build = (
+		blueprint: typeof doc,
+		form: FormEngine,
+		device: ReturnType<typeof webAppsDevice>,
+	) => {
+		const mutation = form.computeSubmissionMutation({
+			caseIds: [],
+			entryKey: ENTRY_KEY,
+		});
+		return buildCaseOperationProgramFromDoc({
+			blueprint,
+			identity: IDENTITY,
+			device,
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
+		}).program;
+	};
+	expect(
+		build(doc, engine, webAppsDevice())?.operations.map(
+			({ requiredDateRetypeProperty }) => requiredDateRetypeProperty,
+		),
+	).toEqual([undefined, "kept"]);
+	const field = doc.fields[date];
+	if (field?.kind !== "date") throw new Error("Expected the committed date.");
+	const optional = {
+		...doc,
+		fields: { ...doc.fields, [date]: { ...field, required: undefined } },
+	};
+	expect(
+		build(optional, engine, webAppsDevice())?.operations.map(
+			({ requiredDateRetypeProperty }) => requiredDateRetypeProperty,
+		),
+	).toEqual([undefined, undefined]);
+	expect(
+		build(optional, engine, webAppsDevice())?.operations.map(
+			({ optionalDateRetypeProperty }) => optionalDateRetypeProperty,
+		),
+	).toEqual([undefined, "kept"]);
+
+	vi.useFakeTimers({ toFake: ["Date"] });
+	try {
+		vi.setSystemTime(new Date(2026, 10, 27, 12));
+		const nativeDay = "2026-11-27";
+		const chosenDay = "2025-12-01";
+		const datePath = "/data/written_date";
+		const input = buildEngineInput(doc, formUuid, null);
+		if (!input) throw new Error("Expected the committed survey entry.");
+		const device = androidDevice();
+		for (const selected of [undefined, chosenDay]) {
+			const android = new FormEngine(
+				input,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ device },
+			);
+			android.setValue("/data/written_text", "blue");
+			android.enterScreen(datePath);
+			expect(android.getState(datePath)).toMatchObject({
+				value: "",
+				androidPickerDay: nativeDay,
+			});
+			if (selected) android.setValue(datePath, selected);
+			android.saveScreenAnswers();
+			expect(android.validateScreen(datePath)).toBe(true);
+			const program = build(doc, android, device);
+			expect(program?.operations[1]?.requiredDateRetypeProperty).toBe("kept");
+			const values = program?.scopes[0].iterations[0]?.formFields;
+			expect(values?.get(source)).toBe("blue");
+			expect(values?.get(date)).toBe(selected ?? nativeDay);
+		}
+	} finally {
+		vi.useRealTimers();
+	}
+});
 
 describe("automatic submission location", () => {
 	it("records the entry fix separately from answers and refuses a fix outside the committed form or platform", async () => {
@@ -100,6 +255,38 @@ describe("automatic submission location", () => {
 			"device location",
 		);
 	});
+});
+
+it("authorizes the shared worker selection without executing its empty advanced load", () => {
+	const { doc, form, shared, worker } = sharedWorkerRepeat(false);
+	const build = (formUuid: typeof shared) => {
+		const input = buildEngineInput(doc, formUuid, null);
+		if (!input) throw new Error("Expected the committed follow-up entry");
+		const mutation = new FormEngine(input).computeSubmissionMutation({
+			caseIds: [SESSION_CASE],
+			entryKey: ENTRY_KEY,
+		});
+		return buildCaseOperationProgramFromDoc({
+			blueprint: doc,
+			identity: IDENTITY,
+			device: webAppsDevice(),
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
+		});
+	};
+	const selected = build(shared);
+	expect(selected.ordinaryAction).toMatchObject({
+		kind: "followup",
+		caseType: "commcare-user",
+		caseIds: [SESSION_CASE],
+	});
+	expect(
+		selected.program?.operations.map(({ operation }) => operation.uuid),
+	).toEqual([worker]);
+	expect(selected.program?.scopes[1]?.iterations).toEqual([]);
+	expect(
+		build(form).program?.operations.map(({ operation }) => operation.action),
+	).toEqual(["own", "update"]);
 });
 
 describe("automatic submission location on a shared entry", () => {
@@ -298,6 +485,259 @@ describe("committed program input rejection", () => {
 			}),
 		).toThrow(CaptureSubmissionRejectedError);
 	});
+
+	it("requires the committed owner predicate's answer inside its concrete row", () => {
+		const { doc, formUuid, uuids } = acceptanceDoc((fields) => [
+			{
+				uuid: OP_ROOT,
+				id: "repeat_create",
+				action: "create",
+				caseType: "patient",
+				target: { kind: "new" },
+				name: term(literal("Patient from repeat")),
+				owner: term(literal("worker-2")),
+				ownerCondition: eq(formField(fields.visitNote), literal("assign")),
+				forEach: { repeat: fields.visits },
+			},
+		]);
+		const engine = engineFor(doc, formUuid);
+		engine.addRepeat("/data/visits");
+		engine.setValue("/data/visits[0]/visit_note", "assign");
+		const mutation = engine.computeSubmissionMutation({
+			caseIds: [SESSION_CASE],
+			entryKey: ENTRY_KEY,
+		});
+		const answers = mutation.operationAnswers;
+		if (!answers) throw new Error("Expected the operation's row answers.");
+		const build = (submitted: SubmissionMutation) =>
+			buildCaseOperationProgramFromDoc({
+				device: webAppsDevice(),
+				blueprint: doc,
+				mutation: submitted,
+				projection: validateCaptureSubmissionProjection(submitted),
+				identity: IDENTITY,
+			}).program;
+		expect(
+			build(mutation)
+				?.scopes.find(({ repeat }) => repeat === uuids.visits)
+				?.iterations[0]?.formFields.get(uuids.visitNote),
+		).toBe("assign");
+		expect(() =>
+			build({
+				...mutation,
+				operationAnswers: {
+					...answers,
+					repeats: answers.repeats.map((scope) => ({
+						...scope,
+						iterations: scope.iterations.map((row) =>
+							row.filter(({ fieldUuid }) => fieldUuid !== uuids.visitNote),
+						),
+					})),
+				},
+			}),
+		).toThrow("missing an answer its committed case operations read");
+	});
+});
+
+it("binds nested operation order to the committed repeat and the enclosing answers", () => {
+	const outer = testUuid("outer-repeat");
+	const inner = testUuid("inner-repeat");
+	const answer = testUuid("outer-answer");
+	const doc = buildDoc({
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "seen", label: proseText("Seen") }],
+			},
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({
+								kind: "repeat",
+								uuid: outer,
+								id: "visits",
+								label: proseText("Visits"),
+								children: [
+									f({
+										kind: "text",
+										uuid: answer,
+										id: "outer_value",
+										label: proseText("Outer"),
+									}),
+									f({
+										kind: "repeat",
+										uuid: inner,
+										id: "checks",
+										label: proseText("Checks"),
+										children: [
+											f({
+												kind: "text",
+												id: "inner_value",
+												label: proseText("Inner"),
+											}),
+										],
+									}),
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+	const engine = engineFor(doc, formUuid);
+	engine.addRepeat("/data/visits");
+	engine.addRepeat("/data/visits");
+	engine.addRepeat("/data/visits");
+	engine.setValue("/data/visits[0]/outer_value", "one");
+	engine.setValue("/data/visits[1]/outer_value", "two");
+	engine.setValue("/data/visits[2]/outer_value", "three");
+	engine.addRepeat("/data/visits[0]/checks");
+	engine.addRepeat("/data/visits[0]/checks");
+	engine.addRepeat("/data/visits[2]/checks");
+	const submitted = engine.computeSubmissionMutation({
+		caseIds: [SESSION_CASE],
+		entryKey: ENTRY_KEY,
+	});
+	const answers = submitted.operationAnswers;
+	if (!answers)
+		throw new Error("Expected the form's case operations to collect answers.");
+	const build = (mutation: SubmissionMutation) =>
+		buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
+			blueprint: doc,
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
+			identity: IDENTITY,
+		}).program;
+	expect(build(submitted)?.scopeOrder).toEqual([
+		{ iteration: 0 },
+		{ repeat: inner, iteration: 0 },
+		{ repeat: inner, iteration: 1 },
+		{ repeat: outer, iteration: 0 },
+		{ repeat: outer, iteration: 1 },
+		{ repeat: inner, iteration: 2 },
+		{ repeat: outer, iteration: 2 },
+	]);
+	for (const parentIterations of [undefined, [0, 1, 2], [0, 0, 3]]) {
+		expect(() =>
+			build({
+				...submitted,
+				operationAnswers: {
+					...answers,
+					repeats: answers.repeats.map((scope) =>
+						scope.repeat === inner ? { ...scope, parentIterations } : scope,
+					),
+				},
+			}),
+		).toThrow("could not match its nested repeat rows");
+	}
+
+	const placed = structuredClone(doc);
+	const group = testUuid("conditional-case-group");
+	const field = testUuid("placed-change");
+	const beforeInner = testUuid("placed-before-inner");
+	const insideInner = testUuid("generated-inner");
+	const afterInner = testUuid("generated-outer");
+	const update = (
+		uuid: typeof OP_ROOT,
+		id: string,
+		repeat: typeof OP_ROOT,
+	): CaseOperation => ({
+		uuid,
+		id,
+		action: "update",
+		caseType: "patient",
+		target: { kind: "expression", expr: term(literal(SESSION_CASE)) },
+		forEach: { repeat },
+		writes: [{ property: "seen", value: term(literal(id)) }],
+	});
+	const form = placed.forms[formUuid];
+	form.caseOperations = [
+		...(form.caseOperations ?? []),
+		update(insideInner, "nested", inner),
+		update(afterInner, "last", outer),
+		update(beforeInner, "placed", outer),
+	];
+	addFixtureField(placed, outer, {
+		uuid: group,
+		id: "optional",
+		kind: "group",
+		label: proseText("Optional"),
+		relevant: eq(formField(answer), literal("one")),
+	});
+	addFixtureField(placed, group, {
+		uuid: field,
+		id: "case_change",
+		kind: "case_change",
+		operationUuid: beforeInner,
+	});
+	placed.fieldOrder[outer] = [answer, group, inner];
+	const authored = engineFor(placed, formUuid);
+	authored.addRepeat("/data/visits");
+	authored.addRepeat("/data/visits");
+	authored.setValue("/data/visits[0]/outer_value", "one");
+	authored.setValue("/data/visits[1]/outer_value", "two");
+	authored.addRepeat("/data/visits[0]/checks");
+	authored.addRepeat("/data/visits[1]/checks");
+	const positioned = authored.computeSubmissionMutation({
+		caseIds: [SESSION_CASE],
+		entryKey: ENTRY_KEY,
+	});
+	const buildPositioned = (mutation: SubmissionMutation) =>
+		buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
+			blueprint: placed,
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
+			identity: IDENTITY,
+		}).program;
+	const root = form.caseOperations.find(
+		(operation) => operation.action === "own",
+	);
+	expect(root).toBeDefined();
+	expect(buildPositioned(positioned)?.effectOrder).toEqual([
+		{ iteration: 0, operationUuids: [root?.uuid] },
+		{ repeat: outer, iteration: 0, operationUuids: [beforeInner] },
+		{ repeat: inner, iteration: 0, operationUuids: [insideInner] },
+		{ repeat: outer, iteration: 0, operationUuids: [afterInner] },
+		{
+			repeat: outer,
+			iteration: 1,
+			operationUuids: [beforeInner],
+			absent: true,
+		},
+		{ repeat: inner, iteration: 1, operationUuids: [insideInner] },
+		{ repeat: outer, iteration: 1, operationUuids: [afterInner] },
+	]);
+	const positionedAnswers = positioned.operationAnswers;
+	if (!positionedAnswers)
+		throw new Error("Expected positioned operation answers.");
+	expect(() =>
+		buildPositioned({
+			...positioned,
+			operationAnswers: {
+				...positionedAnswers,
+				repeats: positionedAnswers.repeats.map((scope) => ({
+					...scope,
+					iterations: scope.iterations.map((entries) =>
+						entries.filter((entry) => entry.fieldUuid !== field),
+					),
+				})),
+			},
+		}),
+	).toThrow("missing the position of a case change");
 });
 
 describe("an own-case answer that takes no part in the submission", () => {

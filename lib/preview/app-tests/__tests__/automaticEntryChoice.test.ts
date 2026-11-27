@@ -14,6 +14,7 @@ import {
 } from "@/lib/commcare/__tests__/advancedPlacementFixture";
 import type { BlueprintDoc } from "@/lib/domain";
 import { formCaseSelections } from "@/lib/domain/advancedEntryDatums";
+import { effectiveAppLocalization } from "@/lib/domain/localization";
 import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { previewAsMe } from "../../engine/identity";
 import { previewLookupData } from "../../engine/lookupEvaluation";
@@ -24,6 +25,7 @@ import type { AppTestSessionState } from "../types";
 function contextOf(doc: BlueprintDoc): AppTestContext {
 	return {
 		doc,
+		language: effectiveAppLocalization(doc.localization).defaultLanguage,
 		identity: previewAsMe({ id: "worker", name: "Worker" }, doc),
 		device: webAppsDevice(),
 		lookup: previewLookupData({

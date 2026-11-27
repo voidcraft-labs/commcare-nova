@@ -8,7 +8,8 @@ import {
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { matchAll } from "@/lib/domain/expression";
+import { ancestorPath, matchAll, relationStep } from "@/lib/domain/expression";
+import { searchInputRequestKey } from "@/lib/domain/modules";
 import { updateSearchInputTool } from "../updateSearchInput";
 import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
@@ -89,6 +90,40 @@ describe("updateSearchInput", () => {
 		).toEqual(
 			fixtureWithInputs().modules[MOD_A]?.caseListConfig?.searchInputs[0],
 		);
+	});
+
+	it("keeps the direct parent wire key through a full shared tool replacement", async () => {
+		const h = makeCaseListFixture(fixtureWithInputs());
+		const searchInput = {
+			kind: "simple" as const,
+			name: "home_address",
+			label: "Household address",
+			type: "text" as const,
+			property: "address",
+			matching: "project-space" as const,
+			via: ancestorPath(relationStep("parent")),
+		};
+		const replace = async (body: typeof searchInput) =>
+			h.runTool(updateSearchInputTool, {
+				moduleUuid: MOD_A,
+				searchInputUuid: TARGET_UUID,
+				searchInput: body,
+			});
+		await replace(searchInput);
+		await replace({ ...searchInput, name: "renamed_address" });
+		const saved =
+			h.currentDoc().modules[MOD_A]?.caseListConfig?.searchInputs[0];
+		expect(saved).toMatchObject({
+			...searchInput,
+			uuid: TARGET_UUID,
+			name: "renamed_address",
+		});
+		expect(saved && searchInputRequestKey(saved)).toBe("parent/address");
+		const refused = await replace({ ...searchInput, property: "case_name" });
+		expect(refused.result).toHaveProperty("error");
+		expect(
+			h.currentDoc().modules[MOD_A]?.caseListConfig?.searchInputs[0],
+		).toEqual(saved);
 	});
 
 	it("leaves sibling search inputs untouched", async () => {

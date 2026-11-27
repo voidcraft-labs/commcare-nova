@@ -1,3 +1,4 @@
+import { loadedSearchModules } from "../entryDatumSupplies";
 /** One semantic walk over the stored expression tree. Slot admission, scalar
  * rules and native held classes share the same lexical contexts and cache. */
 
@@ -32,6 +33,7 @@ import { itextUnitTranslationId } from "../translationUnits";
 import { BUILT_IN_USER_PROPERTY_SLUGS } from "../users";
 import type { Uuid } from "../uuid";
 import { term as termExpression } from "./builders";
+import { wholeNumberAndTextSum } from "./caseWriteNumberText";
 import { type ExpressionChild, expressionChildren } from "./children";
 import { selectAnswerTokens } from "./choiceValue";
 import { readChosenCaseProperty } from "./chosenCase";
@@ -43,6 +45,7 @@ import {
 	type RecordQueryContext,
 	type RecordQueryRowScope,
 	type RowScope,
+	readsProjectSearchResults,
 	type TypingContext,
 	withFormContextNode,
 } from "./context";
@@ -74,11 +77,16 @@ import {
 	ANY_TYPE,
 	accumulateBranchType,
 	coercedEquality,
+	countsOwnRestoredType,
 	describe,
 	type EqualityOperand,
+	firstRestoredSearchProperty,
 	isAnswerWriteAssignable,
 	isDateOrDatetime,
 	isNumeric,
+	isRestoredCaseTypeQuery,
+	isRestoredColumnCaseQuery,
+	isSearchRequiredCaseQuery,
 	isValueStorageAssignable,
 	isWriteAssignable,
 	literalShape,
@@ -86,7 +94,16 @@ import {
 	MATCH_PROPERTY_TYPES_BY_MODE,
 	ORDERED_TYPES,
 	type RecordPosition,
+	readsRestoredCaseTypeQuery,
 	recordPositionVerdict,
+	restoredCasePropertyMatch,
+	restoredColumnCountMatch,
+	sameTypeRestoredScaledComparison,
+	sameTypeRestoredThreshold,
+	searchChoiceColumnOrder,
+	searchChoiceLengthColumn,
+	searchSessionIdentityPairOrder,
+	searchSessionTextOrder,
 	TEXT_SHAPED_TYPES,
 	TIME_ORDERING_MESSAGE,
 	typesCompatible,
@@ -109,6 +126,7 @@ import {
 	type Term,
 	type TermOfKind,
 } from "./types";
+import { walkExpression } from "./walk";
 
 export type ScalarType = CasePropertyDataType | "boolean" | "_any";
 export type ExpressionType =
@@ -467,6 +485,7 @@ function infer(
 	ctx: TypingContext,
 	position?: RecordPosition,
 	whole = false,
+	choiceLengthOperand = false,
 ): CheckOutcome {
 	let byNode = cached.get(ctx);
 	if (byNode === undefined) {
@@ -478,7 +497,11 @@ function infer(
 		byPosition = new Map();
 		byNode.set(expression, byPosition);
 	}
-	const key = whole ? `whole:${position ?? ""}` : position;
+	const key = choiceLengthOperand
+		? "choice-length-operand"
+		: whole
+			? `whole:${position ?? ""}`
+			: position;
 	const present = byPosition.get(key);
 	if (present !== undefined) return present;
 	const errors: CheckError[] = [];
@@ -486,7 +509,13 @@ function infer(
 	// being validated. The dependency checker reports the cycle; inference
 	// remains unknown rather than recursively manufacturing a type.
 	byPosition.set(key, { type: undefined, errors: [] });
-	const refusal = admission(expression, ctx, position, whole);
+	const refusal = admission(
+		expression,
+		ctx,
+		position,
+		whole,
+		choiceLengthOperand,
+	);
 	if (refusal !== undefined) {
 		const outcome = { type: undefined, errors: [refusal] };
 		byPosition.set(key, outcome);
@@ -540,8 +569,9 @@ function inferAt(
 	errors: CheckError[],
 	path: CheckPath,
 	position?: RecordPosition,
+	choiceLengthOperand = false,
 ): NodeType | undefined {
-	const outcome = infer(expression, ctx, position);
+	const outcome = infer(expression, ctx, position, false, choiceLengthOperand);
 	for (const error of outcome.errors)
 		errors.push({ ...error, path: [...path, ...error.path] });
 	childTypes.get(errors)?.set(pathKey(path), outcome.type);
@@ -785,6 +815,92 @@ export function checkExpression(
 		...csqlFindings(expression, ctx),
 	];
 	const slot = ctx.slot;
+	if (
+		slot.slot === "case_list_filter" &&
+		readsRestoredCaseTypeQuery(expression) &&
+		!errors.some((error) => error.code === "arm-unavailable")
+	) {
+		const row = ctx.rows[0];
+		const caseType = row?.kind === "case" ? row.caseType : undefined;
+		if (
+			sameTypeRestoredThreshold(expression, caseType) === undefined &&
+			!sameTypeRestoredScaledComparison(expression, caseType)
+		)
+			errors.push(
+				refusal(
+					"arm-unavailable",
+					"A case list can compare its restored case count with a nonnegative whole number or with a multiple of the same count.",
+					"device-list-restored-type-presence",
+				),
+			);
+	}
+
+	const isDeclaredRestoredText = (
+		caseType: string | undefined,
+		property: string,
+	) =>
+		!Object.hasOwn(STANDARD_CASE_LIST_PROPERTY_DATA_TYPES, property) &&
+		ctx.facts.caseTypes
+			.find((one) => one.name === caseType)
+			?.properties.some(
+				(one) => one.name === property && (one.data_type ?? "text") === "text",
+			) === true;
+	if (
+		slot.slot === "case_list_column_expression" &&
+		readsRestoredCaseTypeQuery(expression, isRestoredColumnCaseQuery)
+	) {
+		const row = ctx.rows[0];
+		const caseType = row?.kind === "case" ? row.caseType : undefined;
+		const match = restoredColumnCountMatch(expression, caseType);
+		if (
+			!countsOwnRestoredType(expression, caseType) &&
+			(match === undefined ||
+				!isDeclaredRestoredText(caseType, match.property) ||
+				(match.match.kind === "property" &&
+					!isDeclaredRestoredText(caseType, match.match.value)))
+		)
+			errors.push(
+				refusal(
+					"arm-unavailable",
+					"This column can count restored cases of its own type, optionally matching a text property.",
+					"device-column-restored-type-count",
+				),
+			);
+	}
+
+	if (slot.slot === "search_input_required_when") {
+		walkExpression(expression, {
+			visitExpression(node, path) {
+				const match = restoredCasePropertyMatch(node);
+
+				if (
+					match !== undefined &&
+					(!isDeclaredRestoredText(match.caseType, match.property) ||
+						(match.match.kind === "property" &&
+							!isDeclaredRestoredText(match.caseType, match.match.value)))
+				)
+					errors.push({
+						path,
+						code: "arm-unavailable",
+						reason: "search-required-case-property-type",
+						message:
+							"Choose a text property of the cases this Search requirement counts.",
+					});
+				if (
+					isSearchRequiredCaseQuery(node) &&
+					(path.at(-2) !== "count" || path.at(-1) !== "via")
+				) {
+					errors.push({
+						path,
+						code: "arm-unavailable",
+						message:
+							"You can count the worker’s restored cases in this requirement.",
+						reason: "search-required-cases-count-only",
+					});
+				}
+			},
+		});
+	}
 	if (slot.entity === "module" && slot.slot === "case_detail_tab_rows") {
 		const row = expressionRowScope(expression, ctx);
 		if (
@@ -917,7 +1033,7 @@ function repeatCountRefusal(
 				repeatCount: {
 					select: select.uuid,
 					selectId: select.id,
-					source: choices.kind,
+					source: choices.kind === "lookup" ? "lookup" : "cases",
 				},
 			};
 		const notWhole = choices.options.find(
@@ -995,9 +1111,20 @@ function admission(
 	ctx: TypingContext,
 	position?: RecordPosition,
 	whole = false,
+	choiceLengthOperand = false,
 ): CheckError | undefined {
 	if (!("profile" in ctx)) return undefined;
 	const profile = ctx.profile;
+	if (
+		expression.kind === "cases" &&
+		expression.first === true &&
+		ctx.slot.slot !== "case_search_filter"
+	)
+		return refusal(
+			"arm-unavailable",
+			"The first restored case is only available as a value in Search.",
+			"first-restored-case-search-only",
+		);
 	if (expression.kind === "call") {
 		const spec = FUNCTION_REGISTRY.get(expression.fn);
 		const issue =
@@ -1016,6 +1143,20 @@ function admission(
 				: "here() reads the worker's location, which CommCare offers only in a case list's calculated column. You can show it in a calculated column instead.",
 			"here",
 		);
+	if (expression.kind === "case-list-lookup-count") {
+		if (!profile.caseListSearchText)
+			return refusal(
+				"arm-unavailable",
+				"You can read the companion lookup count in a form question.",
+				"case-list-lookup-count-slot",
+			);
+		if (ctx.caseListLookupCountSource !== expression.module)
+			return refusal(
+				"arm-unavailable",
+				"This form needs to open directly from one case list with a companion lookup before it can read the lookup count.",
+				"case-list-lookup-count-source",
+			);
+	}
 	if (expression.kind === "case-list-search-text") {
 		const refused = caseListSearchTextAdmission(ctx);
 		if (refused !== undefined) return refused;
@@ -1134,6 +1275,25 @@ function admission(
 		);
 
 	if (ctx.ruleSet === "record") {
+		// The no-argument position reads the current choice candidate. Core's
+		// one-argument form reads the first named node and fails if it is absent.
+		if (
+			expression.kind === "call" &&
+			expression.fn === "position" &&
+			choiceCandidatePositionAvailable(ctx)
+		) {
+			const argument = expression.args[0];
+			if (
+				argument === undefined ||
+				(expression.args.length === 1 &&
+					argument.kind === "term" &&
+					argument.term.kind === "field" &&
+					argument.term.role === undefined &&
+					argument.term.filters === undefined &&
+					choiceQuestionPositionAvailable(ctx, argument.term.uuid))
+			)
+				return undefined;
+		}
 		// The case chosen in an earlier menu, read through its id: the one query a record slot evaluated after that
 		// choice admits.
 		if (
@@ -1159,14 +1319,31 @@ function admission(
 				"A list button's condition reads one value here, and these records can hold several, which stops the list for that worker. You can count them with count(...), or read the record chosen before the list.",
 				"list-action-several-values",
 			);
-		// The list action runs on the device with its own casedb, before a
+		// Both list actions run on the device with its own casedb, before a
 		// worker chooses a row. Explicit case queries use that snapshot.
 		if (
-			ctx.slot.slot === "case_list_action_condition" &&
+			(ctx.slot.slot === "case_list_action_condition" ||
+				ctx.slot.slot === "search_button_display_condition") &&
 			((expression.kind === "cases" && expression.source === "casedb") ||
 				(expression.kind === "count" &&
 					expression.via.kind === "cases" &&
 					expression.via.source === "casedb"))
+		)
+			return undefined;
+		const restoredQuery =
+			ctx.slot.slot === "search_input_required_when"
+				? isSearchRequiredCaseQuery
+				: ctx.slot.slot === "case_list_column_expression"
+					? isRestoredColumnCaseQuery
+					: ctx.slot.slot === "case_list_filter"
+						? isRestoredCaseTypeQuery
+						: undefined;
+		if (
+			restoredQuery !== undefined &&
+			(restoredQuery(expression) ||
+				(expression.kind === "count" &&
+					!isRelationPath(expression.via) &&
+					restoredQuery(expression.via)))
 		)
 			return undefined;
 		// A server search reads a query of the device's data in a value the
@@ -1239,6 +1416,7 @@ function admission(
 			return undefined;
 		if (
 			(["call", "project", "worker-groups"].includes(expression.kind) &&
+				!choiceLengthOperand &&
 				!effectiveBooleanOfAnswer(expression, position)) ||
 			(!tabCollection &&
 				(expression.kind === "cases" || expression.kind === "table-rows")) ||
@@ -1294,7 +1472,10 @@ function admission(
 	if (
 		expression.kind === "cases" &&
 		expression.source === "search-results" &&
-		ctx.supplies.searchResults === undefined
+		(ctx.supplies.searchResults === undefined ||
+			!loadedSearchModules(ctx.supplies).includes(
+				expression.supplier ?? ctx.supplies.searchResults.module,
+			))
 	)
 		return searchResultsNotSupplied(ctx);
 	if (
@@ -1345,6 +1526,29 @@ function caseListSearchTextAdmission(
  */
 export function caseListSearchTextReachable(ctx: ExpressionContext): boolean {
 	return caseListSearchTextAdmission(ctx) === undefined;
+}
+
+/** Whether the rule is evaluating the current choice candidate of a form question. */
+export function choiceCandidatePositionAvailable(
+	ctx: ExpressionContext,
+): boolean {
+	return (
+		ctx.slot.entity === "field" &&
+		ctx.slot.slot === "lookup_options_source" &&
+		ctx.rows.length === 1
+	);
+}
+
+/** A referenced question always has one primary-instance node when the
+ * choice filter runs. A question within a repeat can have no instances. */
+export function choiceQuestionPositionAvailable(
+	ctx: ExpressionContext,
+	uuid: Uuid,
+): boolean {
+	return (
+		choiceCandidatePositionAvailable(ctx) &&
+		ctx.form?.fields.get(uuid)?.repeats.length === 0
+	);
 }
 
 /**
@@ -1459,6 +1663,23 @@ function termAdmission(
 			"unknown-form-field",
 			"This choice no longer belongs to a question in this form.",
 		);
+	if (term.kind === "input") {
+		const input = profile.searchInputs.find(
+			(field) => field.uuid === term.searchInputUuid,
+		);
+		if (input?.matchingOnly)
+			return refusal(
+				"arm-unavailable",
+				"This answer is used only to match the related record in this Search field.",
+				"search-input",
+			);
+		if (input?.supplier !== term.supplier)
+			return refusal(
+				"search-answer-unavailable",
+				"This form's entry does not run the search that supplies this answer.",
+				"supplier",
+			);
+	}
 	if (
 		term.kind === "input" &&
 		!profile.searchInputs.some((input) => input.uuid === term.searchInputUuid)
@@ -1565,7 +1786,16 @@ function termAdmission(
 			"form-answer-unavailable",
 			"Form answers are not available in this setting. Save the answer to the case and read it there.",
 		);
-	if (term.kind === "prop" && !profile.caseData)
+	const requiredCaseRow =
+		ctx.slot.slot === "search_input_required_when"
+			? ctx.rows.at(-1)
+			: undefined;
+	if (
+		term.kind === "prop" &&
+		!profile.caseData &&
+		!(ctx.slot.slot === "search_button_display_condition" && caseScope(ctx)) &&
+		!(requiredCaseRow?.kind === "case" && requiredCaseRow.root === "casedb")
+	)
 		return refusal(
 			"case-data-unavailable",
 			"Case information is not available before a case is chosen.",
@@ -1602,9 +1832,16 @@ function termAdmission(
 		term.kind === "input" &&
 		ctx.ruleSet === "form" &&
 		!ctx.form?.caseListRegistrationForm &&
-		!(ctx.form?.formsReadSearchModule === true && profile.scope === "form")
+		!(
+			profile.scope === "form" &&
+			(ctx.form?.searchSuppliers?.some(
+				(search) => search.module === (term.supplier ?? ctx.form?.moduleUuid),
+			) ??
+				(term.supplier === undefined &&
+					ctx.form?.formsReadSearchModule === true))
+		)
 	)
-		return ctx.form?.formsReadSearchModule === true
+		return profile.scope !== "form" && ctx.form?.formsReadSearchModule === true
 			? refusal(
 					"search-answer-unavailable",
 					"A form link runs after the form closes, where its menu's Search answers are no longer available.",
@@ -1953,9 +2190,12 @@ function searchResultsRowFindings(
 	errors: CheckError[],
 ): void {
 	const searched =
-		ctx.supplies.searchResults === undefined
+		ctx.supplies.searchResults === undefined ||
+		readsProjectSearchResults(ctx, expression.supplier)
 			? undefined
-			: ctx.facts.moduleCaseTypes.get(ctx.supplies.searchResults.module);
+			: ctx.facts.moduleCaseTypes.get(
+					expression.supplier ?? ctx.supplies.searchResults.module,
+				);
 	for (const [index, where] of expression.where.entries()) {
 		const path: CheckPath = ["cases", "where", index];
 		const data = scalarDataType(whereTypes[index]?.data);
@@ -2101,8 +2341,11 @@ export function expressionRowScope(
 	const searched =
 		expression.source === "search-results" &&
 		"supplies" in ctx &&
+		!readsProjectSearchResults(ctx) &&
 		ctx.supplies.searchResults !== undefined
-			? ctx.facts.moduleCaseTypes.get(ctx.supplies.searchResults.module)
+			? ctx.facts.moduleCaseTypes.get(
+					expression.supplier ?? ctx.supplies.searchResults.module,
+				)
 			: undefined;
 	let caseType: string | undefined = searched;
 	if (caseType === undefined)
@@ -2348,6 +2591,19 @@ function inferNode(
 		case "arith": {
 			const left = readScalar(expression.left, ["left"]);
 			const right = readScalar(expression.right, ["right"]);
+			if (
+				ctx.ruleSet === "record" &&
+				(!("profile" in ctx) ||
+					(whole && ctx.slot.slot === "case_operation_write_value")) &&
+				wholeNumberAndTextSum(expression, (uuid) =>
+					expression.left.kind === "term" &&
+					expression.left.term.kind === "field" &&
+					expression.left.term.uuid === uuid
+						? left
+						: right,
+				)
+			)
+				return scalar("text");
 			// XPathArithExpr reads each operand through toNumeric, as number() does.
 			const leftNumber = integerCodedSelect(expression.left, ctx)
 				? "int"
@@ -2770,7 +3026,9 @@ function inferNode(
 							? "worker-group"
 							: "location",
 				"string",
-				"many",
+				expression.kind === "cases" && expression.first === true
+					? "one"
+					: "many",
 			);
 		}
 		case "project": {
@@ -2826,7 +3084,7 @@ function inferNode(
 					: value.held === "sequence"
 						? "string"
 						: value.held,
-				"many",
+				firstRestoredSearchProperty(expression) !== undefined ? "one" : "many",
 				value.caseIdOf,
 			);
 			return value.dayText === undefined
@@ -2902,6 +3160,8 @@ function inferNode(
 			return scalar("geopoint", "string");
 		case "case-list-search-text":
 			return scalar("text");
+		case "case-list-lookup-count":
+			return scalar("int");
 		case "value-list":
 			for (const [index, item] of expression.items.entries())
 				read(item, ["items", index]);
@@ -3563,6 +3823,27 @@ function inferTerm(
 			return ctx.facts.caseTypes.some((type) => type.name === term.caseType)
 				? scalar("text")
 				: fail("unknown-case-type", `Unknown case type '${term.caseType}'.`);
+		case "search-result-field": {
+			const row = activeRowScope(ctx);
+			if (
+				!("profile" in ctx) ||
+				!readsProjectSearchResults(ctx) ||
+				row?.kind !== "case" ||
+				!("root" in row) ||
+				row.root === "casedb"
+			)
+				return fail(
+					"row-scope",
+					"A returned field needs a row from this menu’s project-space search.",
+					"case",
+				);
+			const declared = row.caseType
+				? ctx.facts.caseTypes
+						.find((type) => type.name === row.caseType)
+						?.properties.find((field) => field.name === term.name)
+				: undefined;
+			return nodes(declared?.data_type ?? "text", "string");
+		}
 		case "case-row-type":
 			return activeRowScope(ctx)?.kind === "case"
 				? nodes("text", "string")
@@ -4077,8 +4358,29 @@ function checkComparison(
 	const before = errors.length;
 	checkCaseStatusComparison(left, right, errors, path);
 	const leftNode = inferAt(left, ctx, errors, [...path, "left"], "value");
-	const rightNode = inferAt(right, ctx, errors, [...path, "right"], "value");
 	const leftType = scalarDataType(leftNode?.data);
+	// Only this comparison's right operand may call string-length in a
+	// Search choice filter. Other calls still take the record refusal.
+	const lengthColumn =
+		"profile" in ctx &&
+		ctx.slot.slot === "search_input_options" &&
+		leftType === "text"
+			? searchChoiceLengthColumn(kind, left, right)
+			: undefined;
+	const choiceLengthOperand =
+		lengthColumn !== undefined &&
+		lookupReadType(
+			ctx.lookupTables.get(lengthColumn.tableId),
+			lengthColumn.columnId,
+		) === "text";
+	const rightNode = inferAt(
+		right,
+		ctx,
+		errors,
+		[...path, "right"],
+		"value",
+		choiceLengthOperand,
+	);
 	const rightType = scalarDataType(rightNode?.data);
 	if (leftType === undefined || rightType === undefined) return;
 	const serverCompares =
@@ -4127,6 +4429,35 @@ function checkComparison(
 			});
 			return;
 		}
+		// Core and Preview coerce both operands in these session
+		// comparisons for a Search starting value, its action, or a shared owner rule.
+		if (
+			"profile" in ctx &&
+			(ctx.profile.searchTextDefault === true ||
+				ctx.slot.slot === "excluded_owner_ids" ||
+				ctx.slot.slot === "search_button_display_condition") &&
+			(searchSessionTextOrder(kind, left, right) ||
+				searchSessionIdentityPairOrder(kind, left, right))
+		)
+			return;
+		// A Search choice filter orders its own text values by device numeric coercion.
+		if (
+			"profile" in ctx &&
+			ctx.slot.slot === "search_input_options" &&
+			leftType === "text" &&
+			left.kind === "term" &&
+			left.term.kind === "table-column" &&
+			((rightType === "text" && searchChoiceColumnOrder(kind, left, right)) ||
+				(rightType === "int" && choiceLengthOperand) ||
+				(kind === "gt" &&
+					right.kind === "term" &&
+					right.term.kind === "literal" &&
+					typeof right.term.value === "string" &&
+					right.term.value.trim() !== "" &&
+					right.term.data_type === undefined &&
+					literalShape(right.term.value) === undefined))
+		)
+			return;
 		const leftOrdered = leftType === ANY_TYPE || ORDERED_TYPES.has(leftType);
 		const rightOrdered = rightType === ANY_TYPE || ORDERED_TYPES.has(rightType);
 		if (!leftOrdered || !rightOrdered) {
@@ -4538,6 +4869,27 @@ function csqlFindings(
 		parent: { readonly node: Expression; readonly path: CheckPath } | undefined,
 	): void => {
 		const position = csqlPositionAt(positions, path);
+		if (node.kind === "cases" && node.first === true) {
+			const carrier = parent && firstRestoredSearchProperty(parent.node);
+			const isText =
+				carrier !== undefined &&
+				ctx.facts.caseTypes
+					.find((one) => one.name === carrier.caseType)
+					?.properties.some(
+						(one) =>
+							one.name === carrier.property &&
+							(one.data_type ?? "text") === "text",
+					);
+			if (position !== "runtime" || !isText)
+				found.push({
+					...refusal(
+						"arm-unavailable",
+						"Search can read one declared Text property from the first restored case of a type.",
+						"first-restored-case-projection",
+					),
+					path,
+				});
+		}
 		if (
 			node.kind === "today" &&
 			node.clock === "project-space" &&

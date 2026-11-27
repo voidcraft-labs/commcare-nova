@@ -65,8 +65,11 @@ describe("temporal storage shapes clear the row schema", () => {
 		}
 	});
 
-	it("accepts the calendar date the picker emits, unchanged", () => {
+	it("accepts a calendar date and a present empty date without coercion", () => {
 		expect(dateSchema("2026-01-15")).toBe(true);
+		expect(dateSchema("")).toBe(true);
+		expect(dateSchema(" ")).toBe(false);
+		expect(dateSchema(null)).toBe(false);
 	});
 
 	it("still rejects the naive shapes — which is why the tag exists", () => {

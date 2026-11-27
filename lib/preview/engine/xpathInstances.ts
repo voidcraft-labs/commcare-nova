@@ -2,6 +2,7 @@ import type { CaseIndexRow } from "@/lib/case-store";
 import { workerFixtureRow } from "@/lib/commcare/lookup/row";
 import { INLINE_SEARCH_RESULTS_INSTANCE } from "@/lib/commcare/session";
 import { COMMCARE_SESSION_CONTEXT_FIELDS } from "@/lib/commcare/sessionContext";
+import { inlineSearchInstance } from "@/lib/commcare/suite/case-search/types";
 import { GROUPS_INSTANCE } from "@/lib/commcare/workerGroupsWire";
 import {
 	LOCATION_ROWS,
@@ -20,10 +21,15 @@ import {
 	orderedOrganizationLevels,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	entryDatumSupplies,
+	loadedSearchModules,
+} from "@/lib/domain/entryDatumSupplies";
 import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
 import type { Expression } from "@/lib/domain/expression/types";
 import {
 	walkExpressionNodes,
+	walkInputRefs,
 	walkPropertyRefs,
 } from "@/lib/domain/expression/walk";
 import type { LocationFixtureRow } from "@/lib/organization/footprint";
@@ -824,6 +830,7 @@ function searchResultPropertyText(
 export function searchResultsXPathInstance(
 	rows: readonly SearchResultRow[],
 	catalog: readonly CaseType[],
+	instanceId: string = INLINE_SEARCH_RESULTS_INSTANCE,
 ): XPathInstance {
 	const propertyTypes = new Map(
 		catalog.map((caseType) => [
@@ -836,7 +843,7 @@ export function searchResultsXPathInstance(
 			),
 		]),
 	);
-	return new StaticXPathInstance(INLINE_SEARCH_RESULTS_INSTANCE, {
+	return new StaticXPathInstance(instanceId, {
 		name: "results",
 		childTemplates: ["case"],
 		templateChildren: [caseTemplate()],
@@ -901,6 +908,53 @@ export function searchResultsXPathInstance(
 	});
 }
 
+/** A completed query step of a form entry. Menu and attempt identify the source even when two
+ * searches use the same prompt names. Only result sets read by the form are materialized. */
+export interface CompletedFormSearch {
+	readonly menu: Uuid;
+	readonly submission: string;
+	readonly answers: readonly [string, string][];
+	readonly results?: SearchResultsSnapshot;
+}
+
+export function formSearchReads(doc: BlueprintDoc, formUuid: Uuid, menu: Uuid) {
+	const sources = new Map<
+		Uuid,
+		{ readsResults: boolean; readsAnswers: boolean }
+	>();
+	function need(supplier: Uuid) {
+		let source = sources.get(supplier);
+		if (!source) {
+			source = { readsResults: false, readsAnswers: false };
+			sources.set(supplier, source);
+		}
+		return source;
+	}
+	const loaded = loadedSearchModules(
+		entryDatumSupplies(doc, { kind: "form", module: menu, form: formUuid }),
+	);
+	const lastQuery = loaded.at(-1) ?? menu;
+	for (const { expression } of formExpressionSlotValues(doc, formUuid)) {
+		walkInputRefs(expression, (input) => {
+			need(input.supplier ?? menu).readsAnswers = true;
+		});
+		walkExpressionNodes(expression, (node) => {
+			if (node.kind === "cases" && node.source === "search-results")
+				need(node.supplier ?? lastQuery).readsResults = true;
+		});
+	}
+	const ordered = new Map<
+		Uuid,
+		{ readsResults: boolean; readsAnswers: boolean }
+	>();
+	for (const supplier of [...loaded, ...sources.keys()]) {
+		const source = sources.get(supplier);
+		if (source) ordered.set(supplier, source);
+	}
+	return ordered;
+}
+
+/** Whether any path in this expression reads the results of a query. */
 function readsSearchResults(expression: Expression): boolean {
 	let found = false;
 	walkExpressionNodes(expression, (node) => {
@@ -909,8 +963,6 @@ function readsSearchResults(expression: Expression): boolean {
 	return found;
 }
 
-/** Whether a form's questions, its own slots or its after-submit links read
- * what its search found, so its entry needs the search's snapshot. */
 export function formReadsSearchResults(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -958,6 +1010,9 @@ export function secondaryXPathInstances(args: {
 	readonly sessionData?: Readonly<Record<string, string>>;
 	/** Present only for an admitted no-matches registration form. */
 	readonly searchAnswers?: ReadonlyMap<string, string>;
+	readonly searchResultsName?: string;
+	readonly searches?: readonly CompletedFormSearch[];
+	readonly menus?: BlueprintDoc["modules"];
 	/** The entry's several-case selections: datum id → case ids in
 	 * selection order. */
 	readonly selectedCases?: Readonly<Record<string, readonly string[]>>;
@@ -972,6 +1027,8 @@ export function secondaryXPathInstances(args: {
 }): ReadonlyMap<string, XPathInstance> {
 	const locations = args.caseDatabase?.locations;
 	const groups = args.caseDatabase?.workerGroups;
+	const ownResults = inlineSearchInstance(args.searchResultsName);
+	const ownInputs = `search-input:${ownResults}`;
 	return new Map<string, XPathInstance>([
 		[
 			"commcaresession",
@@ -991,8 +1048,8 @@ export function secondaryXPathInstances(args: {
 			? []
 			: [
 					[
-						INLINE_SEARCH_INPUT_INSTANCE_ID,
-						searchInputXPathInstance(args.searchAnswers),
+						ownInputs,
+						searchInputXPathInstance(args.searchAnswers, ownInputs),
 					] as const,
 				]),
 		...Object.entries(args.selectedCases ?? {}).map(
@@ -1003,13 +1060,33 @@ export function secondaryXPathInstances(args: {
 			? []
 			: [
 					[
-						INLINE_SEARCH_RESULTS_INSTANCE,
+						ownResults,
 						searchResultsXPathInstance(
 							args.searchResults.rows,
 							args.caseTypes ?? [],
+							ownResults,
 						),
 					] as const,
 				]),
+		...(args.searches ?? []).flatMap((search): [string, XPathInstance][] => {
+			const menu = args.menus?.[search.menu];
+			if (!menu) return [];
+			const result = inlineSearchInstance(menu.searchResultsName);
+			const answers = `search-input:${result}`;
+			const instances: [string, XPathInstance][] = [
+				[answers, searchInputXPathInstance(new Map(search.answers), answers)],
+			];
+			if (search.results !== undefined)
+				instances.push([
+					result,
+					searchResultsXPathInstance(
+						search.results.rows,
+						args.caseTypes ?? [],
+						result,
+					),
+				]);
+			return instances;
+		}),
 		...(locations === undefined || args.organization === undefined
 			? []
 			: [
@@ -1081,6 +1158,8 @@ export function searchScreenXPathInstances(args: {
 	readonly answers: ReadonlyMap<string, string>;
 	readonly lookupData?: PreviewLookupData;
 	readonly sessionData?: Readonly<Record<string, string>>;
+	readonly caseDatabase?: CaseDatabaseSnapshot;
+	readonly caseTypes?: readonly CaseType[];
 }): ReadonlyMap<string, XPathInstance> {
 	return new Map<string, XPathInstance>([
 		[
@@ -1092,6 +1171,14 @@ export function searchScreenXPathInstances(args: {
 			searchInputXPathInstance(args.answers, SEARCH_INPUT_INSTANCE_ID),
 		],
 		["search-input", searchInputXPathInstance(args.answers, "search-input")],
+		...(args.caseDatabase === undefined
+			? []
+			: [
+					[
+						"casedb",
+						caseDatabaseXPathInstance(args.caseDatabase, args.caseTypes),
+					] as const,
+				]),
 		...lookupXPathInstances(args.lookupData ?? null, {
 			includeFixtureAliases: true,
 		}),

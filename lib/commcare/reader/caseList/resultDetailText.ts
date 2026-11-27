@@ -1,0 +1,119 @@
+import {
+	type ResultDetailTextWire,
+	resultDetailTextWire,
+} from "../../suite/case-list/resultDetailText";
+import {
+	type FormSyntax,
+	needsInstanceDeclaration,
+	visitSyntax,
+} from "../../xpath/formSyntax";
+import { serializeWire } from "../../xpath/wire/serialize";
+import { sameSyntax } from "../syntaxCompare";
+import { readFormSyntax } from "../syntaxRead";
+import { literalText } from "./literalText";
+
+function ungroup(node: FormSyntax | undefined): FormSyntax | undefined {
+	while (node?.kind === "group") node = node.value;
+	return node;
+}
+
+function call(node: FormSyntax | undefined, name: string, count: number) {
+	const syntax = ungroup(node);
+	if (
+		syntax?.kind === "call" &&
+		syntax.name === name &&
+		syntax.args.length === count
+	)
+		return syntax.args;
+}
+
+function literalArgumentsText(args: readonly FormSyntax[]): string | undefined {
+	let result = "";
+	for (const argument of args) {
+		const literal = literalText(ungroup(argument));
+		if (literal === undefined) return undefined;
+		result += literal;
+	}
+	return result;
+}
+
+/** Recover only the literal-text template with the exact roster and prompt
+ * guards. Extract candidate text before structurally checking the whole
+ * expression against the wire projection. Mode/route/identity admission
+ * belongs to the caller. */
+export function readResultDetailText(
+	source: string,
+	screen: "short" | "long" = "long",
+): ResultDetailTextWire | undefined {
+	const parsed = readFormSyntax(source);
+	if (!parsed.ok || !parsed.node) return;
+	let hqSeesSources = true;
+	visitSyntax(parsed.node, (node) => {
+		if (needsInstanceDeclaration(node, source)) hqSeesSources = false;
+	});
+	if (!hqSeesSources) return;
+	const recovered =
+		screen === "short" ? readListPrompt(parsed.node) : readDetail(parsed.node);
+	if (!recovered) return;
+	const printed = readFormSyntax(
+		serializeWire(resultDetailTextWire(recovered), {
+			target: "hq-json",
+			interpolation: "none",
+		}).text,
+	);
+	return printed.ok && printed.node && sameSyntax(parsed.node, printed.node)
+		? recovered
+		: undefined;
+}
+
+function readDetail(node: FormSyntax): ResultDetailTextWire | undefined {
+	const outer = call(node, "if", 3);
+	const localText = literalText(ungroup(outer?.[2]));
+	if (localText === undefined) return;
+	const text = literalText(ungroup(outer?.[1]));
+	return text === undefined
+		? readPrompt(outer?.[1], localText)
+		: { text, localText };
+}
+
+function promptName(node: FormSyntax | undefined): string | undefined {
+	const path = ungroup(node);
+	const test = path?.kind === "filter" ? ungroup(path.where) : undefined;
+	return test?.kind === "binary" ? literalText(ungroup(test.right)) : undefined;
+}
+
+function readListPrompt(node: FormSyntax): ResultDetailTextWire | undefined {
+	const inputName = promptName(node);
+	if (inputName !== undefined)
+		return { inputName, prefix: "", suffix: "", localText: "", onList: true };
+
+	const concat = ungroup(node);
+	if (concat?.kind !== "call" || concat.name !== "concat") return;
+	const answerAt = concat.args.findIndex(
+		(argument) => promptName(argument) !== undefined,
+	);
+	if (answerAt < 0) return;
+	const name = promptName(concat.args[answerAt]);
+	const prefix = literalArgumentsText(concat.args.slice(0, answerAt));
+	const suffix = literalArgumentsText(concat.args.slice(answerAt + 1));
+	if (name !== undefined && prefix !== undefined && suffix !== undefined)
+		return { inputName: name, prefix, suffix, localText: "", onList: true };
+}
+
+function readPrompt(node: FormSyntax | undefined, localText: string) {
+	const concat = ungroup(node);
+	if (concat?.kind !== "call" || concat.name !== "concat") return;
+	// The writer splits literals when HQ's lexical instance scanner would
+	// mistake one for XPath. The one optional read still separates the
+	// exact ordinary prefix and suffix.
+	const answerAt = concat.args.findIndex((argument) => call(argument, "if", 3));
+	if (answerAt < 1 || answerAt >= concat.args.length - 1) return;
+	const inner = call(concat.args[answerAt], "if", 3);
+	const scalar = call(inner?.[1], "string", 1);
+	const inputName = promptName(scalar?.[0]);
+	const prefix = literalArgumentsText(concat.args.slice(0, answerAt));
+	const suffix = literalArgumentsText(concat.args.slice(answerAt + 1));
+	if (inputName === undefined || prefix === undefined || suffix === undefined)
+		return;
+	return { inputName, prefix, suffix, localText };
+}

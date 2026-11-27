@@ -31,6 +31,7 @@ import type {
 	CaseProperty,
 	CaseTileLayout,
 	CaseType,
+	Column,
 	ReferenceNamesDoc,
 	Uuid,
 	WireStringSource,
@@ -157,6 +158,10 @@ export type DetailTarget = "case" | "search";
  *     `instance('casedb')` to `instance('results')`.
  */
 export interface CaseListEmitContext {
+	/** A resolved, long-only Search calculation for the two Detail projections. */
+	readonly resultDetailText?: (
+		column: Extract<Column, { kind: "calculated" }>,
+	) => import("./resultDetailText").ResultDetailTextWire | undefined;
 	readonly detailBindings?: WireTermBindings;
 	/** Whether the list's faster loading is on, which each field's load
 	 *  behavior reads (`optimizations.ts`). */
@@ -175,7 +180,7 @@ export interface CaseListEmitContext {
 	 * pins `instance('results:inline')/results/case[...]`). Absent means
 	 * the device casedb.
 	 */
-	readonly caseSource?: "casedb" | "results:inline";
+	readonly caseSource?: "casedb" | `results:${string}`;
 	/** Effective property catalog for the module's case type. Plain select
 	 * columns derive worker-facing option labels from this metadata; other plain
 	 * fields remain raw. */

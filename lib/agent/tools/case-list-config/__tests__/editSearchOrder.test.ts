@@ -2,8 +2,12 @@ import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import { literal, term } from "@/lib/domain/expression";
-import { editSearchFilterTool } from "../editSearchFilter";
-import { MOD_A, makeCaseListFixture } from "./fixtures";
+import { searchRequestOrderSchema } from "@/lib/domain/modules";
+import {
+	editSearchFilterInputSchema,
+	editSearchFilterTool,
+} from "../editSearchFilter";
+import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
 it("edits the selected order and recovers from a second owner exclusion without losing either row", async () => {
 	const h = makeCaseListFixture();
@@ -146,4 +150,45 @@ it("refuses an edit of one filter kind on a row of the other", async () => {
 			},
 		]),
 	).toBe(true);
+});
+
+it("authors one index fallback as an order filter and refuses a second without altering the first", async () => {
+	const doc = makeCaseListDoc();
+	doc.modules[MOD_A].caseSearchConfig = { workflow: "skipToResults" };
+	const h = makeCaseListFixture(doc);
+	const reset = {
+		property: "last_visit",
+		comparison: "indexed-fallback",
+		direction: "ascending",
+	} as const;
+	const uuid = testUuid("search-fallback-filter");
+	expect(
+		editSearchFilterInputSchema.safeParse({
+			moduleUuid: MOD_A,
+			change: { operation: "add-order", uuid, order: [reset] },
+		}).success,
+	).toBe(true);
+	expect(
+		editSearchFilterInputSchema.safeParse({
+			moduleUuid: MOD_A,
+			change: { operation: "add-order", uuid, order: [reset, reset] },
+		}).success,
+	).toBe(false);
+	expect(searchRequestOrderSchema.safeParse([reset]).success).toBe(false);
+	const call = (id: typeof uuid) =>
+		h.runTool(editSearchFilterTool, {
+			moduleUuid: MOD_A,
+			change: { operation: "add-order", uuid: id, order: [reset] },
+		});
+	expect((await call(uuid)).result).toMatchObject({ ok: true });
+	expect(
+		(await call(testUuid("second-search-fallback-filter"))).result,
+	).toMatchObject({
+		error: expect.stringContaining(
+			"Keep index fallbacks together in one order",
+		),
+	});
+	expect(h.currentDoc().modules[MOD_A].caseListConfig?.searchFilters).toEqual([
+		{ uuid, kind: "order", order: [reset] },
+	]);
 });

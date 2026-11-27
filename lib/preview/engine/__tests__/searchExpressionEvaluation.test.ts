@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import type { CaseRow } from "@/lib/case-store";
 import type { SearchInputDef } from "@/lib/domain";
 import { simpleSearchInputDef } from "@/lib/domain";
 import {
 	arith,
 	concat,
+	count,
 	dateAdd,
 	double,
 	eq,
+	gt,
+	ifExpr,
 	input,
 	isBlank,
 	literal,
@@ -20,7 +24,10 @@ import {
 } from "@/lib/domain/expression";
 import { slotContext } from "@/lib/domain/expression/context";
 import type { Expression } from "@/lib/domain/expression/types";
-import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import {
+	androidDevice,
+	webAppsDevice,
+} from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { XPathInvalidPathError } from "@/lib/preview/xpath/runtimeValues";
 import type { PreviewSearchSessionValues } from "../identity";
 import { previewAsMe, previewSessionValues } from "../identity";
@@ -33,6 +40,7 @@ import {
 	resolveSearchInputDefaults as resolveDefaults,
 	sessionInstancePathValue,
 } from "../searchExpressionEvaluation";
+import { caseDatabaseRequirements } from "../useCaseDatabaseSnapshot";
 
 function searchEnvironment(
 	inputs: readonly SearchInputDef[],
@@ -116,6 +124,60 @@ function evaluatePreviewSearchPredicate(
 		values,
 	);
 }
+it("evaluates a Search button against the device cases before the worker types", () => {
+	const type = eq(
+		{ kind: "case-row-type" },
+		{ kind: "case-type", caseType: "patient" },
+	);
+	const condition = gt(
+		count({ kind: "cases", source: "casedb", where: [type] }),
+		literal(1),
+	);
+	const environment = searchEnvironment([], undefined, condition);
+	expect(caseDatabaseRequirements(environment.doc).required).toBe(true);
+	const ctx = slotContext(
+		environment.doc,
+		{
+			entity: "module",
+			uuid: environment.moduleUuid,
+			slot: "search_button_display_condition",
+		},
+		new Map(),
+	);
+	if (ctx === undefined)
+		throw new Error("The Search button has no evaluation context.");
+	const row = (case_id: string, case_type: string): CaseRow =>
+		({
+			app_id: "search-count",
+			case_id,
+			case_type,
+			status: "open",
+			owner_id: "worker-42",
+			case_name: case_id,
+			external_id: null,
+			opened_on: null,
+			closed_on: null,
+			modified_on: null,
+			parent_case_id: null,
+			properties: {},
+		}) as CaseRow;
+	const otherType = row("different", "visit");
+	const patient = row("first", "patient");
+	const actionVisible = (rows: CaseRow[]) =>
+		evaluatePredicate(
+			condition,
+			ctx,
+			{ ...environment, caseDatabase: { rows, indices: [] } },
+			[],
+			SESSION,
+			new Map(),
+		);
+	expect(actionVisible([patient, otherType])).toBe(false);
+	expect(actionVisible([patient, otherType, row("second", "patient")])).toBe(
+		true,
+	);
+});
+
 function resolveSearchInputDefaults(
 	inputs: readonly SearchInputDef[],
 	session: PreviewSearchSessionValues,
@@ -192,6 +254,23 @@ describe("preview case-search expression evaluation", () => {
 		expect(() =>
 			evaluatePreviewSearchExpression(term(sessionUser("first_name")), SESSION),
 		).toThrow(XPathInvalidPathError);
+	});
+
+	it("orders a worker name numerically when evaluating the shared owner rule", () => {
+		const worker = term(sessionContext("username"));
+		const owners = (name: string, threshold: string) =>
+			parseExcludedOwnerIds(
+				evaluatePreviewSearchExpression(
+					ifExpr(
+						gt(worker, term(literal(threshold))),
+						term(literal("owner-a")),
+						term(literal("owner-b")),
+					),
+					{ ...SESSION, context: { ...SESSION.context, username: name } },
+				),
+			);
+		expect(owners("zulu", "m")).toEqual(["owner-b"]);
+		expect(owners("12", "2")).toEqual(["owner-a"]);
 	});
 
 	it("binds submitted search inputs before evaluating a dependent expression", () => {
@@ -383,6 +462,40 @@ describe("preview case-search expression evaluation", () => {
 			"visit_date:from": "2024-03-10",
 			"visit_date:to": "2024-03-11",
 		});
+	});
+
+	it("orders the worker name numerically while starting a text Search", () => {
+		const prompt = simpleSearchInputDef(
+			testUuid("ordered-worker-search"),
+			"village",
+			"Village",
+			"text",
+			"village",
+			{
+				default: ifExpr(
+					gt(sessionContext("username"), literal("20")),
+					term(literal("north")),
+					term(literal("south")),
+				),
+			},
+		);
+		for (const device of [webAppsDevice(), androidDevice()]) {
+			for (const [username, expected] of [
+				["7", "south"],
+				["030", "north"],
+				["proof-worker", "south"],
+			]) {
+				const worker = previewAsMe({
+					id: "worker-42",
+					name: username,
+					email: "",
+				});
+				const session = previewSessionValues(worker, device);
+				expect(
+					resolveSearchInputDefaults([prompt], session).get("village"),
+				).toBe(expected);
+			}
+		}
 	});
 
 	it("splits excluded owners on whitespace, deduplicating without splitting commas", () => {

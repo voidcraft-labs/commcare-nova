@@ -7,7 +7,11 @@ import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import { possibleFinalSessionCaseTypes } from "@/lib/doc/caseOperationOrder";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
-import { type CaseOperation, collectTranslationUnits } from "@/lib/domain";
+import {
+	type CaseOperation,
+	collectTranslationUnits,
+	NEW_APP_SETTINGS,
+} from "@/lib/domain";
 import {
 	eq,
 	formField,
@@ -270,6 +274,72 @@ function linkExpressionDoc(options: {
 }
 
 describe("multi-select absolute validation", () => {
+	it.each([
+		["close", 101],
+		["followup", 101],
+		["followup", 500],
+	] as const)(
+		"allows a bounded %s form to choose %s cases",
+		(type, maximum) => {
+			const doc = buildDoc({
+				appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+				caseTypes: [{ name: "patient", properties: [] }],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListConfig: multipleConfig(maximum),
+						forms: [
+							{
+								name: "Close selected cases",
+								type,
+								postSubmit: "app_home",
+								fields:
+									type === "close"
+										? [f({ kind: "hidden", id: "ready", calculate: "'yes'" })]
+										: [
+												f({ kind: "text", id: "outcome" }),
+												f({
+													kind: "text",
+													id: "note",
+													required: "#form/outcome = 'followup'",
+												}),
+											],
+							},
+						],
+					},
+				],
+			});
+			expectAdmittedDoc(doc);
+			const [module] = doc.moduleOrder;
+			const [form] = doc.formOrder[module];
+			if (type === "close") {
+				const larger = produce(doc, (draft) => {
+					const selection = draft.modules[module].caseListConfig?.selection;
+					if (!selection) throw new Error("Expected several-case selection.");
+					selection.maximum = 102;
+				});
+				expect(codes(larger)).toContain(
+					"MULTI_SELECT_LARGE_BATCH_REQUIRES_FLAT_CLOSE",
+				);
+			}
+			const changed = produce(doc, (draft) => {
+				draft.forms[form].postSubmit = "module";
+			});
+			expect(codes(changed)).toContain(
+				"MULTI_SELECT_LARGE_BATCH_REQUIRES_FLAT_CLOSE",
+			);
+			const ordinary = produce(changed, (draft) => {
+				const selection = draft.modules[module].caseListConfig?.selection;
+				if (!selection) throw new Error("Expected several-case selection.");
+				selection.maximum = 100;
+			});
+			expect(codes(ordinary)).not.toContain(
+				"MULTI_SELECT_LARGE_BATCH_REQUIRES_FLAT_CLOSE",
+			);
+		},
+	);
+
 	it("requires a batch consumer and refuses a persistent form tile", () => {
 		const doc = buildDoc({
 			caseTypes: [
@@ -930,4 +1000,16 @@ describe("a translation that shows values of its own in a form over a set of cas
 			"MULTI_SELECT_SHARED_CASE_EXPRESSION",
 		);
 	});
+});
+
+it("refuses Search on clear on a list that chooses every match automatically", () => {
+	const doc = directCollectionLinkDoc();
+	const mod = doc.modules[SOURCE_MODULE];
+	mod.caseListConfig = {
+		...multipleConfig(),
+		selection: { kind: "multiple", maximum: 10, autoSelect: true },
+	};
+	expect(codes(doc)).not.toContain("MULTI_SELECT_SEARCH_ON_CLEAR");
+	mod.caseSearchConfig = { searchOnClear: true };
+	expect(codes(doc)).toContain("MULTI_SELECT_SEARCH_ON_CLEAR");
 });

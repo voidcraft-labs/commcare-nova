@@ -43,7 +43,7 @@ import {
 } from "@/lib/domain/localization";
 import { expressionSlotValue } from "@/lib/domain/referenceSlots";
 import { TriggerDag } from "@/lib/preview/engine/triggerDag";
-import { caseOptionsNodeset } from "../../caseOptions";
+import { availableCasesNodeset, caseOptionsNodeset } from "../../caseOptions";
 
 import { el, text as textNode } from "../../elementBuilders";
 import { planLanguageWire } from "../../languageWire";
@@ -73,6 +73,7 @@ import {
 	type ReadSourceNames,
 	type ReadXForm,
 } from "./index";
+import { stripXsd } from "./kinds";
 import {
 	effectiveLoadOrder,
 	type LoadStep,
@@ -227,11 +228,30 @@ function checkLoadOrder(
 ): void {
 	const names = xform.sourceNames;
 	if (names === undefined) return;
-	const order = effectiveLoadOrder(xform);
+	const order = effectiveLoadOrder(xform, ctx.pending);
 	const positions = documentOrder(doc, formUuid);
-	const emitted = emittedLoadOrder(order, (step) =>
-		loadPosition(names, positions, step.target, positions.size),
+	const operations = doc.forms[formUuid]?.caseOperations ?? [];
+	const createPositions = new Map(
+		operations.map((operation, index) => [
+			operation.uuid,
+			index - operations.length,
+		]),
 	);
+	for (const [uuid, position] of positions) {
+		const field = doc.fields[uuid];
+		if (field?.kind === "case_change")
+			createPositions.set(field.operationUuid, position);
+	}
+	const emitted = emittedLoadOrder(order, (step) => {
+		const ref = step.pending?.ref;
+		if (
+			ref?.entity === "form" &&
+			ref.slot === "case_operation_target_expression"
+		) {
+			return createPositions.get(ref.member.operationUuid) ?? positions.size;
+		}
+		return loadPosition(names, positions, step.target, positions.size);
+	});
 	const reads = new Map<LoadStep, Set<string>>();
 	const readsOfStep = (step: LoadStep) => {
 		const known = reads.get(step) ?? readsOf(doc, names, step);
@@ -285,7 +305,7 @@ function defaultUnread(
 		!held(ctx, only.element, "value")
 	)
 		return false;
-	const order = effectiveLoadOrder(xform);
+	const order = effectiveLoadOrder(xform, ctx.pending);
 	const at = order.findIndex(
 		(step) => step.event === "xforms-ready" && step.target === path,
 	);
@@ -349,16 +369,25 @@ function settleBothSources(ctx: ReadContext, form: DraftForm): void {
 		const bind = xform.binds.get(field.node);
 		if (
 			field.bothSources.typeDeferred &&
-			bind !== undefined &&
+			bind?.type !== undefined &&
 			sites.type !== undefined &&
 			sites.type.key !== null
-		)
+		) {
+			const typeSite = { element: bind.element, attribute: "type" };
 			ctx.accounting.claimEntry(
-				{ element: bind.element, attribute: "type" },
+				typeSite,
 				sites.type.entry,
 				sites.type.key,
 				field.place,
 			);
+			if (stripXsd(bind.type) === "string")
+				ctx.accounting.claimEntry(
+					typeSite,
+					sites.type.entry,
+					"jr-type:string",
+					field.place,
+				);
+		}
 	}
 }
 
@@ -474,6 +503,19 @@ function settleChoices(
 						? nodeset.slice(top.base.from, top.base.to)
 						: undefined
 					: nodeset;
+		if (proposal.caseType === undefined) {
+			settleCaseChoices(
+				xform.cursor,
+				proposal,
+				field.place,
+				head !== undefined &&
+					!filtered &&
+					proposal.available !== undefined &&
+					sameTree(head, availableCasesNodeset(proposal.available)),
+				false,
+			);
+			continue;
+		}
 		const context = slotContext(
 			doc,
 			{ entity: "field", uuid, slot: "lookup_options_source" },
@@ -562,7 +604,7 @@ function checkModelIterations(
 ): void {
 	const names = xform.sourceNames;
 	if (names === undefined) return;
-	const order = effectiveLoadOrder(xform);
+	const order = effectiveLoadOrder(xform, ctx.pending);
 	for (const repeat of xform.modelIterations) {
 		const uuid = repeat.uuid;
 		if (uuid === undefined || doc.fields[uuid] === undefined) continue;
@@ -635,9 +677,10 @@ function settleProtectedMessage(
 	const text = formText(xform);
 	const uuid = message.field.uuid;
 	if (text === undefined || uuid === undefined) return;
-	const source = (
-		doc.fields[uuid] as { validate_msg?: ProseTemplate } | undefined
-	)?.validate_msg;
+	const field = doc.fields[uuid] as
+		| { validate_msg?: ProseTemplate; extended_validate_msg?: ProseTemplate }
+		| undefined;
+	const source = field?.extended_validate_msg ?? field?.validate_msg;
 	const slot = text.slots.find(
 		(one) =>
 			one.owner.field === message.field &&
@@ -645,12 +688,24 @@ function settleProtectedMessage(
 			one.id === message.textId,
 	);
 	if (source === undefined || slot === undefined || slot.refused) return;
+	const extended = text.labelTexts.find(
+		(one) =>
+			one.owner.field === message.field && one.slot === "extended_validate_msg",
+	);
+	const values = extended?.values ?? slot.values;
+	const registered = extended
+		? (values
+				.get(extended.own)
+				?.parts.flatMap((part) =>
+					part.kind === "output" ? [part.output] : [],
+				) ?? [])
+		: slot.registered;
 	// Each reference of the message stands where the source output it was bound from does.
 	const atoms = source.parts.filter((part) => part.kind !== "text");
-	if (atoms.length !== slot.registered.length) return;
+	if (atoms.length !== registered.length) return;
 	const outputOf = new Map<string, string>();
 	atoms.forEach((atom, index) => {
-		outputOf.set(JSON.stringify(atom), slot.registered[index]?.text ?? "");
+		outputOf.set(JSON.stringify(atom), registered[index]?.text ?? "");
 	});
 	const holeOf = new Map<string, string>();
 	const holeFor = (part: ProseAtomPart): string => {
@@ -660,12 +715,16 @@ function settleProtectedMessage(
 		return hole;
 	};
 	const localization = commCareLocalization(doc);
-	const unitId = makeTranslationUnitId("field", uuid, "validate_msg");
+	const unitId = makeTranslationUnitId(
+		"field",
+		uuid,
+		extended === undefined ? "validate_msg" : "extended_validate_msg",
+	);
 	// The text's own forms, language by language.
 	const wireCodes = planLanguageWire(
 		effectiveAppLocalization(doc.localization),
 	).wireCodeByTag;
-	for (const [language, value] of slot.values) {
+	for (const [language, value] of values) {
 		const code = wireCodes.get(language);
 		if (code === undefined) continue;
 		const translated = localization.prose(code, unitId);

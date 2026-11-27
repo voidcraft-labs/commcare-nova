@@ -77,6 +77,7 @@ const DATE_FIELD = testUuid("platform-fixture-date");
 const ASSET = testMediaAssetId("platform-fixture-asset");
 
 const MODULE_OWNER = { kind: "module", moduleUuid: FIXTURE_MODULE } as const;
+const FIXTURE_OPEN = testUuid("platform-fixture-open");
 const FORM_OWNER = {
 	kind: "form",
 	moduleUuid: FIXTURE_MODULE,
@@ -433,6 +434,31 @@ function formBehaviorFixture(role?: FormBehaviorRole): BlueprintDoc {
 	};
 }
 
+function advancedConnectionProducer(identifier: string): BlueprintDoc {
+	return survey([], {
+		configure(doc) {
+			doc.forms[FIXTURE_FORM].caseOperations = [
+				{
+					uuid: FIXTURE_OPEN,
+					id: "open_member",
+					action: "create",
+					caseType: "member",
+					name: term(literal("Member")),
+					target: { kind: "new" },
+					links: [
+						{
+							identifier,
+							relationship: "child",
+							targetType: "household",
+							target: { kind: "session" },
+						},
+					],
+				},
+			];
+		},
+	});
+}
+
 export const PLATFORM_FEATURE_FIXTURES = {
 	"menu-layout": {
 		with: () =>
@@ -449,6 +475,53 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"web-apps-form-behavior",
 			FORM_OWNER,
 			"automaticSubmissionText",
+		),
+	},
+	"case-list-android-lookup": {
+		with: () =>
+			caseApp({
+				list: (config) => {
+					config.deviceLookup = {
+						action: "org.nova.proof.CASE_LOOKUP",
+						label: "Find a visit",
+						extras: [{ name: "mode", value: "lookup" }],
+						responses: ["visit"],
+					};
+				},
+			}),
+		without: () => caseApp(),
+		use: slotUse(
+			"case-list-android-lookup",
+			MODULE_OWNER,
+			"caseListConfig.deviceLookup",
+		),
+	},
+	"case-list-icon-actions": {
+		with: () =>
+			caseApp({
+				columns: [
+					imageMapColumn(FIXTURE_COLUMN, "case_name", "Action", [], {
+						entryPointUuid: testUuid("platform-list-action-endpoint"),
+					}),
+				],
+			}),
+		without: () =>
+			caseApp({
+				columns: [imageMapColumn(FIXTURE_COLUMN, "case_name", "Image", [])],
+			}),
+		use: slotUse(
+			"case-list-icon-actions",
+			COLUMN_OWNER,
+			"caseListConfig.columns[1].entryPointUuid",
+		),
+	},
+	"saved-form-descriptor": {
+		with: () => formBehaviorFixture("savedFormDescriptorText"),
+		without: () => formBehaviorFixture(),
+		use: slotUse(
+			"saved-form-descriptor",
+			FORM_OWNER,
+			"savedFormDescriptorText",
 		),
 	},
 	"datetime-question": fieldKindPair("datetime-question", "datetime"),
@@ -684,6 +757,33 @@ export const PLATFORM_FEATURE_FIXTURES = {
 		),
 	},
 	"connect-app": CONNECT,
+	"case-list-lookup-count": {
+		with: () =>
+			caseApp({
+				list: (config) => {
+					config.deviceLookup = {
+						action: "org.nova.proof.CASE_LOOKUP",
+						label: "Find a visit",
+						extras: [{ name: "mode", value: "visit" }],
+						responses: ["key"],
+					};
+				},
+				fields: [
+					f({ kind: "text", id: "note", label: proseText("Note") }),
+					f({
+						kind: "hidden",
+						id: "value",
+						uuid: FIXTURE_FIELD,
+						calculate: {
+							kind: "case-list-lookup-count",
+							module: FIXTURE_MODULE,
+						},
+					}),
+				],
+			}),
+		without: () => followupCalculated("0"),
+		use: calculateUse("case-list-lookup-count"),
+	},
 	"case-list-search-text": {
 		with: () =>
 			followupCalculated(
@@ -883,6 +983,12 @@ export const PLATFORM_FEATURE_FIXTURES = {
 		"captureSource",
 		"camera",
 	),
+	"face-camera": questionSettingPair(
+		"face-camera",
+		"image",
+		"captureSource",
+		"face-camera",
+	),
 	"photo-overlay": questionSettingPair(
 		"photo-overlay",
 		"image",
@@ -976,6 +1082,81 @@ export const PLATFORM_FEATURE_FIXTURES = {
 				label: proseText("Registration reference"),
 			}),
 		use: slotUse("answer-name-requires-android", FIELD_OWNER, "id"),
+	},
+	"answer-root-name-requires-android": {
+		with: () =>
+			survey([], {
+				configure(doc) {
+					doc.forms[FIXTURE_FORM].dataRootName = "survéy";
+				},
+			}),
+		without: () =>
+			survey([], {
+				configure(doc) {
+					doc.forms[FIXTURE_FORM].dataRootName = "survey";
+				},
+			}),
+		use: slotUse(
+			"answer-root-name-requires-android",
+			FORM_OWNER,
+			"dataRootName",
+		),
+	},
+	"advanced-index-name-requires-android": {
+		with: () => advancedConnectionProducer("Ωprobe"),
+		without: () => advancedConnectionProducer("my.parent"),
+		use: slotUse(
+			"advanced-index-name-requires-android",
+			FORM_OWNER,
+			`caseOperations[${FIXTURE_OPEN}].links[0]`,
+		),
+	},
+	"android-app-question": {
+		with: () =>
+			oneField({
+				kind: "text",
+				id: "answer",
+				label: proseText("Answer"),
+				androidApp: {
+					kind: "open-app",
+					action: "org.example.READING",
+					send: [],
+					receive: [],
+				},
+			}),
+		without: () =>
+			oneField({ kind: "text", id: "answer", label: proseText("Answer") }),
+		use: slotUse("android-app-question", FIELD_OWNER, "androidApp"),
+	},
+	"android-app-answer": {
+		with: () =>
+			survey([
+				f({
+					uuid: testUuid("read-meter-app"),
+					kind: "text",
+					id: "reading",
+					label: proseText("Read meter"),
+					androidApp: {
+						kind: "open-app",
+						action: "org.example.READING",
+						send: [],
+						receive: [],
+					},
+				}),
+				f({
+					uuid: FIXTURE_FIELD,
+					kind: "int",
+					id: "answer",
+					label: proseText("Answer"),
+					androidApp: {
+						kind: "use-question",
+						question: testUuid("read-meter-app"),
+					},
+				}),
+			]),
+		without: () =>
+			oneField({ kind: "int", id: "answer", label: proseText("Answer") }),
+		use: slotUse("android-app-answer", FIELD_OWNER, "androidApp"),
 	},
 	"number-keypad": {
 		with: () =>
@@ -1292,6 +1473,56 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			}),
 		without: () => caseApp(),
 		use: slotUse("details-tile", MODULE_OWNER, "caseListConfig.detailTile"),
+	},
+	"search-result-detail-text": {
+		with: () => {
+			const input = simpleSearchInputDef(
+				testUuid("result-text"),
+				"result_text",
+				"Search text",
+				"text",
+				"case_name",
+			);
+			return caseApp({
+				columns: [
+					{
+						...calculatedColumn(
+							testUuid("platform-result-detail"),
+							"Submitted answer",
+							term(literal("")),
+							{ notOnList: true, visibleInList: false },
+						),
+						searchResultDetail: {
+							inputUuid: input.uuid,
+							prefix: "",
+							suffix: "",
+						},
+					},
+				],
+				searchInputs: [input],
+			});
+		},
+		without: () =>
+			caseApp({
+				searchInputs: [
+					simpleSearchInputDef(
+						testUuid("result-text"),
+						"result_text",
+						"Search text",
+						"text",
+						"case_name",
+					),
+				],
+			}),
+		use: slotUse(
+			"search-result-detail-text",
+			{
+				kind: "column",
+				moduleUuid: FIXTURE_MODULE,
+				columnUuid: testUuid("platform-result-detail"),
+			},
+			"caseListConfig.columns[1].searchResultDetail",
+		),
 	},
 	"raw-custom-tile-field": {
 		with: () => caseApp({ list: tiled({ androidOnly: true }) }),
@@ -1647,6 +1878,26 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"caseListConfig.columns[1].kind",
 		),
 	},
+	"search-address-picker": {
+		with: () =>
+			caseApp({
+				searchInputs: [
+					{
+						kind: "address",
+						type: "address",
+						uuid: FIXTURE_INPUT,
+						name: "address",
+						label: "Find an address",
+					},
+				],
+			}),
+		without: () => caseApp({ searchInputs: [input("text")] }),
+		use: slotUse(
+			"search-address-picker",
+			INPUT_OWNER,
+			"caseListConfig.searchInputs[0].kind",
+		),
+	},
 	"search-screen-text": {
 		with: () =>
 			caseApp({
@@ -1712,6 +1963,25 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"barcode-search-field",
 			INPUT_OWNER,
 			"caseListConfig.searchInputs[0].type",
+		),
+	},
+	"search-field-groups": {
+		with: () => {
+			const group = testUuid("platform-fixture-search-group");
+			return caseApp({
+				searchInputs: [{ ...input("text"), group }],
+				list: (config) => {
+					config.searchInputGroups = [
+						{ uuid: group, label: "Personal details" },
+					];
+				},
+			});
+		},
+		without: () => caseApp({ searchInputs: [input("text")] }),
+		use: slotUse(
+			"search-field-groups",
+			MODULE_OWNER,
+			"caseListConfig.searchInputGroups",
 		),
 	},
 	"search-for-blank": {

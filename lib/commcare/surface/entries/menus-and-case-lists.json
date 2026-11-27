@@ -154,7 +154,7 @@
 		"id": "menus-and-case-lists/advanced-module-nova-would-write-as-a-basic-one",
 		"area": "menus-and-case-lists",
 		"section": "Module types",
-		"item": "`AdvancedModule` whose forms read the search or whose implicit parent chain no one index name follows",
+		"item": "`AdvancedModule` whose forms read the search or whose implicit parent chain has no supported selection",
 		"surfaceKeys": [
 			"parser:MenuParser/command",
 			"parser:MenuParser/command@id",
@@ -180,6 +180,51 @@
 		"emission": {
 			"cell": "omit",
 			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/advanced-manual-load-with-an-exact-parent-link",
+		"area": "menus-and-case-lists",
+		"section": "Module types",
+		"item": "An Advanced menu's manual case loads all follow one exact link among several names",
+		"surfaceKeys": ["schema:AdvancedModule.case_type"],
+		"valueClass": "advanced-manual-load-with-a-pinned-parent-link",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the two-step root Advanced entry keeps the exact link every form uses between its two manual choices. Another form can create the same record type under a different link name.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "The second Advanced load keeps its exact reference_id.",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/advanced-inline-search-without-entry-query",
+		"area": "menus-and-case-lists",
+		"section": "Module types",
+		"item": "Opening a root Advanced form with prompted inline Search",
+		"surfaceKeys": ["schema:AdvancedModule"],
+		"valueClass": "root-advanced-inline-search-does-not-start",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: CommCare HQ saves the prompted inline Search but its Advanced form entry cannot open it.",
+		"subject": "advanced-menus",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ saves the Search settings, then builds the opening entry as ordinary Advanced case selections. The entry never declares the Query that would collect the prompt answers. A post-entry case sync does not supply them."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": {
+			"cell": "HQ emits Advanced case selections without the prompted Query.",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -3201,7 +3246,34 @@
 		"surfaceKeys": ["schema:Detail.filter"],
 		"valueClass": "lifts-into-predicate",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseListConfig.filter`",
+		"dispositionCell": "**HELD**: `caseListConfig.filter`. An ordinary device list can require a minimum number of restored cases of its own type or compare that count with a whole-number multiple of itself.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`filter` (dot-interpolated XPath)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/detail-filter-matching-the-direct-hosts-text",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "`Detail.filter`, direct host property equals nonblank text on a device list",
+		"surfaceKeys": ["schema:Detail.filter"],
+		"valueClass": "direct-host-text-equality",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a reached property in `caseListConfig.filter`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3372,10 +3444,9 @@
 			"schema:Detail.auto_select"
 		],
 		"valueClass": "on-a-multi-select-basic-list",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListConfig.selection.autoSelect`",
-		"subject": "auto-select",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `caseListConfig.selection.autoSelect` holds the automatic choice of every eligible case up to the configured maximum",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / UNAVAILABLE",
@@ -3390,7 +3461,7 @@
 			"cell": "`auto_select: true`",
 			"markers": []
 		},
-		"gates": []
+		"gates": ["toggle/CASE_SEARCH_ADVANCED"]
 	},
 	{
 		"id": "menus-and-case-lists/detail-auto-select-true-on-a-single-select-basic-list",
@@ -3477,18 +3548,72 @@
 		"gates": []
 	},
 	{
-		"id": "menus-and-case-lists/detail-max-select-value-above-100",
+		"id": "menus-and-case-lists/detail-max-select-value-for-flat-close",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail screens",
-		"item": "`Detail.max_select_value` above 100 on a multi-select basic list",
+		"item": "`Detail.max_select_value` of 101 on a single Web Apps list with one unconditional close form",
+		"surfaceKeys": ["schema:Detail.max_select_value"],
+		"valueClass": "101-on-a-web-apps-flat-close",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `selection.maximum` of 101 for the bounded Web Apps close",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable"
+			}
+		},
+		"emission": {
+			"cell": "`max_select_value`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/detail-max-select-value-for-flat-followup",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "`Detail.max_select_value` from 101 through 500 on a single Web Apps list with one follow-up form with no record writes",
+		"surfaceKeys": ["schema:Detail.max_select_value"],
+		"valueClass": "101-on-a-web-apps-flat-followup-without-writes",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `selection.maximum` from 101 through 500 for the bounded Web Apps follow-up. The form leaves the selected records unchanged. A plain Text answer can be optional or required. One always-visible Text answer can control whether another Text question appears by comparing its answer with fixed text.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable"
+			}
+		},
+		"emission": {
+			"cell": "`max_select_value`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/detail-max-select-value-101-outside-flat-close",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "`Detail.max_select_value` of 101 outside the bounded Web Apps close",
 		"surfaceKeys": [
 			"parser:SessionDatumParser/instance-datum@max-select-value",
 			"schema:Detail.max_select_value"
 		],
-		"valueClass": "above-100",
+		"valueClass": "101-outside-web-apps-flat-close",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `selection.maximum` above 100",
+		"dispositionCell": "**HELD-NEW**: `selection.maximum` of 101 outside the bounded Web Apps close",
 		"subject": "case-list-setup",
 		"owner": "case-list-and-detail",
 		"platforms": {
@@ -3503,6 +3628,94 @@
 		},
 		"emission": {
 			"cell": "`max_select_value`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/detail-max-select-value-above-100",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "`Detail.max_select_value` from 102 through 2,147,483,647",
+		"surfaceKeys": [
+			"parser:SessionDatumParser/instance-datum@max-select-value",
+			"schema:Detail.max_select_value"
+		],
+		"valueClass": "above-100",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `selection.maximum` from 102 through 2,147,483,647 outside the bounded no-write follow-up",
+		"subject": "case-list-setup",
+		"owner": "case-list-and-detail",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable"
+			}
+		},
+		"emission": {
+			"cell": "`max_select_value`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/detail-max-select-value-above-101-on-android-only-app",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "`Detail.max_select_value` from 102 through 2,147,483,647 on a several-case list in an Android-only app",
+		"surfaceKeys": ["schema:Detail.max_select_value"],
+		"valueClass": "large-several-case-limit-with-web-apps-off",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Android stays at the home screen before the several-case selection. The saved integer does not change what the session asks Android to open.",
+		"subject": "case-list-setup",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Core emits a several-case datum and sets the session state to SELECTED_ENTITIES. Android cannot advance that session state to a form."
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/detail-max-select-value-above-2147483647",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "`Detail.max_select_value` above 2,147,483,647 on a multi-select basic list",
+		"surfaceKeys": [
+			"parser:SessionDatumParser/instance-datum@max-select-value",
+			"schema:Detail.max_select_value"
+		],
+		"valueClass": "exceeds-java-int",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: CommCare Core cannot install the suite because `SessionDatumParser` reads a signed Java integer",
+		"subject": "case-list-setup",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "CommCare Core cannot install the suite because `SessionDatumParser` reads a signed Java integer"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -3886,9 +4099,9 @@
 			"schema:CaseTileGroupConfig.index_identifier",
 			"schema:Detail.case_tile_group"
 		],
-		"valueClass": "identifier-an-xml-element-name",
+		"valueClass": "grouping-connection-name",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `tile.grouping {identifier, headerRows}`",
+		"dispositionCell": "**HELD**: `tile.grouping {identifier, headerRows}` keeps a period or hyphen after the first character of the connection name",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -3908,11 +4121,74 @@
 		"gates": ["toggle/CASE_LIST_TILE"]
 	},
 	{
+		"id": "menus-and-case-lists/case-tile-group-identifier-starts-with-a-hyphen",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "A custom tile's group index with a leading hyphen before an otherwise supported connection name",
+		"surfaceKeys": ["schema:CaseTileGroupConfig.index_identifier"],
+		"valueClass": "grouping-connection-name-starts-with-hyphen",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Core cannot install the suite because the generated grouping XPath starts an index step with a hyphen",
+		"subject": "case-tile-group-index",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Core cannot parse the generated case tile grouping XPath with a leading hyphen in its index step"
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/case-tile-group-identifier-with-interior-space",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "A custom tile's group index is two connection names separated by one space",
+		"surfaceKeys": ["schema:CaseTileGroupConfig.index_identifier"],
+		"valueClass": "grouping-connection-name-with-interior-space",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Core cannot install the suite because the generated grouping XPath has two adjacent name tokens",
+		"subject": "case-tile-group-index",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Core refuses the generated index step despite HQ's Case List editor saving the name with its internal space"
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/case-tile-group-path-through-a-scalar-index",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "A custom tile groups by a child of a scalar case index, such as `parent/parent` or `parent/*`",
+		"surfaceKeys": ["schema:CaseTileGroupConfig.index_identifier"],
+		"valueClass": "grouping-path-through-scalar-index",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the group key tries to read a child of a scalar case index and the worker cannot open the list",
+		"subject": "case-tile-group-index",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "The current Case List editor saves the path, but Core exposes each case index as a scalar link with no children. Formplayer cannot compute the key for the first row."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail screens",
-		"item": "`case_tile_group.index_identifier` outside `[a-zA-Z_][a-zA-Z0-9_]*`",
+		"item": "Other `case_tile_group.index_identifier` values outside `[A-Za-z_][A-Za-z0-9_.-]*`",
 		"surfaceKeys": [
 			"parser:DetailGroupParser/group",
 			"parser:DetailGroupParser/group@function",
@@ -3923,9 +4199,9 @@
 			"schema:CaseTileGroupConfig.index_identifier",
 			"schema:Detail.case_tile_group"
 		],
-		"valueClass": "identifier-outside-xml-name",
+		"valueClass": "identifier-outside-grouping-connection-name",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a grouping index name Nova's `tile.grouping.identifier` cannot spell",
+		"dispositionCell": "**HELD-NEW**: other grouping index names outside the supported connection grammar",
 		"subject": "case-tiles",
 		"owner": "case-list-and-detail",
 		"platforms": {
@@ -3935,6 +4211,30 @@
 		"emission": {
 			"cell": "omit",
 			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/case-tile-group-header-covers-all-cells",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "A custom grouped tile whose header covers every placed cell",
+		"surfaceKeys": ["schema:Detail.case_tile_group"],
+		"valueClass": "tile-group-header-covers-all-cells",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: no body fields remain for individual group members in Web Apps",
+		"subject": "case-tiles",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Web Apps draws the first member's header and has no fields left to show for other members"
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": {
+			"cell": "The gate requires a row below the heading (CASE_LIST_TILE_GROUP_HEADER_ROWS_OUT_OF_RANGE)",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -4603,7 +4903,7 @@
 		],
 		"valueClass": "calculated-lifting-into-value-expression",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `calculated` column",
+		"dispositionCell": "**HELD**: `calculated` column. An ordinary device list can count restored cases of its own type, including those where either a fixed text value or a second text property matches.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -4620,6 +4920,26 @@
 			"markers": []
 		},
 		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/inline-search-result-own-text-property",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail columns",
+		"item": "A Short calculation reads a text property from its own primary inline Search result",
+		"surfaceKeys": ["schema:DetailColumn.field"],
+		"valueClass": "inline-search-result-own-text-property",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: plain, visible, unsorted Short column reading one declared text property of the current primary result in the actual inline Search route.",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "unavailable" }
+		},
+		"emission": { "cell": "same native calculation", "markers": [] },
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "menus-and-case-lists/usexpathexpression-field-xpath-outside-valueexpression",
@@ -6021,6 +6341,129 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/standalone-search-result-list-text",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"surfaceKeys": [
+			"schema:DetailColumn.field",
+			"instance-scheme:search-input"
+		],
+		"gates": [],
+		"slotChanges": [],
+		"item": "A Search-first Results column displays a submitted text prompt in Web Apps",
+		"valueClass": "standalone-search-result-list-text",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a plain Results-only field displays one offered text prompt with optional literal text before or after it. A skipped prompt contributes empty text.",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable"
+			}
+		},
+		"emission": {
+			"cell": "The offered Search field’s instance path, optionally joined to literal text on the Web Apps Results list",
+			"markers": []
+		}
+	},
+	{
+		"id": "menus-and-case-lists/standalone-search-result-list-answer-without-web-apps",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"item": "A Search-first Results column reads an answer in an Android app",
+		"surfaceKeys": ["schema:DetailColumn.field"],
+		"valueClass": "standalone-search-result-list-answer-without-web-apps",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Android adds the returned records to the session. The Results column cannot read the submitted Search prompts there.",
+		"subject": "case-list-columns",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android keeps the returned records but does not retain the submitted Search choices for the Results detail to read."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/standalone-search-result-detail-text",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"surfaceKeys": ["schema:DetailColumn.field"],
+		"gates": [],
+		"slotChanges": [],
+		"item": "Plain Details text displays one optional submitted Search prompt in Web Apps",
+		"valueClass": "standalone-search-result-detail-text",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a plain Details-only field displays the submitted text of one Text, Date, Date range, Barcode, or single-choice prompt, with an explicit ordinary-case fallback and empty text if the worker left the prompt unanswered.",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable"
+			}
+		},
+		"emission": {
+			"cell": "Web Apps Details branch with a result roster guard and a guard on the exact prompt",
+			"markers": []
+		}
+	},
+	{
+		"id": "menus-and-case-lists/standalone-search-result-detail-fixed-text",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"surfaceKeys": ["schema:DetailColumn.field"],
+		"gates": [],
+		"slotChanges": [],
+		"item": "Plain Details text differs between standalone Search results and ordinary cases",
+		"valueClass": "standalone-search-result-detail-fixed-text",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: both branches hold fixed text. A guard on a prompt absent from the Search contributes empty text.",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": { "reading": "runs" },
+			"android": { "reading": "unavailable" }
+		},
+		"emission": {
+			"cell": "Web Apps Details branch with a result roster guard",
+			"markers": []
+		}
+	},
+	{
+		"id": "menus-and-case-lists/standalone-search-result-detail-without-its-offered-prompt",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"surfaceKeys": ["schema:DetailColumn.field"],
+		"subject": "case-list-columns",
+		"gates": [],
+		"item": "Standalone Search Details reads a hidden or unsupported prompt",
+		"valueClass": "standalone-search-result-detail-without-its-offered-prompt",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: the calculation needs a visible supported prompt and a plain Details field in a standalone Search that opens its prompts first.",
+		"owner": "case-list-and-detail",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "the reader holds the field before it can print an incomplete calculation",
+			"markers": []
+		}
+	},
+	{
 		"id": "menus-and-case-lists/invisible-text-in-a-web-apps-grouped-tile-body",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
@@ -6556,7 +6999,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Column formats",
-		"item": "16 `clickable-icon` + `endpoint_action_id`, on the case list",
+		"item": "A case list's clickable icon names a form endpoint that can submit one case",
 		"surfaceKeys": [
 			"format:clickable-icon",
 			"parser:DetailFieldParser/endpoint_action",
@@ -6572,11 +7015,10 @@
 			"schema:MappingItem.key",
 			"schema:MappingItem.value"
 		],
+		"slotChanges": [],
 		"valueClass": "clickable-icon-on-the-case-list-naming-a-form-endpoint",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `clickableIcon` column kind (icon mapping + the entry point of a case-requiring form that carries the `Pragma-Submit-Automatically` label, the only targets the editor offers, `views/modules.py::_form_endpoint_options`, `Form.is_auto_submitting_form`)",
-		"subject": "case-list-columns",
-		"owner": "case-list-and-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: A case list image submits an offered form for the selected row. Its action names a deep link taking precisely one case and the form's automatic submission is carried by a leaf question label. A grouped header passes its related case. The action runs in Web Apps.",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / UNAVAILABLE (raw `jr://` path as text)",
@@ -6593,6 +7035,51 @@
 			"markers": []
 		},
 		"gates": ["toggle/CASE_LIST_CLICKABLE_ICON", "toggle/SESSION_ENDPOINTS"]
+	},
+	{
+		"id": "menus-and-case-lists/clickable-icon-with-an-unusable-form-endpoint",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Column formats",
+		"item": "A list icon whose action cannot submit the selected row",
+		"surfaceKeys": [
+			"format:clickable-icon",
+			"parser:DetailFieldParser/endpoint_action",
+			"parser:DetailFieldParser/endpoint_action@background",
+			"parser:DetailFieldParser/endpoint_action@endpoint_id",
+			"parser:DetailFieldParser/header@width",
+			"parser:DetailFieldParser/template@form",
+			"parser:DetailFieldParser/template@width",
+			"schema:DetailColumn.endpoint_action_id",
+			"schema:DetailColumn.enum",
+			"schema:DetailColumn.format",
+			"schema:MappingItem",
+			"schema:MappingItem.key",
+			"schema:MappingItem.value"
+		],
+		"valueClass": "unusable-list-icon-endpoint",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: The icon needs one usable form endpoint for that case and runs in Web Apps. A grouped tile body would submit the first case of its group.",
+		"subject": "case-list-columns",
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": [],
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "The endpoint is absent, its required inputs do not match the tapped case, or the grouped body sends a different case."
+			},
+			{
+				"kind": "not-hq-editable",
+				"named": "The case list editor offers case-requiring forms with automatic submission on a question label."
+			}
+		]
 	},
 	{
 		"id": "menus-and-case-lists/16p-clickable-icon-with-an-empty-endpoint-action-id-on-the-case",
@@ -8997,11 +9484,49 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/lookup-with-text-extras",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "Enabled Android lookup that searches with a returned text value",
+		"surfaceKeys": [
+			"parser:CalloutParser/lookup",
+			"parser:CalloutParser/lookup@action",
+			"parser:DetailParser/lookup",
+			"schema:Detail.lookup_action",
+			"schema:Detail.lookup_enabled",
+			"schema:Detail.lookup_image",
+			"schema:Detail.lookup_display_results",
+			"schema:Detail.lookup_field_header",
+			"schema:Detail.lookup_field_template"
+		],
+		"valueClass": "enabled-android-lookup-with-text-extras",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: opens a companion Android app to search the case list by its returned text",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED (no button) / RUNS",
+			"webApps": {
+				"reading": "ignored",
+				"note": "no button"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`caseListConfig.deviceLookup` writes the enabled action in both carriers. The optional action image and result column have their own carriers.",
+			"markers": []
+		},
+		"gates": ["toggle/BIOMETRIC_INTEGRATION", "toggle/CASE_LIST_LOOKUP"]
+	},
+	{
 		"id": "menus-and-case-lists/lookup-enabled-lookup-action",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Case list callout",
-		"item": "`lookup_enabled` + `lookup_action`",
+		"item": "Enabled Android lookup outside the fixed text setting",
 		"surfaceKeys": [
 			"parser:CalloutParser/lookup",
 			"parser:CalloutParser/lookup@action",
@@ -9009,9 +9534,9 @@
 			"schema:Detail.lookup_action",
 			"schema:Detail.lookup_enabled"
 		],
-		"valueClass": "enabled-on-a-plain-or-custom-case-list",
+		"valueClass": "enabled-on-a-plain-or-custom-case-list-outside-fixed-text-setting",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListConfig.callout {action}`",
+		"dispositionCell": "**HELD-NEW**: enabled lookup with an unsupported argument or result column",
 		"subject": "case-list-callout",
 		"owner": "case-list-and-detail",
 		"platforms": {
@@ -9032,6 +9557,76 @@
 		"gates": ["toggle/BIOMETRIC_INTEGRATION", "toggle/CASE_LIST_LOOKUP"]
 	},
 	{
+		"id": "menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "An otherwise supported short case-list lookup sends the sum of two fixed whole numbers",
+		"surfaceKeys": ["schema:Detail.lookup_extras"],
+		"valueClass": "enabled-lookup-with-native-mode-dependent-fixed-integer-sum",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the two whole numbers remain a calculation in the lookup argument. Android sends the calculated text or the canonical spelling according to the worker’s mode.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED (no button) / RUNS",
+			"webApps": { "reading": "ignored", "note": "no button" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "HQ keeps the calculation in `lookup_extras`.",
+			"markers": []
+		},
+		"gates": ["toggle/BIOMETRIC_INTEGRATION", "toggle/CASE_LIST_LOOKUP"]
+	},
+	{
+		"id": "menus-and-case-lists/lookup-extras-explicit-evaluation",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "An Android lookup explicitly evaluates its supported arguments",
+		"surfaceKeys": ["schema:Detail.lookup_extras"],
+		"valueClass": "lookup-extra-evaluation-flag",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Android evaluates supported arguments even in a legacy installation. The evaluation control is not sent to the companion.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED (no button) / RUNS",
+			"webApps": { "reading": "ignored", "note": "no button" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "Supported arguments followed by the evaluation control",
+			"markers": []
+		},
+		"gates": ["toggle/BIOMETRIC_INTEGRATION", "toggle/CASE_LIST_LOOKUP"]
+	},
+	{
+		"id": "menus-and-case-lists/lookup-extra-relative-without-case-context",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "Enabled Android lookup with an extra that uses a one- or two-step relative field path",
+		"surfaceKeys": ["schema:Detail.lookup_extras"],
+		"valueClass": "bare-relative-field-name-before-case-selection",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: In its ordinary lookup mode, Android evaluates the relative field path before the list opens. The session has no main instance, so the companion is never started.",
+		"subject": "case-list-callout",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android evaluates an ordinary callout's arguments while opening the unselected list. The session has no main instance, so Core raises on the relative field path before Android can send an Intent."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": {
+			"cell": "HQ forwards the XPath as stored; Android evaluates it when creating the case list's lookup action.",
+			"markers": []
+		},
+		"gates": ["toggle/BIOMETRIC_INTEGRATION", "toggle/CASE_LIST_LOOKUP"]
+	},
+	{
 		"id": "menus-and-case-lists/lookup-name",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
@@ -9041,11 +9636,9 @@
 			"parser:CalloutParser/lookup@name",
 			"schema:Detail.lookup_name"
 		],
-		"valueClass": "on-the-case-list",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `callout.name`",
-		"subject": "case-list-callout",
-		"owner": "case-list-and-detail",
+		"valueClass": "nonempty-button-label-on-a-fixed-text-lookup",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the current Case List editor requires the lookup name. Android’s short-list toolbar uses its Scan Barcode title.",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -9057,10 +9650,11 @@
 			}
 		},
 		"emission": {
-			"cell": "`lookup_name`",
+			"cell": "`deviceLookup.label` → `lookup_name`",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "menus-and-case-lists/lookup-image-jr",
@@ -9072,11 +9666,10 @@
 			"parser:CalloutParser/lookup@image",
 			"schema:Detail.lookup_image"
 		],
-		"valueClass": "on-the-case-list",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `callout.icon` (media asset)",
-		"subject": "case-list-callout",
-		"owner": "case-list-and-detail",
+		"valueClass": "project-image-on-a-fixed-text-lookup",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Android lookup button can show an image from the app’s Project",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -9088,7 +9681,7 @@
 			}
 		},
 		"emission": {
-			"cell": "`lookup_image`",
+			"cell": "`deviceLookup.icon` → `lookup_image` with the Project asset’s bundled path",
 			"markers": []
 		},
 		"gates": []
@@ -9103,11 +9696,9 @@
 			"parser:CalloutParser/lookup@auto_launch",
 			"schema:Detail.lookup_autolaunch"
 		],
-		"valueClass": "on-the-case-list",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `callout.autoLaunch`",
-		"subject": "case-list-callout",
-		"owner": "case-list-and-detail",
+		"valueClass": "automatic-launch-on-a-fixed-text-lookup",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Android lookup can open automatically when its case list first appears",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -9119,26 +9710,92 @@
 			}
 		},
 		"emission": {
-			"cell": "`lookup_autolaunch`",
+			"cell": "`deviceLookup.automatic` → `lookup_autolaunch`",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
-		"id": "menus-and-case-lists/lookup-extras-key-value",
+		"id": "menus-and-case-lists/lookup-extras-fixed-text",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Case list callout",
-		"item": "`lookup_extras[] {key, value}`",
+		"item": "Nonempty named fixed-text lookup extras",
 		"surfaceKeys": [
 			"parser:CalloutParser/extra",
 			"parser:CalloutParser/extra@key",
 			"parser:CalloutParser/extra@value",
 			"schema:Detail.lookup_extras"
 		],
-		"valueClass": "at-least-one-on-the-case-list",
+		"valueClass": "named-literal-text-extras-on-a-fixed-text-lookup",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Android companion receives each named literal as text",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`deviceLookup.extras` → `lookup_extras` with literal XPath text",
+			"markers": []
+		},
+		"gates": [],
+		"slotChanges": []
+	},
+	{
+		"id": "menus-and-case-lists/lookup-extras-worker-context",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "Lookup extras with worker account values",
+		"surfaceKeys": [
+			"parser:CalloutParser/extra",
+			"parser:CalloutParser/extra@key",
+			"parser:CalloutParser/extra@value",
+			"schema:Detail.lookup_extras"
+		],
+		"valueClass": "fixed-text-and-worker-account-extras-on-the-case-list",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Android companion receives the configured worker username or ID from the installed app’s active session",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`deviceLookup.extras` → `lookup_extras` with fixed text and typed worker username or ID reads",
+			"markers": []
+		},
+		"gates": [],
+		"slotChanges": []
+	},
+
+	{
+		"id": "menus-and-case-lists/lookup-extras-key-value",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "`lookup_extras[] {key, value}` beyond fixed text and worker account values",
+		"surfaceKeys": [
+			"parser:CalloutParser/extra",
+			"parser:CalloutParser/extra@key",
+			"parser:CalloutParser/extra@value",
+			"schema:Detail.lookup_extras"
+		],
+		"valueClass": "extra-outside-fixed-text-and-worker-context-on-case-list",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `callout.extras`",
+		"dispositionCell": "**HELD-NEW**: typed lookup extras outside the supported preselection scope",
 		"subject": "case-list-callout",
 		"owner": "case-list-and-detail",
 		"platforms": {
@@ -9168,11 +9825,9 @@
 			"parser:CalloutParser/response@key",
 			"schema:Detail.lookup_responses"
 		],
-		"valueClass": "at-least-one-on-the-case-list",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `callout.responses`",
-		"subject": "case-list-callout",
-		"owner": "case-list-and-detail",
+		"valueClass": "ordered-unique-response-keys-on-a-fixed-text-lookup",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the lookup checks the configured responses in order when the primary marker has no value",
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -9184,10 +9839,11 @@
 			}
 		},
 		"emission": {
-			"cell": "`lookup_responses`",
+			"cell": "`deviceLookup.responses` → `lookup_responses`",
 			"markers": []
 		},
-		"gates": []
+		"gates": [],
+		"slotChanges": []
 	},
 	{
 		"id": "menus-and-case-lists/callout-with-no-extras-or-no-responses",
@@ -9220,6 +9876,90 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/lookup-case-id-confidence",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "Case-ID keyed lookup confidence in a row layout",
+		"surfaceKeys": [
+			"app-string-id:case_lists.m#.callout.header",
+			"parser:CalloutParser/field",
+			"schema:Detail.lookup_display_results",
+			"schema:Detail.lookup_field_header",
+			"schema:Detail.lookup_field_template"
+		],
+		"valueClass": "named-result-column-keyed-by-case-id-on-a-plain-list",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Android shows the companion’s confidence on each matching case",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`deviceLookup.resultHeading` writes a translated heading and matches on the case ID",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/lookup-case-property-confidence",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "Case property keyed lookup confidence in a row layout",
+		"surfaceKeys": [
+			"schema:Detail.lookup_display_results",
+			"schema:Detail.lookup_field_header",
+			"schema:Detail.lookup_field_template"
+		],
+		"valueClass": "named-result-column-keyed-by-a-case-text-property-on-a-plain-list",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Android shows the returned confidence on each eligible row with the matching case property value. A string conversion or empty suffix leaves the same key.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": { "reading": "ignored" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "`deviceLookup.resultProperty` writes one direct case property as the key.",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "menus-and-case-lists/lookup-case-id-result-without-a-header-map",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "Lookup confidence keyed by a record ID or text property with an empty heading map",
+		"surfaceKeys": ["schema:Detail.lookup_display_results"],
+		"valueClass": "case-id-result-column-on-a-plain-list-with-an-empty-heading-map",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: Android cannot install this app. The lookup results header in HQ’s build is missing the text element Android requires.",
+		"subject": "case-list-callout",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android needs a heading to install this case list. Adding a name for the lookup results column in CommCare HQ supplies it."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": {
+			"cell": "HQ writes a width-zero header with no text element.",
+			"markers": []
+		},
+		"gates": ["toggle/BIOMETRIC_INTEGRATION", "toggle/CASE_LIST_LOOKUP"]
+	},
+	{
 		"id": "menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
@@ -9232,9 +9972,9 @@
 			"schema:Detail.lookup_field_header",
 			"schema:Detail.lookup_field_template"
 		],
-		"valueClass": "on-the-case-list",
+		"valueClass": "lookup-result-column-outside-a-plain-case-id-match",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `callout.resultsColumn {header, expression}`",
+		"dispositionCell": "**HELD-NEW**: results keyed by other expressions, blank localized text or case tiles",
 		"subject": "case-list-callout",
 		"owner": "case-list-and-detail",
 		"platforms": {
@@ -9260,6 +10000,7 @@
 		"subsection": "Case list callout",
 		"item": "`lookup_enabled: false` with stale keys",
 		"surfaceKeys": [
+			"app-string-id:case_lists.m#.callout.header",
 			"schema:Detail.lookup_action",
 			"schema:Detail.lookup_autolaunch",
 			"schema:Detail.lookup_display_results",

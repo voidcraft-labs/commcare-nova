@@ -392,28 +392,73 @@ describe("circumstanceBlock", () => {
 // ---------------------------------------------------------------------------
 
 describe("findingLine", () => {
-	const manifestFinding: ManifestFinding = {
-		code: "questions/an-appearance",
-		standing: "not-yet",
-		place: questionPlace,
-		subject: "question-appearance",
-		detail: { name: "quick" },
-	};
+	it.each([
+		"case-search/search-group-layout-unreadable",
+		"case-search/search-group-heading-unreadable",
+	])(
+		"reads the current Search group finding’s guidance and name (%s)",
+		(code) => {
+			const manifestFinding: ManifestFinding = {
+				code,
+				standing: "never",
+				place: { kind: "search", menu: 0, name: "Households" },
+				subject: "search-fields",
+				detail: { name: "follow_up" },
+			};
+			expect(findingLine(manifestFinding)).toEqual({
+				sentence: FINDING_COPY["search-fields"].never,
+				named: "follow_up",
+			});
+			expect(findingLine({ ...manifestFinding, detail: {} }).named).toBeNull();
+		},
+	);
 
-	it("reads a manifest finding's sentence and names it", () => {
-		expect(findingLine(manifestFinding)).toEqual({
-			sentence: FINDING_COPY["question-appearance"]["not-yet"],
-			named: "quick",
-		});
-		expect(findingLine({ ...manifestFinding, detail: {} }).named).toBeNull();
+	it("uses the manifest finding’s repair cause", () => {
 		expect(
 			findingLine({
-				...manifestFinding,
+				code: "questions/jr-count-naming-a-decimal-question",
 				standing: "fix-in-hq",
 				cause: "breaks-when-run",
 				subject: "repeats",
+				place: questionPlace,
+				detail: {},
 			}).sentence,
 		).toBe(fixInHqSentence("repeats", "breaks-when-run"));
+	});
+
+	it("names the saved key and points to the app's declaration of a direct user link", () => {
+		expect(
+			findingLine({
+				code: "forms-and-case-writes/update-key-whose-index-segments-include-user-each-parent-host-or",
+				standing: "not-yet",
+				subject: "worker-record",
+				place: {
+					kind: "form",
+					menu: 1,
+					form: 0,
+					menuName: "Members",
+					name: "Visit",
+				},
+				detail: { name: "user/status_note" },
+			}),
+		).toEqual({
+			sentence: expect.stringContaining("one ordinary destination case type"),
+			named: "user/status_note",
+		});
+	});
+
+	it("explains that Android can send a lookup calculation as written", () => {
+		expect(
+			findingLine({
+				code: "menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum",
+				standing: "not-yet",
+				subject: "case-list-callout",
+				place: { kind: "case-list", menu: 0, name: "Visits" },
+				detail: {},
+			}).sentence,
+		).toContain(
+			"the companion receives the calculation as written or its result",
+		);
 	});
 
 	it("names a circumstance only where its row puts the name on its own line", () => {

@@ -8,9 +8,15 @@
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 
 export const PLATFORM_IDS = {
+	meter: testUuid("platforms-meter"),
+	reading: testUuid("platforms-reading"),
+	verify: testUuid("platforms-verify"),
 	module: testUuid("platforms-module"),
 	form: testUuid("platforms-form"),
 	place: testUuid("platforms-place"),
+	address: testUuid("platforms-address"),
+	addressCityCopy: testUuid("platforms-address-city-copy"),
+	datetime: testUuid("platforms-datetime"),
 	changeDay: testUuid("platforms-change-day"),
 	returnDay: testUuid("platforms-return-day"),
 	code: testUuid("platforms-code"),

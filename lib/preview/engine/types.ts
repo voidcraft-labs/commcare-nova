@@ -22,6 +22,8 @@ export interface FieldState {
 	/** What an Android date widget displays while its instance is blank.
 	 * An empty string records the worker clearing this particular visit. */
 	androidPickerDay?: string;
+	/** The local minute the visible Android date-and-time widget shows. */
+	androidPickerDatetime?: string;
 	visible: boolean;
 	required: boolean;
 	valid: boolean;
@@ -124,6 +126,7 @@ export function fieldStatesEqual(a: FieldState, b: FieldState): boolean {
 		a.path === b.path &&
 		a.value === b.value &&
 		a.androidPickerDay === b.androidPickerDay &&
+		a.androidPickerDatetime === b.androidPickerDatetime &&
 		a.visible === b.visible &&
 		a.required === b.required &&
 		a.valid === b.valid &&

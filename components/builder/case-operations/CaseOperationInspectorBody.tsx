@@ -314,6 +314,16 @@ export function CaseOperationInspectorBody({
 		const outcome = view.update(next);
 		setRefusal(outcome.ok ? undefined : outcome.messages.join(" "));
 	};
+	const identityTarget = (idFrom: Uuid | undefined): CaseTarget => {
+		if (idFrom === undefined) return { kind: "new" };
+		const answer = identityKeys.find((option) => option.uuid === idFrom);
+		return {
+			kind: "new",
+			idFrom,
+			...(answer?.shareKeyAcrossRows && { shareKeyAcrossRows: true }),
+		};
+	};
+
 	const retarget = (target: CaseTarget): CaseOperation =>
 		retargetCaseOperation(
 			operation,
@@ -366,7 +376,13 @@ export function CaseOperationInspectorBody({
 
 				<Row
 					title="Kind of case"
-					description="The type of case this change acts on."
+					description={
+						operation.action === "create" && operation.typeChoice !== undefined
+							? operation.typeChoice.reapplyPrimaryAtEnd
+								? "The imported form applies this case type after creation. Choosing a different type replaces the imported calculation."
+								: `The imported condition chooses between ${humanizeId(operation.caseType)} and ${humanizeId(operation.typeChoice.otherwise)}. Choosing a different type replaces the condition.`
+							: "The type of case this change acts on."
+					}
 				>
 					<CaseTypePicker
 						value={operation.caseType}
@@ -426,19 +442,13 @@ export function CaseOperationInspectorBody({
 								choiceVerdict={(idFrom) =>
 									view.editVerdict({
 										...operation,
-										target:
-											idFrom === undefined
-												? ({ kind: "new" } as const)
-												: ({ kind: "new", idFrom } as const),
+										target: identityTarget(idFrom),
 									})
 								}
 								onChange={(idFrom) =>
 									commit({
 										...operation,
-										target:
-											idFrom === undefined
-												? ({ kind: "new" } as const)
-												: ({ kind: "new", idFrom } as const),
+										target: identityTarget(idFrom),
 									})
 								}
 							/>
@@ -840,7 +850,9 @@ function IdentityKeyMenu({
 		? "Keyed by an answer that is no longer here"
 		: current === undefined
 			? "A distinct case each time"
-			: `Keyed by \u201c${current.label}\u201d`;
+			: current.shareKeyAcrossRows
+				? `Every row shares the case keyed by “${current.label}”`
+				: `Keyed by “${current.label}”`;
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger
@@ -878,7 +890,11 @@ function IdentityKeyMenu({
 				>
 					<DropdownMenuPopup className="min-w-0">
 						{[
-							{ uuid: undefined, label: "A distinct case each time" },
+							{
+								uuid: undefined,
+								label: "A distinct case each time",
+								shareKeyAcrossRows: undefined,
+							},
 							...options,
 						].map((option) => {
 							const active = option.uuid === value;
@@ -898,13 +914,17 @@ function IdentityKeyMenu({
 										<span className="block break-words">
 											{option.uuid === undefined
 												? option.label
-												: `Keyed by “${option.label}”`}
+												: option.shareKeyAcrossRows
+													? `Shared case keyed by “${option.label}”`
+													: `Keyed by “${option.label}”`}
 										</span>
 										<span className="block break-words text-xs text-nova-text-muted">
 											{verdict.ok
 												? option.uuid === undefined
 													? "Every submission makes its own case"
-													: "The same answer reaches the same case"
+													: option.shareKeyAcrossRows
+														? "Every row updates the same case"
+														: "The same answer reaches the same case"
 												: verdict.reason}
 										</span>
 									</span>

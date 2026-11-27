@@ -1,3 +1,9 @@
+import {
+	bareRead,
+	basicOwnExternalIdDayValue,
+	basicOwnNameCalendarDay,
+	caseSlotFacts,
+} from "@/lib/domain/basicCaseSlots";
 import { formCaseEntryPlan } from "./formCaseEntryPlan";
 import {
 	advancedAutosetsOwner,
@@ -82,7 +88,10 @@ import {
 	type AttachmentUrlTarget,
 	captureUrlNodePath,
 } from "./xform/captureUrlNode";
-import { collectFieldLocations } from "./xform/caseOps";
+import {
+	authoredCaseChangePaths,
+	collectFieldLocations,
+} from "./xform/caseOps";
 import { datetimeCaseValuePath } from "./xform/datetimeCaseValue";
 import { FormPath } from "./xform/formPath";
 import {
@@ -116,6 +125,7 @@ export interface SaveToCaseBlock {
 	/** Element names from the scope to the block. */
 	readonly path: readonly [string, ...string[]];
 	readonly held: boolean;
+	readonly authoredPath?: FormPath;
 }
 
 /** A new case HQ gives a session datum, which other forms and links read. */
@@ -371,12 +381,16 @@ function buildPlan(
 			mode: ConditionalCaseUpdate["update_mode"],
 			slot: FieldCaseWriteSlot,
 			via?: CaseWriteVia,
+			directQuestion?: Uuid,
 		) => {
-			const path = questionPath(value, property, {
-				operationUuid: operation.uuid,
-				slot,
-				...(via !== undefined && { via }),
-			});
+			const path =
+				directQuestion === undefined
+					? questionPath(value, property, {
+							operationUuid: operation.uuid,
+							slot,
+							...(via !== undefined && { via }),
+						})
+					: fieldPath(directQuestion).toXPath();
 			if (path !== null)
 				update[key] = { question_path: path, update_mode: mode };
 		};
@@ -385,14 +399,21 @@ function buildPlan(
 			operation.action === "own" &&
 			!isRegistration(form) &&
 			operation.name !== undefined
-		)
+		) {
+			const direct =
+				formKind === "basic"
+					? basicOwnNameCalendarDay(caseSlotFacts(doc, formUuid), operation)
+					: undefined;
 			put(
 				"name",
 				operation.name,
 				"case_name",
 				mode(operation.nameOnlyIfChanged),
 				"name",
+				undefined,
+				direct === undefined ? undefined : bareRead(direct),
 			);
+		}
 		if (operation.rename !== undefined)
 			put(
 				"name",
@@ -421,6 +442,10 @@ function buildPlan(
 				write.via === undefined
 					? property
 					: `${write.via.map((step) => step.identifier).join("/")}/${property}`;
+			const day =
+				formKind === "basic" && operation.action === "own"
+					? basicOwnExternalIdDayValue(caseSlotFacts(doc, formUuid), write)
+					: undefined;
 			put(
 				key,
 				write.value,
@@ -428,6 +453,7 @@ function buildPlan(
 				write.onlyIfChanged ? "edit" : "always",
 				"write",
 				write.via,
+				day?.field,
 			);
 		}
 		return update;
@@ -886,8 +912,14 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 				doc_type: "CaseIndex",
 				tag: indexTag(link, op),
 				reference_id: link.identifier,
-				relationship: link.relationship,
-				relationship_question: "",
+				relationship:
+					link.relationshipQuestion === undefined
+						? link.relationship
+						: "question",
+				relationship_question:
+					link.relationshipQuestion === undefined
+						? ""
+						: fieldPath(link.relationshipQuestion).toXPath(),
 			}),
 		);
 		const caseType = open.caseType;
@@ -971,6 +1003,7 @@ export function saveToCaseBlocks(
 	moduleKind?: "basic",
 ): readonly SaveToCaseBlock[] {
 	const blocks: SaveToCaseBlock[] = [];
+	const authored = authoredCaseChangePaths(doc, formUuid);
 	const { placements } = planPlacements(
 		doc,
 		formUuid,
@@ -987,6 +1020,10 @@ export function saveToCaseBlocks(
 				? { kind: "own-close" }
 				: { kind: "operation", operationUuid: key };
 		const repeat = planned.placement.repeat;
+		const authoredPath =
+			subject.kind === "operation"
+				? authored.get(subject.operationUuid)?.path
+				: undefined;
 		blocks.push({
 			subject,
 			scope:
@@ -996,6 +1033,7 @@ export function saveToCaseBlocks(
 						FormPath.root(doc.forms[formUuid]?.dataRootName)),
 			path: planned.placement.path,
 			held: planned.held,
+			...(authoredPath !== undefined && { authoredPath }),
 		});
 	}
 	return blocks;

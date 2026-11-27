@@ -22,6 +22,7 @@ import {
 } from "@/lib/commcare/__tests__/advancedPlacementFixture";
 import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import type { BlueprintDoc, CaseOperation } from "@/lib/domain";
+import { advancedLoadChain } from "@/lib/domain/advancedEntryDatums";
 import {
 	caseSelectionRouteCaseAction,
 	parentCaseConstraint,
@@ -77,6 +78,19 @@ describe("the index a parent selection follows", () => {
 			caseIds: ["h-1", "h-2"],
 			index: "household",
 		});
+	});
+
+	it("keeps the imported Advanced index when writers use another name", () => {
+		const doc = members({ heldKind: true, identifier: "my-parent" });
+		doc.modules[MEMBERS].parentCaseLink = {
+			parentUuid: HOUSEHOLDS,
+			identifier: "parent",
+		};
+		const formUuid = doc.formOrder[MEMBERS][0];
+		expect(advancedLoadChain(doc, formUuid).at(-1)?.identifier).toBe("parent");
+		expect(parentCaseConstraint(doc, MEMBERS, HOUSEHOLD_CHOICE)?.index).toBe(
+			"parent",
+		);
 	});
 
 	it("follows `parent` where no child link names the pair", () => {

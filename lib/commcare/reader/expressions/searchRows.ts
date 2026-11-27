@@ -71,7 +71,10 @@ function moduleRows(
 	] as unknown as readonly LookupTableDefinition[]);
 	const contexts = moduleExpressionContexts(doc, moduleUuid, naming);
 	const search = effectiveCaseSearchConfig(mod);
-	const wire = search === undefined ? undefined : searchWireShape(search);
+	const wire =
+		search === undefined
+			? undefined
+			: searchWireShape(search, mod.searchResultsName);
 	const clauses =
 		composeXPathQueryClauses(config, mod.caseType, contexts) ?? [];
 	const emission = composeXPathQueryEmission(
@@ -148,11 +151,18 @@ export function matchSearchRows(
 		const clause = clauses[emitted];
 		const levelAt = (index: number): "exact" | "guards" | undefined => {
 			const source = sources[index];
-			if (source === undefined) return undefined;
+			const sourceText = sourceRows[index];
+			if (source === undefined || sourceText === undefined) return undefined;
 			if (print !== undefined && sameSyntax(source, print)) return "exact";
 			return clause === undefined
 				? undefined
-				: searchRowLevel(source, clause.expression, clause.context, env);
+				: searchRowLevel(
+						source,
+						sourceText,
+						clause.expression,
+						clause.context,
+						env,
+					);
 		};
 		// The source row after the last one matched first, then any row not yet
 		// matched: rows in another order are the same rows, and the caller reads
@@ -181,10 +191,10 @@ export function matchSearchRows(
 	// conjunct: it matches a run of emitted rows no other source row took, in
 	// emission order and of one typing context, whose conjunction Nova prints
 	// as that row.
-	sourceRows.forEach((_, index) => {
+	sourceRows.forEach((sourceText, index) => {
 		const source = sources[index];
 		if (taken.has(index) || source === undefined) return;
-		const run = splitRun(source, extra, clauses, env);
+		const run = splitRun(source, sourceText, extra, clauses, env);
 		if (run === undefined) return;
 		for (const emitted of run.emitted)
 			byEmitted[emitted] = {
@@ -208,6 +218,7 @@ export function matchSearchRows(
  *  context and whose conjunction prints as `source`, with the level it matches at. */
 function splitRun(
 	source: FormSyntax,
+	sourceText: string,
 	extra: readonly number[],
 	clauses: readonly XPathQueryClause[],
 	env: SearchRowEnv,
@@ -227,6 +238,7 @@ function splitRun(
 				continue;
 			const level = searchRowLevel(
 				source,
+				sourceText,
 				and(
 					first.expression,
 					second.expression,

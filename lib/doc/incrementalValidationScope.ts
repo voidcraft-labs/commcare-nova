@@ -60,6 +60,7 @@ import {
 	menuScreenOf,
 	orderedCaseOperations,
 } from "@/lib/domain";
+import { caseListLookupCountSource } from "@/lib/domain/caseListLookupCount";
 import { modulesSelectingThrough } from "@/lib/domain/entryDatumSupplies";
 import { inferenceFingerprint } from "@/lib/domain/expression/inference";
 import { childModuleUuids, moduleParent } from "@/lib/domain/moduleHierarchy";
@@ -253,6 +254,22 @@ export function incrementalValidationScope(
 		return undefined;
 	addScreenContributors(doc, nextDoc, scope);
 	addSearchButtonConditions(nextDoc, scope);
+	if (
+		doc.modules !== nextDoc.modules ||
+		doc.moduleOrder !== nextDoc.moduleOrder ||
+		doc.forms !== nextDoc.forms ||
+		doc.formOrder !== nextDoc.formOrder
+	) {
+		// A menu mirror or an incoming form link can withdraw a lookup count
+		// from a form elsewhere in the document.
+		for (const form of Object.values(nextDoc.forms)) {
+			if (
+				caseListLookupCountSource(doc, form.uuid) !==
+				caseListLookupCountSource(nextDoc, form.uuid)
+			)
+				scope.formUuids.add(form.uuid);
+		}
+	}
 	// A parent edit changes every entry that opens its questions or runs its writes.
 	for (const entry of Object.values(nextDoc.forms)) {
 		if (entry.shadowOf && scope.formUuids.has(entry.shadowOf.form))
@@ -423,6 +440,7 @@ function mutationFootprint(
 				if (
 					Object.hasOwn(mutation.patch, "caseType") ||
 					Object.hasOwn(mutation.patch, "parentCaseModuleUuid") ||
+					Object.hasOwn(mutation.patch, "searchResultsName") ||
 					Object.hasOwn(mutation.patch, "caseListRegistrationForm") ||
 					(mutation.caseSearchConfigPatch !== undefined &&
 						Object.hasOwn(mutation.caseSearchConfigPatch, "formsReadSearch"))
@@ -441,11 +459,19 @@ function mutationFootprint(
 				break;
 			}
 
-			/* Media mutates only its owning form. */
 			case "setFormMedia":
 				if (mutation.registrationOf)
 					scope.moduleUuids.add(mutation.registrationOf);
 				else scope.formUuids.add(mutation.uuid);
+				// An ordinary form image may package a translated icon on a
+				// different menu. Revalidate every translated menu icon.
+				for (const uuid of doc.moduleOrder)
+					if (
+						Object.values(doc.modules[uuid]?.mediaByLanguage ?? {}).some(
+							(files) => files.iconOverride !== undefined,
+						)
+					)
+						scope.moduleUuids.add(uuid);
 				break;
 			case "renameForm":
 				scope.formUuids.add(mutation.uuid);
@@ -560,7 +586,12 @@ function mutationFootprint(
 			 * whole-document gate; the two home-screen switches are read by no
 			 * rule. */
 			case "setAppSettings":
-				if (mutation.settings.runsOnlyOn !== undefined) return undefined;
+				if (
+					mutation.settings.runsOnlyOn !== undefined ||
+					mutation.settings.projectSearch ||
+					mutation.settings.installationProfile !== undefined
+				)
+					return undefined;
 				break;
 
 			default:

@@ -12,6 +12,7 @@ import {
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
+import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import { type BlueprintDoc, mutationSchema } from "@/lib/doc/types";
 import {
 	collectTranslationUnits,
@@ -60,6 +61,111 @@ function wireReplay(source: BlueprintDoc, target: BlueprintDoc): BlueprintDoc {
 }
 
 describe("diffDocsToMutations localization", () => {
+	it("constructs a translated installation from an empty app and removes it with its language", () => {
+		const empty = emptyBlueprintDoc("localization-diff");
+		const uuid = testUuid("spanish-installation");
+		const spanish = produce(doc(), (draft) => {
+			applyMutations(draft, [
+				{ kind: "addLanguage", language: { language: "spa" }, wireCode: "es" },
+				{
+					kind: "setAppSettings",
+					settings: {
+						installationProfile: {
+							operation: "add",
+							profile: {
+								uuid,
+								name: "Field",
+								languages: ["spa"],
+								requiresPracticeWorker: false,
+							},
+						},
+					},
+				},
+			]);
+		});
+		const french = produce(spanish, (draft) => {
+			applyMutations(draft, [
+				{ kind: "addLanguage", language: { language: "fra" }, wireCode: "fr" },
+				{
+					kind: "setAppSettings",
+					settings: {
+						installationProfile: {
+							operation: "update",
+							uuid,
+							patch: { languages: ["fra"] },
+						},
+					},
+				},
+				{ kind: "removeLanguage", code: "spa" },
+			]);
+		});
+		const birth = mutationCommitVerdict(
+			empty,
+			diffDocsToMutations(empty, spanish),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(birth.ok ? [] : birth.findings).toEqual([]);
+		expect(toPersistableDoc(birth.nextDoc)).toEqual(toPersistableDoc(spanish));
+
+		for (const [before, after] of [
+			[spanish, doc()],
+			[spanish, french],
+			[french, spanish],
+		] as const) {
+			expect(toPersistableDoc(wireReplay(before, after))).toEqual(
+				toPersistableDoc(after),
+			);
+		}
+	});
+
+	it("replays a profile's choice of language even when relabeling remaps its old language", () => {
+		const uuid = testUuid("original-installation");
+		const before = produce(doc(), (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "setAppSettings",
+					settings: {
+						installationProfile: {
+							operation: "add",
+							profile: {
+								uuid,
+								name: "Field",
+								languages: ["eng"],
+								requiresPracticeWorker: false,
+							},
+						},
+					},
+				},
+			]);
+		});
+		const after = produce(before, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "relabelSourceLanguage",
+					language: { language: "fra" },
+					wireCode: "fr",
+				},
+				{ kind: "addLanguage", language: { language: "eng" }, wireCode: "en" },
+				{
+					kind: "setAppSettings",
+					settings: {
+						installationProfile: {
+							operation: "update",
+							uuid,
+							patch: { languages: ["eng"] },
+						},
+					},
+				},
+			]);
+		});
+		expect(toPersistableDoc(wireReplay(before, after))).toEqual(
+			toPersistableDoc(after),
+		);
+		expect(toPersistableDoc(wireReplay(after, before))).toEqual(
+			toPersistableDoc(before),
+		);
+	});
+
 	it("round-trips adding copied translations and removing the last target", () => {
 		const before = doc();
 		const unit = collectTranslationUnits(before).find(

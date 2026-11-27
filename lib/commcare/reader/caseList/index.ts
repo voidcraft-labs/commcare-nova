@@ -11,6 +11,7 @@ import { produce } from "immer";
 import type {
 	BlueprintDoc,
 	CasePropertyDataType,
+	Column,
 	Expression,
 	Module,
 	Uuid,
@@ -27,8 +28,13 @@ import { caseContextLine } from "@/lib/domain/caseFormContext";
 import { columnPropertyCaseType } from "@/lib/domain/columnRelation";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
-import { columnFieldText, defaultSortBlanks } from "@/lib/domain/modules";
+import {
+	columnFieldText,
+	defaultSortBlanks,
+	searchInputRequestKey,
+} from "@/lib/domain/modules";
 import { NO_ENTRIES, recordFromEntries } from "@/lib/domain/records";
+import { resolveSearchResultDetailRoute } from "@/lib/domain/searchResultDetail";
 import { isStandardCaseListProperty } from "@/lib/domain/standardCaseProperties";
 import type { HqPlace } from "@/lib/publish/hqFindings";
 import {
@@ -37,6 +43,11 @@ import {
 } from "../../hqJson/caseList";
 import { HqXPath, hqXPathText } from "../../hqJson/xpath";
 import { hqOfferedChildCaseTypes } from "../../hqOfferedChildTypes";
+import { listIconActionIssue } from "../../listIconAction";
+import {
+	inlineResultPropertyColumnSupported,
+	inlineResultPropertyPlacementsSupported,
+} from "../../suite/case-list/inlineResultPropertyPlacements";
 import { hqMappingKeyIsExpression } from "../../suite/case-list/keyVariable";
 import { rethrowWorkStop } from "../../workMeter";
 import { withCandidate } from "../candidate";
@@ -63,6 +74,7 @@ import { nativeCalculationText } from "./calculationText";
 import {
 	appCodes,
 	attributeOf,
+	COLUMN_CLAIMS,
 	columnFormatAsRead,
 	formatReadsMapping,
 	imageMapFieldText,
@@ -90,6 +102,7 @@ import {
 	retainSortComparisons,
 } from "./order";
 import { withReadTexts } from "./readTexts";
+import { readResultDetailText } from "./resultDetailText";
 
 export { joinDetailColumns } from "./details";
 
@@ -323,6 +336,7 @@ function columnDifference(
 	screen: "short" | "long",
 	fieldHandedOff: boolean,
 	optimizationsOn: boolean,
+	normalizedResultText?: string,
 ): string | undefined {
 	// A load behavior as HQ keeps it (`columns.ts::storedLoadBehavior`).
 	const behavior = (column: JsonObject) =>
@@ -362,7 +376,15 @@ function columnDifference(
 		if (
 			format === "translatable-enum"
 				? !sameXPathText(translated(stored, a), translated(ours, b))
-				: !sameField(a, b)
+				: !sameField(a, b) &&
+					!(
+						normalizedResultText !== undefined &&
+						b.text !== undefined &&
+						sameJson(readResultDetailText(b.text), {
+							text: normalizedResultText,
+							localText: readResultDetailText(a.text ?? "")?.localText,
+						})
+					)
 		)
 			return "schema:DetailColumn.field";
 	}
@@ -387,6 +409,12 @@ function columnDifference(
 		return "schema:DetailColumn.time_ago_interval";
 	if (format === "date" && stored.date_format !== ours.date_format)
 		return "schema:DetailColumn.date_format";
+	if (
+		format === "clickable-icon" &&
+		stored.endpoint_action_id !== ours.endpoint_action_id
+	)
+		return "schema:DetailColumn.endpoint_action_id";
+	const image = format === "enum-image" || format === "clickable-icon";
 	const enumA = formatReadsMapping(format) ? objects(stored.enum) : [];
 	const enumB = formatReadsMapping(format) ? objects(ours.enum) : [];
 	if (enumA.length !== enumB.length) return "schema:DetailColumn.enum";
@@ -408,11 +436,11 @@ function columnDifference(
 		if (
 			keyA !== keyB &&
 			format !== "translatable-enum" &&
-			((format !== "enum-image" && format !== "conditional-enum") ||
+			((!image && format !== "conditional-enum") ||
 				!sameXPathText(effectiveCondition(keyA), effectiveCondition(keyB)))
 		)
 			return "schema:MappingItem.key";
-		if (format === "enum-image") {
+		if (image) {
 			const empty = (raw: unknown) => {
 				const texts = shownTexts(raw ?? NO_ENTRIES, codes);
 				return (
@@ -435,7 +463,7 @@ function columnDifference(
 		// An image map's value is a path, compared as shown; any other mapping's is a text, compared
 		// as the reading holds it (`heldTextsIn`).
 		if (
-			format === "enum-image"
+			image
 				? !sameShownTexts(codes, item.value, other.value)
 				: !sameHeldTexts(
 						codes,
@@ -779,6 +807,17 @@ function listDifference(
 		long: JsonObject;
 	};
 	const codes = appCodes(ctx);
+	if (
+		mod.caseListConfig?.deviceLookup?.resultHeading !== undefined &&
+		!sameHeldTexts(
+			codes,
+			sourceCode(ctx),
+			"case-list-lookup-result-heading",
+			reading.short.peek("lookup_field_header"),
+			pair.short.lookup_field_header,
+		)
+	)
+		return "schema:Detail.lookup_field_header";
 	const handed = handedOffListSlots(ctx, reading);
 	// A column an inert row dropped is written by no build.
 	const kept = (detail: unknown, dropped: ReadonlySet<number>) =>
@@ -787,7 +826,8 @@ function listDifference(
 		);
 	// An image map's paths compare as the files they name (`keptMediaPaths`).
 	const asPrinted = (column: JsonObject): JsonObject =>
-		column.format !== "enum-image" || !Array.isArray(column.enum)
+		(column.format !== "enum-image" && column.format !== "clickable-icon") ||
+		!Array.isArray(column.enum)
 			? column
 			: {
 					...column,
@@ -865,6 +905,23 @@ function listDifference(
 	const tile = mod.caseListConfig?.tile !== undefined;
 	if (longStored.length !== longOurs.length) return "schema:Detail.columns";
 	for (const [position, { column, index }] of longStored.entries()) {
+		const joined = reading.joined.columns.findIndex(
+			(one) => one.long === index,
+		);
+		const held = mod.caseListConfig?.columns.find(
+			(one) => one.uuid === reading.uuids[joined],
+		);
+		const branch =
+			held?.kind === "calculated" ? held.searchResultDetail : undefined;
+		const parsed = reading.joined.columns[joined]?.proposal.resultDetailText;
+		const fixedText =
+			branch &&
+			"text" in branch &&
+			parsed &&
+			"inputName" in parsed &&
+			branch.text === parsed.prefix + parsed.suffix
+				? branch.text
+				: undefined;
 		const key = columnDifference(
 			codes,
 			sourceCode(ctx),
@@ -874,6 +931,7 @@ function listDifference(
 			"long",
 			handed.long.has(index),
 			mod.caseListConfig?.optimizations === true,
+			fixedText,
 		);
 		if (key !== undefined) return key;
 	}
@@ -1225,10 +1283,30 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 			inputs.lookupNaming,
 		);
 		ctx.doc = withoutImplicitRule(ctx, ctx.doc, reading);
+		ctx.doc = settleSearchResultDetailColumns(ctx.doc, module.uuid, reading);
+		settleInlineResultPropertyColumns(ctx.doc, module.uuid, reading);
 		const doc = ctx.doc;
 		const mod = doc.modules[module.uuid];
 		if (mod === undefined) continue;
 		const place = caseListPlace(module);
+		for (const [index, joined] of reading.joined.columns.entries()) {
+			const column = mod.caseListConfig?.columns.find(
+				(candidate) => candidate.uuid === reading.uuids[index],
+			);
+			if (column?.kind !== "image-map" || column.entryPointUuid === undefined)
+				continue;
+			const issue = listIconActionIssue(doc, mod, column);
+			if (issue) {
+				const site = joined.proposal.json;
+				// The bound destination decides the whole action, including the icon mapping.
+				ctx.accounting.findingAt(
+					COLUMN_CLAIMS.clickableIconUnavailable,
+					site.place,
+					site.pointer,
+					{ name: String(site.peek("endpoint_action_id")) },
+				);
+			}
+		}
 		let difference: string | undefined;
 		try {
 			difference = listDifference(
@@ -1256,6 +1334,120 @@ export function settleCaseLists(ctx: ReadContext, app: DraftApp): void {
 		)
 			ctx.accounting.circumstance("unrecognized", place, { name: difference });
 	}
+}
+
+/** Short includes this native calculation only where the bound case
+ * catalog and all entries agree on the exact text row that supplies it. */
+function settleInlineResultPropertyColumns(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	reading: CaseListReading,
+): void {
+	const module = doc.modules[moduleUuid];
+	if (!module) return;
+	let placements: boolean | undefined;
+	for (const [index, joined] of reading.joined.columns.entries()) {
+		const proposed = joined.proposal.column;
+		if (proposed.kind !== "calculated" || !proposed.inlineResultProperty)
+			continue;
+		const column = module.caseListConfig?.columns.find(
+			(candidate) => candidate.uuid === reading.uuids[index],
+		);
+		placements ??= inlineResultPropertyPlacementsSupported(doc, module);
+		if (
+			placements &&
+			column?.kind === "calculated" &&
+			inlineResultPropertyColumnSupported(doc, module, column)
+		)
+			joined.proposal.json.take(
+				"field",
+				COLUMN_CLAIMS.inlineResultOwnProperty,
+				String,
+			).value;
+		else
+			joined.proposal.json.refuse(
+				"field",
+				COLUMN_CLAIMS.inlineResultOwnPropertyUnavailable,
+				{ reason: "inline-result-text-placement" },
+			);
+	}
+}
+
+/** Place-bound result expressions are resolved after Search has declared
+ * the prompt identities. The literal ordinary branch takes no Search scope. */
+function settleSearchResultDetailColumns(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	reading: CaseListReading,
+): BlueprintDoc {
+	const module = doc.modules[moduleUuid];
+	const config = module?.caseListConfig;
+	if (!module || !config) return doc;
+	const branches = new Map<
+		Uuid,
+		NonNullable<Extract<Column, { kind: "calculated" }>["searchResultDetail"]>
+	>();
+	for (const [index, joined] of reading.joined.columns.entries()) {
+		const source = joined.proposal.resultDetailText;
+		if (!source) continue;
+		const column = config.columns.find(
+			(candidate) => candidate.uuid === reading.uuids[index],
+		);
+		let branch:
+			| NonNullable<
+					Extract<Column, { kind: "calculated" }>["searchResultDetail"]
+			  >
+			| undefined;
+		if ("text" in source) {
+			branch = { text: source.text };
+		} else {
+			const prompts = config.searchInputs.filter(
+				(prompt) =>
+					prompt.name === source.inputName ||
+					searchInputRequestKey(prompt) === source.inputName,
+			);
+			if (prompts.length === 0 && source.onList !== true) {
+				branch = { text: source.prefix + source.suffix };
+			} else if (prompts.length === 1 && prompts[0].name === source.inputName) {
+				branch = {
+					inputUuid: prompts[0].uuid,
+					prefix: source.prefix,
+					suffix: source.suffix,
+					...(source.onList && { onList: true }),
+				};
+			}
+		}
+		if (
+			column?.kind === "calculated" &&
+			branch &&
+			resolveSearchResultDetailRoute(module, column, branch)
+		) {
+			joined.proposal.json.take(
+				"field",
+				"text" in branch
+					? COLUMN_CLAIMS.searchResultDetailFixedText
+					: branch.onList
+						? COLUMN_CLAIMS.searchResultList
+						: COLUMN_CLAIMS.searchResultDetail,
+				String,
+			).value;
+			branches.set(column.uuid, branch);
+		} else {
+			joined.proposal.json.refuse(
+				"field",
+				COLUMN_CLAIMS.searchResultDetailUnavailable,
+			);
+		}
+	}
+	if (branches.size === 0) return doc;
+	return withCandidate(doc, (draft) => {
+		for (const column of draft.modules[moduleUuid]?.caseListConfig?.columns ??
+			[]) {
+			const branch = branches.get(column.uuid);
+			if (column.kind === "calculated" && branch)
+				column.searchResultDetail = branch;
+		}
+	});
 }
 
 /**
