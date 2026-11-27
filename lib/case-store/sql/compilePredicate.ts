@@ -80,6 +80,7 @@ import {
 	canonicalIntegerText,
 	coercedEquality,
 	type EqualityOperand,
+	sameTypeRestoredPresence,
 	typesCompatible,
 } from "@/lib/domain/expression/ruleSets";
 import {
@@ -201,6 +202,8 @@ export function compilePredicate(
 	pred: DomainExpression,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
+	if (sameTypeRestoredPresence(pred, ctx.currentCaseType))
+		return eb.lit(true) as Expression<SqlBool>;
 	if (pred.kind === "term") return compileBareRead(pred.term, ctx);
 	// `boolean(...)` of one answer, the one call a record condition holds
 	// (`typeChecker.ts::effectiveBooleanOfAnswer`): Core's `boolean` reads its

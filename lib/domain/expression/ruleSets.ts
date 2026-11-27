@@ -10,6 +10,7 @@ import {
 	type ComparisonKind,
 	type Expression,
 	isConditionArm,
+	isRelationPath,
 	type Literal,
 	MATCH_MODES,
 	type MatchMode,
@@ -218,22 +219,48 @@ export function literalShape(
 	return undefined;
 }
 
-/** A query of restored cases with a single typed case-type match. */
-export function isRestoredCaseTypeQuery(expression: Expression): boolean {
+/** The type in a query of restored cases that has one typed case-type match. */
+function restoredCaseType(expression: Expression): string | undefined {
 	if (
 		expression.kind !== "cases" ||
 		expression.source !== "casedb" ||
 		expression.supplier !== undefined
 	)
-		return false;
+		return undefined;
 	const filter = expression.where?.[0];
-	return (
-		expression.where?.length === 1 &&
+	return expression.where?.length === 1 &&
 		filter?.kind === "eq" &&
 		filter.left.kind === "term" &&
 		filter.left.term.kind === "case-row-type" &&
 		filter.right.kind === "term" &&
 		filter.right.term.kind === "case-type"
+		? filter.right.term.caseType
+		: undefined;
+}
+
+export function isRestoredCaseTypeQuery(expression: Expression): boolean {
+	return restoredCaseType(expression) !== undefined;
+}
+
+/** Every candidate in an ordinary list witnesses its own type being present. */
+export function sameTypeRestoredPresence(
+	expression: Expression,
+	caseType: string | undefined,
+): boolean {
+	if (
+		caseType === undefined ||
+		expression.kind !== "gt" ||
+		expression.left.kind !== "count" ||
+		expression.left.where !== undefined ||
+		isRelationPath(expression.left.via) ||
+		expression.right.kind !== "term" ||
+		expression.right.term.kind !== "literal"
+	)
+		return false;
+	return (
+		expression.right.term.value === 0 &&
+		expression.right.term.data_type === undefined &&
+		restoredCaseType(expression.left.via) === caseType
 	);
 }
 

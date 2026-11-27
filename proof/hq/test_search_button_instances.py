@@ -244,3 +244,43 @@ def test_the_hq_search_button_orders_worker_text_only_with_a_declared_session(hq
                 lists = [step for step in trace if step.get("screen") == "case-list"]
                 assert lists and {row["caseId"] for step in lists for row in step["rows"]} == {"case_one"}, observed
                 assert all(bool(step.get("actions")) == (expected == "shown") for step in lists), observed
+
+
+def test_first_case_list_row_already_witnesses_its_restored_case_type(hq, core_runner, tmp_path):
+    from corehq.apps.app_manager.models import CaseSearch
+    from corehq.apps.app_manager.tests.util import patch_get_xform_resource_overrides
+
+    from proof.core.artifacts import SESSION_RESTORE
+    from proof.core.test_session import CASE_XMLNS, person_cases
+    from proof.observe.build import arrange
+
+    case_ns = f"{{{CASE_XMLNS}}}"
+    restored = etree.fromstring(person_cases(SESSION_RESTORE.read_bytes(), ["one"]))
+    restored.find(f".//{case_ns}create/{case_ns}case_type").text = "client"
+    restore = etree.tostring(restored)
+
+    def visible_ids(name, list_filter):
+        app = _search_app(state.domain, list_filter)
+        app.modules[0].search_config = CaseSearch()
+        app._id = f"list-count-{name}"
+        app.version = 1
+        with patch_get_xform_resource_overrides():
+            files = app.create_all_files()
+        path = arrange(files, tmp_path / name)
+        opened = core_runner.admit(path)
+        assert opened["admitted"], opened["problems"]
+        try:
+            walk = core_runner.session(opened["app"], restore=restore)
+        finally:
+            core_runner.release(opened["app"])
+        return {
+            row["caseId"]
+            for run in walk["runs"] for step in run["trace"]
+            if step.get("screen") == "case-list"
+            for row in step["rows"]
+        }
+
+    with hq_check(Configuration()) as (state, _):
+        assert visible_ids("plain", None) == {"case_one"}
+        assert visible_ids("same-type-exists", COUNT_CASES.replace("> 1", "> 0")) == {"case_one"}
+        assert visible_ids("another-case-required", COUNT_CASES) == set()

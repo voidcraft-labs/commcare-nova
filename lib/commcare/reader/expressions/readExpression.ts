@@ -21,7 +21,7 @@ import {
 	type LookupTypeIndex,
 	slotContext,
 } from "@/lib/domain/expression/context";
-import { ordinaryHostFilterList } from "@/lib/domain/expression/directHostTextEquality";
+import { ordinaryDeviceCaseList } from "@/lib/domain/expression/directHostTextEquality";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { RuleSet } from "@/lib/domain/expression/profiles";
 import { literalShape } from "@/lib/domain/expression/ruleSets";
@@ -623,7 +623,7 @@ function reachedSlot(
 		return undefined;
 	if (ref.slot === "case_list_column_expression") return "column";
 	return ref.slot === "case_list_filter" &&
-		ordinaryHostFilterList(doc, ref.uuid) &&
+		ordinaryDeviceCaseList(doc, ref.uuid) &&
 		mode.target === "hq-json" &&
 		mode.interpolation === "case"
 		? "host-filter"

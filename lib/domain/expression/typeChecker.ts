@@ -89,7 +89,9 @@ import {
 	MATCH_PROPERTY_TYPES_BY_MODE,
 	ORDERED_TYPES,
 	type RecordPosition,
+	readsRestoredCaseTypeQuery,
 	recordPositionVerdict,
+	sameTypeRestoredPresence,
 	searchUsernameTextOrder,
 	TEXT_SHAPED_TYPES,
 	TIME_ORDERING_MESSAGE,
@@ -790,6 +792,26 @@ export function checkExpression(
 		...csqlFindings(expression, ctx),
 	];
 	const slot = ctx.slot;
+	if (
+		slot.slot === "case_list_filter" &&
+		readsRestoredCaseTypeQuery(expression)
+	) {
+		const row = ctx.rows[0];
+		if (
+			!sameTypeRestoredPresence(
+				expression,
+				row?.kind === "case" ? row.caseType : undefined,
+			)
+		)
+			errors.push(
+				refusal(
+					"arm-unavailable",
+					"A case list can check whether its own type is present among the worker’s restored cases.",
+					"device-list-restored-type-presence",
+				),
+			);
+	}
+
 	if (slot.slot === "search_input_required_when") {
 		walkExpression(expression, {
 			visitExpression(node, path) {
@@ -1227,7 +1249,8 @@ function admission(
 		)
 			return undefined;
 		if (
-			ctx.slot.slot === "search_input_required_when" &&
+			(ctx.slot.slot === "search_input_required_when" ||
+				ctx.slot.slot === "case_list_filter") &&
 			(isRestoredCaseTypeQuery(expression) ||
 				(expression.kind === "count" &&
 					!isRelationPath(expression.via) &&
