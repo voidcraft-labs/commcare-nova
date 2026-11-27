@@ -179,6 +179,7 @@ def test_signed_android_requires_the_date_and_overwrites_the_fresh_case(hq, edit
     from proof.observe.record import Blobs
 
     day, command = "2025-12-01", "m0-f0"
+    date_path = "/data/visit_date"
     document = corpus_document("hq-questions")
     configuration = document.exports["minimum"].configuration.hq()
     configuration = replace(configuration, privileges=configuration.privileges | {"VELLUM_SAVE_TO_CASE"})
@@ -201,39 +202,42 @@ def test_signed_android_requires_the_date_and_overwrites_the_fresh_case(hq, edit
         app_id, receipt = _prepare(unit, document, "required-date", editor_driver)
         with formplayer.serve(unit, document, app_id, database=DATABASE, platforms={"android"}) as served:
             archive = observe.release_archive(served)
-            for label, answer in (("blank", []), ("dated", [f"calendar:{day}"])):
+            for label, answer in (("untouched-picker", []), ("selected-date", [f"calendar:{day}"])):
                 blobs, sent, stored = Blobs(), [], []
                 result = observe.app(
                     served, blobs, label=f"retype-{label}", archive=archive, delivered=True,
-                    commands=[command], questions={"/data/full_name": ["blue"], "/data/visit_date": answer},
-                    sent=sent, stored=stored, installation_languages=("en",), views=True,
+                    commands=[command], questions={"/data/full_name": ["blue"], date_path: answer},
+                    sent=sent, stored=stored, installation_languages=("en",), controls=True,
                 )
                 walk = blobs.get_json(result["answer"])["walks"][command]
                 receipt[label] = {"walk": walk, "sent": len(sent), "stored": stored, "hqNeighbors": hq_neighbors}
                 write_evidence("save-to-case-retype-required-date-android", receipt)
                 form, = [step["form"] for step in walk["steps"] if step.get("screen") == "FormEntryActivity"]
-                date_screens = [
+                date_question, = [
                     question for screen in form["screens"] for question in screen["questions"]
-                    if question["reference"] == "/data/visit_date"
+                    if question["reference"] == f"{date_path}[1]"
                 ]
-                assert date_screens and all(question["required"] for question in date_screens), form
-                if label == "blank":
-                    assert all(question["answer"] is None for question in date_screens), date_screens
-                    assert form["saved"]["finishing"] is False and form["saved"]["casesAsTheFormOpened"], form
-                    assert not sent and not stored, receipt[label]
-                    continue
+                # The ordinary picker opens on the device's day before the
+                # instance holds an answer. Next commits that visible value.
+                assert date_question["required"] and date_question["answer"] is None, date_question
+                assert date_question["widget"] == "DateWidget", date_question
+                shown_day = date_question["control"]["civilDay"]
+                assert shown_day and shown_day != day, date_question
+                expected_day = day if answer else shown_day
 
                 assert form["saved"]["finishing"] is True, form
                 submission, = sent
                 kept, = stored
                 assert kept["form"]["normal"], kept
-                changes = _changes(etree.fromstring(submission))
+                instance = etree.fromstring(submission)
+                assert instance.findtext("{*}visit_date") == expected_day
+                changes = _changes(instance)
                 assert _changes(etree.fromstring(kept["form"]["xml"].encode())) == changes
                 assert [(change["type"], change["kept"]) for change in changes.values()] == [
-                    ("patient", ["blue"]), ("visit", [day]),
+                    ("patient", ["blue"]), ("visit", [expected_day]),
                 ], changes
                 final, = [row for row in form["saved"]["cases"] if row["id"].startswith("@device-case:")]
-                assert final["type"] == "visit" and final["properties"]["kept"] == day, final
+                assert final["type"] == "visit" and final["properties"]["kept"] == expected_day, final
                 assert {
                     row["id"]: (row["type"], row["properties"]["kept"])
                     for row in form["saved"]["cases"] if row["id"] in expected_neighbors
@@ -241,7 +245,8 @@ def test_signed_android_requires_the_date_and_overwrites_the_fresh_case(hq, edit
                 assert hq_neighbors == expected_neighbors
                 assert kept["cases"] == {
                     changes["again"]["id"]: {
-                        "name": "blue", "type": "visit", "forms": [kept["instanceID"]], "properties": {"kept": day},
+                        "name": "blue", "type": "visit", "forms": [kept["instanceID"]],
+                        "properties": {"kept": expected_day},
                     },
                 }, kept
 
