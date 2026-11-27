@@ -98,6 +98,17 @@ const VERSION_PATH = "/a/clinic/apps/view/working-app/current_version/";
 const BUILD_PATH = "/a/clinic/api/application/v1/working-app/";
 const DETAIL_PATH = "/a/clinic/api/application/v1/released-build/?extras=true";
 const PROFILE_PATH = "/a/clinic/apps/download/released-build/profile.ccpr";
+const WORKING_SUITE_PATH = "/a/clinic/apps/download/working-app/suite.xml";
+const RELEASED_ANDROID_PROBE_PATHS = [
+	VERSION_PATH,
+	BUILD_PATH,
+	DETAIL_PATH,
+	WORKING_SUITE_PATH,
+	// The working suite has no independent build revision. Read the
+	// counter again before trusting this form inventory for the release.
+	VERSION_PATH,
+	PROFILE_PATH,
+] as const;
 const PROFILE = `<profile><suite><resource id="suite"><location authority="remote">${HOST}/a/clinic/apps/download/released-build/suite.xml</location></resource></suite></profile>`;
 const GET = "get_deployment",
 	REFRESH = "refresh_deployment",
@@ -434,12 +445,7 @@ it("records readiness from the exact released profile, survives an unavailable c
 		});
 		expect(urls(peer)).toEqual(
 			[
-				VERSION_PATH,
-				BUILD_PATH,
-				DETAIL_PATH,
-				"/a/clinic/apps/download/working-app/suite.xml",
-				VERSION_PATH,
-				PROFILE_PATH,
+				...RELEASED_ANDROID_PROBE_PATHS,
 				VERSION_PATH,
 				VERSION_PATH,
 				VERSION_PATH,
@@ -464,7 +470,12 @@ it.each(["", "<html>Sign in</html>"])(
 				});
 			});
 			expect((await snapshot()).deployments[0].state).toBe("released");
-			expect(urls(peer)).toHaveLength(3);
+			expect(urls(peer)).toEqual(
+				RELEASED_ANDROID_PROBE_PATHS.map((path) => ({
+					method: "GET",
+					fullUrl: HOST + path,
+				})),
+			);
 		});
 	},
 );
@@ -686,9 +697,18 @@ it("returns the fresh mapping when a publish lands during the HQ check", async (
 it("rolls back observation and resource revision together on a late database failure", async () => {
 	await seed();
 	const before = await snapshot();
-	await sql`CREATE FUNCTION reject_remote_revision() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private revision write failure'; END $$`.execute(
-		h.db(),
-	);
+	await sql`
+		CREATE FUNCTION reject_remote_revision() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN
+			IF NEW.remote_revision = 3 AND EXISTS (
+				SELECT 1 FROM app_deployments
+				WHERE id = NEW.deployment_id AND state = 'runnable'
+			) THEN
+				RAISE EXCEPTION 'private revision write failure';
+			END IF;
+			RETURN NEW;
+		END $$
+	`.execute(h.db());
 	await sql`CREATE TRIGGER reject_remote_revision BEFORE UPDATE OF remote_revision ON app_deployment_resources FOR EACH ROW EXECUTE FUNCTION reject_remote_revision()`.execute(
 		h.db(),
 	);
@@ -702,7 +722,12 @@ it("rolls back observation and resource revision together on a late database fai
 			}),
 		);
 		expect(await snapshot()).toEqual(before);
-		expect(urls(peer)).toHaveLength(3);
+		expect(urls(peer)).toEqual(
+			RELEASED_ANDROID_PROBE_PATHS.map((path) => ({
+				method: "GET",
+				fullUrl: HOST + path,
+			})),
+		);
 	});
 });
 
