@@ -208,6 +208,7 @@ def app(
     controls: bool = False,
     callouts=None,
     case_lookup_returns=None,
+    case_lookup_legacy_mode=False,
     questions=None,
     repeat_additions=None,
     save_incomplete: str | None = None,
@@ -243,7 +244,8 @@ def app(
     terms each list the walk opens is searched for beside the words its rows show (``Lists.java::searched``),
     what each finds held under the list's ``searches`` with fuzzy search as installed, on and off.
     ``case_lookup_returns`` exercises the installed Android lookup action and records the list after each
-    controlled companion reply.
+    controlled companion reply. ``case_lookup_legacy_mode`` sets the reporting-domain preference only during
+    the lookup list’s creation, while the test worker keeps its own HQ credentials.
     ``search_answers`` supplies text by query datum and prompt name. The device records the result and answer
     instances its session actually holds after each of those successful searches."""
     from proof.observe import walks
@@ -281,6 +283,8 @@ def app(
         options["callouts"] = callouts
     if case_lookup_returns is not None:
         options["caseLookupReturns"] = case_lookup_returns
+    if case_lookup_legacy_mode:
+        options["caseLookupLegacyMode"] = True
     if keys:
         options["keys"] = True
     if save_incomplete is not None:

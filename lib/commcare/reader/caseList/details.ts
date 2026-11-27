@@ -60,6 +60,7 @@ import { emptyShortListColumns } from "../../hqJson/caseList";
 import { hqXPath, hqXPathText } from "../../hqJson/xpath";
 import { lookupCaseKeyWire } from "../../suite/case-list/deviceLookup";
 import { DERIVED_WIRE_IDENTITY } from "../../wireIdentity";
+import type { FormSyntax } from "../../xpath/formSyntax";
 import { scannedInstances } from "../../xpath/instanceSources";
 import { sessionContextPath } from "../../xpath/wire/fromExpression";
 import { applicationReading } from "../appShell";
@@ -468,6 +469,16 @@ const LOOKUP_ON_KEYS = defineClaims("caseList.details.lookupOn", {
 	),
 });
 
+const LOOKUP_WITH_INTEGER_SUM = defineClaims(
+	"caseList.details.integerSumLookup",
+	{
+		extras: refuse(
+			`${A}lookup-extra-with-a-fixed-integer-sum`,
+			"schema:Detail.lookup_extras",
+		),
+	},
+);
+
 const TEXT_LOOKUP_FIELD_ENTRIES = new Map<string, string>([
 	["lookup_name", "lookup-name"],
 	["lookup_autolaunch", "lookup-autolaunch"],
@@ -558,11 +569,35 @@ const LOOKUP_PROPERTY_CONFIDENCE_KEYS = defineClaims(
 );
 const lookupCaseKey = hqXPathText(hqXPath(lookupCaseKeyWire()));
 
+/** The installed case list can send this calculation as a number's text or
+ * as the exact saved spelling. Count only the canonical two-literal sum. */
+function nativeLookupIntegerSum(
+	source: string,
+	node: FormSyntax | undefined,
+): boolean {
+	return (
+		node?.kind === "binary" &&
+		node.op === "+" &&
+		node.left.kind === "number" &&
+		node.right.kind === "number" &&
+		Number.isInteger(node.left.value) &&
+		Number.isInteger(node.right.value) &&
+		node.left.value >= 0 &&
+		node.right.value >= 0 &&
+		node.left.value + node.right.value <= 2_147_483_647 &&
+		source === `${node.left.value} + ${node.right.value}`
+	);
+}
+
+type LookupRead =
+	| { readonly kind: "held"; lookup: CaseListDeviceLookup; heading?: HeldTexts }
+	| { readonly kind: "native-integer-sum" };
+
 function textDeviceLookup(
 	ctx: ReadContext,
 	module: DraftModule,
 	detail: JsonCursor,
-): { lookup: CaseListDeviceLookup; heading?: HeldTexts } | undefined {
+): LookupRead | undefined {
 	const image = detail.peek("lookup_image");
 	const results = detail.peek("lookup_display_results");
 	const automatic = detail.peek("lookup_autolaunch");
@@ -587,6 +622,7 @@ function textDeviceLookup(
 	)
 		return undefined;
 	const extras: DeviceLookupExtra[] = [];
+	let hasNativeIntegerSum = false;
 	for (const entry of rawExtras) {
 		if (
 			!isJsonObject(entry) ||
@@ -602,6 +638,13 @@ function textDeviceLookup(
 		const value = parsed.ok ? literalText(parsed.node) : undefined;
 		if (value !== undefined) {
 			extras.push({ name: entry.key, value });
+			continue;
+		}
+		if (parsed.ok && nativeLookupIntegerSum(source, parsed.node)) {
+			hasNativeIntegerSum = true;
+			// Validate this extra's name and the rest of the lookup before naming
+			// the exact circumstance. This temporary value never enters the doc.
+			extras.push({ name: entry.key, value: source });
 			continue;
 		}
 		const field = workerExtraText.find(({ text }) =>
@@ -670,7 +713,10 @@ function textDeviceLookup(
 		}),
 		...(resultProperty !== undefined && { resultProperty }),
 	});
-	return value.success ? { lookup: value.data, heading } : undefined;
+	if (!value.success) return undefined;
+	return hasNativeIntegerSum
+		? { kind: "native-integer-sum" }
+		: { kind: "held", lookup: value.data, heading };
 }
 
 /** HQ writes an empty width-zero header for an empty map. Core requires a text child there. */
@@ -1565,7 +1611,7 @@ function readDetailKeys(
 				if (claim !== undefined) detail.refuse(key, claim);
 			}
 			ok = false;
-		} else if (wording && parsedLookup !== undefined) {
+		} else if (wording && parsedLookup?.kind === "held") {
 			const { lookup, heading } = parsedLookup;
 			wording.lookup = heading;
 			const confidenceKeys =
@@ -1643,6 +1689,9 @@ function readDetailKeys(
 			} else if (lookupHasEmptyCaseIdResultHeader(detail)) {
 				cause = D.lookupMissingResultHeader;
 				detail.refuse("lookup_display_results", cause);
+			} else if (parsedLookup?.kind === "native-integer-sum") {
+				cause = LOOKUP_WITH_INTEGER_SUM.extras;
+				detail.refuse("lookup_extras", cause);
 			} else {
 				cause = LOOKUP_ON_KEYS.lookup_enabled;
 				detail.refuse("lookup_enabled", cause);

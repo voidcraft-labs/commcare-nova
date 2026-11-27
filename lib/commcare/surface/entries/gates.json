@@ -102,6 +102,7 @@
 		"contentEntries": [
 			"menus-and-case-lists/lookup-with-text-extras",
 			"menus-and-case-lists/lookup-enabled-lookup-action",
+			"menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum",
 			"menus-and-case-lists/lookup-extra-relative-without-case-context",
 			"menus-and-case-lists/lookup-name",
 			"menus-and-case-lists/lookup-image-jr",
@@ -235,6 +236,7 @@
 		"contentEntries": [
 			"menus-and-case-lists/lookup-with-text-extras",
 			"menus-and-case-lists/lookup-enabled-lookup-action",
+			"menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum",
 			"menus-and-case-lists/lookup-extra-relative-without-case-context",
 			"menus-and-case-lists/lookup-name",
 			"menus-and-case-lists/lookup-image-jr",

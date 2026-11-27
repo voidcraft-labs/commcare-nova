@@ -2,6 +2,7 @@ package nova.proof.android;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
 import android.view.Menu;
@@ -73,6 +74,8 @@ final class Lists {
     static JSONArray searches;
     /** Controlled companion returns to read on the first case lookup list in this request. */
     static JSONArray lookupReturns;
+    /** Use the legacy reporting-domain input only while creating this lookup activity. */
+    static boolean legacyLookupMode;
     /** Set where a request reads lists only to pass them (a form saved before an update): no Sort, no search. */
     static boolean brief;
     /** Set by the walk for the list it is about to read: the list's action to take there, or null. */
@@ -107,8 +110,7 @@ final class Lists {
     static boolean read(Intent started, JSONObject step, ShadowActivity home) throws Exception {
         offered = 0;
         cases = new ArrayList<>();
-        EntitySelectActivity activity =
-                Opened.build(EntitySelectActivity.class, started).setup().get();
+        EntitySelectActivity activity = openList(started);
         loaded(activity);
         ShadowActivity shadow = Shadows.shadowOf((Activity)activity);
         if (activity.isFinishing()) {
@@ -294,6 +296,33 @@ final class Lists {
         home.receiveResult(started, shadow.getResultCode(), result);
         ShadowLooper.idleMainLooper();
         return shadow.getResultCode() == Activity.RESULT_OK;
+    }
+
+    private static EntitySelectActivity openList(Intent started) {
+        ActivityController<EntitySelectActivity> controller = Opened.build(EntitySelectActivity.class, started);
+        if (!legacyLookupMode || lookupReturns == null) {
+            return controller.setup().get();
+        }
+        SharedPreferences preferences = CommCareApplication.instance().getCurrentApp().getAppPreferences();
+        String key = "cc_user_domain";
+        String domain = preferences.getString(key, null);
+        preferences.edit().putString(key, "icds-cas.commcarehq.org").commit();
+        try {
+            // Android chooses the lookup mode and builds its Intent during onCreate.
+            controller.create();
+        } finally {
+            // HTTP authentication also reads this preference. Restore the signed worker's own
+            // domain before continuing the screen lifecycle or receiving the companion's result.
+            SharedPreferences.Editor restore = preferences.edit();
+            if (domain == null) {
+                restore.remove(key);
+            } else {
+                restore.putString(key, domain);
+            }
+            restore.commit();
+        }
+        // Robolectric 4.16.1 ActivityController.setup(), after the scoped create above.
+        return controller.start().postCreate(null).resume().visible().topActivityResumed(true).get();
     }
 
     private static JSONArray lookupReturns(EntitySelectActivity activity, ShadowActivity shadow,

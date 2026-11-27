@@ -600,6 +600,11 @@ export const FIX_IN_HQ_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
 		"A form here reads a lookup table whose export tag holds a letter outside unaccented a to z. CommCare HQ's form builder loses that table from the form when it saves, and CommCare HQ then won't build the form. Renaming the tag in CommCare HQ to unaccented letters, digits, _, . and - fixes it.",
 };
 
+const NOT_YET_ENTRY_SENTENCES: Readonly<Record<string, string>> = {
+	"menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum":
+		"This case list sends a saved calculation to its Android companion. Depending on how Android is set up, the companion receives the calculation as written or its result. Nova can't hold both behaviors yet.",
+};
+
 /** The sentence a `fix-in-hq` finding of this subject and cause reads. */
 export function fixInHqSentence(subject: Subject, cause: FixCause): string {
 	const whole = FIX_IN_HQ_SENTENCES[subject]?.[cause];
@@ -701,7 +706,9 @@ function manifestSentence(
 			);
 		return fixInHqSentence(subject, cause);
 	}
-	const sentence = FINDING_COPY[subject][standing];
+	const sentence =
+		(standing === "not-yet" ? NOT_YET_ENTRY_SENTENCES[code] : undefined) ??
+		FINDING_COPY[subject][standing];
 	if (sentence === undefined)
 		throw new Error(
 			`A finding of the subject "${subject}" with the standing "${standing}" has no sentence to read (it came from "${code}"). Every pair a manifest entry gives needs its sentence in FINDING_COPY, in lib/publish/hqFindingCopy.ts.`,

@@ -9188,6 +9188,30 @@
 		"gates": ["toggle/BIOMETRIC_INTEGRATION", "toggle/CASE_LIST_LOOKUP"]
 	},
 	{
+		"id": "menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Case list callout",
+		"item": "An otherwise supported short case-list lookup sends the sum of two fixed whole numbers",
+		"surfaceKeys": ["schema:Detail.lookup_extras"],
+		"valueClass": "enabled-lookup-with-native-mode-dependent-fixed-integer-sum",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: Android normally sends the sum as text. A legacy worker mode sends the exact saved text instead, unless the callout explicitly enables XPath evaluation. Replacing the calculation with fixed text can change what the companion receives.",
+		"subject": "case-list-callout",
+		"owner": "case-list-and-detail",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED (no button) / RUNS",
+			"webApps": { "reading": "ignored", "note": "no button" },
+			"android": { "reading": "runs" }
+		},
+		"emission": {
+			"cell": "HQ keeps the calculation in `lookup_extras`.",
+			"markers": []
+		},
+		"gates": ["toggle/BIOMETRIC_INTEGRATION", "toggle/CASE_LIST_LOOKUP"]
+	},
+	{
 		"id": "menus-and-case-lists/lookup-extra-relative-without-case-context",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",

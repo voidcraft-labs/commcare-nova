@@ -344,6 +344,11 @@ def calculated_callout(authoring, app_id):
     named_callout(authoring, app_id, value="1 + 2")
 
 
+def callout_with_a_multi_step_field_argument(authoring, app_id):
+    """Leave a different unsupported lookup outside the bounded literal addition."""
+    named_callout(authoring, app_id, value="properties/mode")
+
+
 def fixed_text_callout(authoring, app_id):
     """Patients' list with a named companion, literal text arguments and ordered fallback response names."""
     _set_each(

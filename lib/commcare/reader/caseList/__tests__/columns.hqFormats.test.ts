@@ -1210,6 +1210,34 @@ describe("a detail's callout and tabs", () => {
 		},
 	);
 
+	it.each([
+		["1 + 2", "lookup-extra-with-a-fixed-integer-sum"],
+		["2147483646 + 1", "lookup-extra-with-a-fixed-integer-sum"],
+		["2147483647 + 1", "lookup-enabled-lookup-action"],
+		["1.0 + 2", "lookup-enabled-lookup-action"],
+		["1+2", "lookup-enabled-lookup-action"],
+		["properties/mode", "lookup-enabled-lookup-action"],
+		["'3'", undefined],
+	] as const)(
+		"accounts for the exact meaning of the lookup argument %s",
+		async (value, finding) => {
+			const reading = await readDetails((short) => {
+				Object.assign(short, {
+					lookup_enabled: true,
+					lookup_action: "org.example.SCAN",
+					lookup_name: "Scan",
+					lookup_extras: [{ key: "mode", value }],
+					lookup_responses: [{ key: "patient_id" }],
+				});
+			});
+			expect(closedCodes(reading)).toEqual(finding ? [`${M}${finding}`] : []);
+			if (finding === undefined)
+				expect(listOf(reading).deviceLookup?.extras).toEqual([
+					{ name: "mode", value: "3" },
+				]);
+		},
+	);
+
 	it("raises a callout on the list as one finding, each of its keys claimed under it", async () => {
 		const reading = await readDetails((short) => {
 			Object.assign(short, {
