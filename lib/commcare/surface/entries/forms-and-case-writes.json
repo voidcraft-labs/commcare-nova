@@ -6811,14 +6811,13 @@
 		],
 		"valueClass": "open-action-links",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: the create's links, each to a load of the parent selection or an earlier create placed on an open action. HQ's advanced editor saves names such as `my-parent`, `my.parent`, `métrique`, and `Ωprobe`. A signed fresh worker restore preserves exact names. Formplayer opens producer forms with ASCII names. Writing a supported non-ASCII name requires Android.",
+		"dispositionCell": "**HELD**: the create's links, each to a load of the parent selection or an earlier create placed on an open action. Formplayer opens forms that write supported ASCII names such as `my-parent` and `my.parent`.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
-			"cell": "RUNS (ASCII names) / RUNS",
+			"cell": "RUNS / RUNS",
 			"webApps": {
-				"reading": "runs",
-				"note": "ASCII connection names"
+				"reading": "runs"
 			},
 			"android": {
 				"reading": "runs"
@@ -6828,6 +6827,25 @@
 			"cell": "`case_indices`",
 			"markers": []
 		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/advanced-open-connection-unicode-name",
+		"area": "forms-and-case-writes",
+		"section": "Advanced form actions",
+		"item": "A supported non-ASCII `AdvancedOpenCaseAction.case_indices[].reference_id` written by the form",
+		"surfaceKeys": ["schema:CaseIndex.reference_id"],
+		"valueClass": "open-action-unicode-link-name",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Android opens and submits a form that writes the exact connection name. Web Apps cannot open that form because Formplayer decodes the XML instance as ASCII. It can still read the connection from a restored case.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "UNAVAILABLE / RUNS",
+			"webApps": { "reading": "unavailable" },
+			"android": { "reading": "runs" }
+		},
+		"emission": { "cell": "`case_indices[].reference_id`", "markers": [] },
 		"gates": []
 	},
 	{

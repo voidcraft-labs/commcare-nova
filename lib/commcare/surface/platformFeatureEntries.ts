@@ -158,6 +158,9 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"combined-question-display": [
 		"questions/multi-token-strings-e-g-minimal-hint-as-placeholder-signature-2",
 	],
+	"advanced-index-name-requires-android": [
+		"forms-and-case-writes/advanced-open-connection-unicode-name",
+	],
 	"answer-name-requires-android": [
 		"questions/submitted-answer-name-only-android-stores",
 	],

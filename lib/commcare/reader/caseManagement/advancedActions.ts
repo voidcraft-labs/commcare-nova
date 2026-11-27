@@ -14,6 +14,7 @@
 
 import {
 	advancedCaseIndexNameProblem,
+	advancedCaseIndexNeedsAndroid,
 	type CaseOperation,
 	type CaseOperationLink,
 	type CaseOperationWrite,
@@ -546,6 +547,10 @@ export const ADVANCED_CLAIMS = defineClaims("caseManagement.advancedActions", {
 	),
 	extendedOpenIndexReference: take(
 		`${F}/advancedopencaseaction-case-indices-child-extension-one-or-many`,
+		"schema:CaseIndex.reference_id",
+	),
+	unicodeOpenIndexReference: take(
+		`${F}/advanced-open-connection-unicode-name`,
 		"schema:CaseIndex.reference_id",
 	),
 	openIndexOwnOrLater: refuse(
@@ -2626,9 +2631,11 @@ function readOrdinaryAdvancedActions(
 						relationship,
 					});
 				if (I.used("reference_id")) {
-					const claim = !isCaseOperationLinkIdentifier(identifier)
-						? ADVANCED_CLAIMS.extendedOpenIndexReference
-						: ADVANCED_CLAIMS.openIndices;
+					const claim = advancedCaseIndexNeedsAndroid(identifier)
+						? ADVANCED_CLAIMS.unicodeOpenIndexReference
+						: isCaseOperationLinkIdentifier(identifier)
+							? ADVANCED_CLAIMS.openIndices
+							: ADVANCED_CLAIMS.extendedOpenIndexReference;
 					consume(I.take("reference_id", claim, (value) => value));
 				}
 				if (I.used("relationship"))

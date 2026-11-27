@@ -21,6 +21,7 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
+	advancedCaseIndexNeedsAndroid,
 	type BlueprintDoc,
 	type CaseOperation,
 	isCaseOperationLinkIdentifier,
@@ -608,7 +609,9 @@ describe("an advanced form's loads and open actions", () => {
 				!isCaseOperationLinkIdentifier(identifier)
 					? [
 							{
-								entry: `${F}/advancedopencaseaction-case-indices-child-extension-one-or-many`,
+								entry: advancedCaseIndexNeedsAndroid(identifier)
+									? `${F}/advanced-open-connection-unicode-name`
+									: `${F}/advancedopencaseaction-case-indices-child-extension-one-or-many`,
 								standing: "held",
 							},
 						]

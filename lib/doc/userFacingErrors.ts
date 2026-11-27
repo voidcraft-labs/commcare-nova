@@ -713,6 +713,11 @@ const PLATFORM_BUILDER_COPY = {
 			`${subject} opens another app to answer the question. This needs Android.`,
 		alternative: "let the worker enter the answer directly",
 	},
+	"advanced-index-name-requires-android": {
+		lead: (subject) =>
+			`${subject} writes a connection name with non-ASCII characters. Web Apps can't open this form.`,
+		alternative: "use a connection name with ASCII characters",
+	},
 	"answer-name-requires-android": {
 		lead: (subject) =>
 			`${subject} has an answer ID that Web Apps reserves for its own instructions.`,

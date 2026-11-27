@@ -89,7 +89,7 @@ def test_the_retained_extended_open_index_is_decided_at_its_reference(identifier
         index = _index(target, reference_id=identifier, relationship="child")
         return _advanced_app([parent, later], [_open("open_visit", case_indices=[index])])
 
-    entry = parity.EXTENDED_OPEN_INDEX
+    entry = parity.EXTENDED_OPEN_INDEX if identifier.isascii() else parity.UNICODE_OPEN_INDEX
     baseline = source("my-parent")
     wanted = [
         item.use.where

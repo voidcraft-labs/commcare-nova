@@ -2367,8 +2367,7 @@ def itemset_filter_position_of_scalar(authoring, app_id):
     )
 
 
-def itemset_filter_numeric_row_index(authoring, app_id):
-    """A bare numeric predicate chooses a single one-based fixture row."""
+def _itemset_filter_numeric_row(authoring, app_id, predicate, what):
     def change(tree, form):
         itemset, = tree.xpath(
             "//*[local-name()='select1' and @ref='/data/village']/*[local-name()='itemset']"
@@ -2376,8 +2375,18 @@ def itemset_filter_numeric_row_index(authoring, app_id):
         for key, value in itemset.attrib.items():
             if key == "nodeset" or key.endswith("}nodeset"):
                 source, _, _ = value.partition("[")
-                itemset.set(key, source + "[2]")
-    ops.set_form_source(authoring, app_id, 0, 0, change, what="itemset-filter-numeric-row-index")
+                itemset.set(key, source + f"[{predicate}]")
+    ops.set_form_source(authoring, app_id, 0, 0, change, what=what)
+
+
+def itemset_filter_numeric_row_index(authoring, app_id):
+    """A bare positive integer chooses one row by its position."""
+    _itemset_filter_numeric_row(authoring, app_id, "2", "itemset-filter-numeric-row-index")
+
+
+def itemset_filter_fractional_row_index(authoring, app_id):
+    """An adjacent numeric predicate outside the admitted integer form."""
+    _itemset_filter_numeric_row(authoring, app_id, "2.5", "itemset-filter-fractional-row-index")
 
 
 def itemset_over_cases(authoring, app_id):

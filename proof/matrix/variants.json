@@ -2311,7 +2311,7 @@
 	{
 		"id": "hq-advanced/open-index-named-with-an-accent",
 		"base": "hq-advanced",
-		"entry": "forms-and-case-writes/advancedopencaseaction-case-indices-child-extension-one-or-many",
+		"entry": "forms-and-case-writes/advanced-open-connection-unicode-name",
 		"change": { "op": "named", "name": "open_visitor_with_accented_index" },
 		"holds": [
 			{
@@ -2329,7 +2329,7 @@
 	{
 		"id": "hq-advanced/open-index-named-with-a-leading-accent",
 		"base": "hq-advanced",
-		"entry": "forms-and-case-writes/advancedopencaseaction-case-indices-child-extension-one-or-many",
+		"entry": "forms-and-case-writes/advanced-open-connection-unicode-name",
 		"change": {
 			"op": "named",
 			"name": "open_visitor_with_leading_accented_index"
@@ -2345,7 +2345,7 @@
 	{
 		"id": "hq-advanced/open-index-named-with-a-greek-letter",
 		"base": "hq-advanced",
-		"entry": "forms-and-case-writes/advancedopencaseaction-case-indices-child-extension-one-or-many",
+		"entry": "forms-and-case-writes/advanced-open-connection-unicode-name",
 		"change": { "op": "named", "name": "open_visitor_with_greek_index" },
 		"holds": [
 			{
@@ -2363,7 +2363,7 @@
 	{
 		"id": "hq-advanced/open-index-named-with-an-nko-digit",
 		"base": "hq-advanced",
-		"entry": "forms-and-case-writes/advancedopencaseaction-case-indices-child-extension-one-or-many",
+		"entry": "forms-and-case-writes/advanced-open-connection-unicode-name",
 		"change": { "op": "named", "name": "open_visitor_with_nko_digit_index" },
 		"holds": [
 			{
@@ -23871,6 +23871,24 @@
 				}
 			}
 		]
+	},
+	{
+		"id": "hq-lookups/itemset-filter-fractional-row-index",
+		"base": "hq-lookups",
+		"entry": "questions/itemset-filter-outside-predicate",
+		"standing": "not-yet",
+		"place": {
+			"kind": "question",
+			"menu": 0,
+			"form": 0,
+			"menuName": "Farm survey",
+			"formName": "Survey",
+			"path": "village"
+		},
+		"change": {
+			"op": "named",
+			"name": "itemset_filter_fractional_row_index"
+		}
 	},
 	{
 		"id": "hq-lookups/itemset-filter-position-of-scalar",

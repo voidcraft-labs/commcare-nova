@@ -473,6 +473,7 @@ OTHER_ADVANCED_LABEL = "forms-and-case-writes/an-advanced-load-s-update-or-prelo
 LABEL_WRITE_PATH = "schema:ConditionalCaseUpdate.question_path"
 HYPHEN_TAG = "forms-and-case-writes/case-tag-holding-a-hyphen"
 EXTENDED_OPEN_INDEX = "forms-and-case-writes/advancedopencaseaction-case-indices-child-extension-one-or-many"
+UNICODE_OPEN_INDEX = "forms-and-case-writes/advanced-open-connection-unicode-name"
 SHADOW_LOAD = "forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent"
 LOOKUP_COUNT = "expressions-and-data/companion-lookup-count"
 SUPPLY_POINT = "expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed"
@@ -748,7 +749,7 @@ def _advanced_own_label_write(use):
 def _forms_variant_uses(found, held, entries):
     """Source facts retained variants can decide without the full corpus's runtime observations."""
     wanted = {
-        AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, EXTENDED_OPEN_INDEX, SHADOW_LOAD, SUPPLY_POINT,
+        AUTOMATIC_MULTI, LOCATION_WRITE, HYPHEN_TAG, EXTENDED_OPEN_INDEX, UNICODE_OPEN_INDEX, SHADOW_LOAD, SUPPLY_POINT,
         OWN_CASE_BESIDE, LOOKUP_COUNT, ITEMSET_FILTER, ITEMSET_PREDICATE, ADVANCED_CASE_ITEMSET, PARENT_USER_WRITE,
         *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
         CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE, HELD_REPEATED_WORKER_UPDATE, LATER_OWNER_ON_FRESH_CREATE,
@@ -809,9 +810,13 @@ def _forms_variant_uses(found, held, entries):
             if (isinstance(tag, str) and "-" in tag and CASE_TAG.fullmatch(tag)
                     and manifest_usage.standing(held, use)[0] == manifest_usage.HELD):
                 yield Decided(use, manifest_usage.HELD, (by_id[HYPHEN_TAG],))
-        if (EXTENDED_OPEN_INDEX in wanted and use.key == "schema:CaseIndex.reference_id"
+        if (wanted.intersection((EXTENDED_OPEN_INDEX, UNICODE_OPEN_INDEX))
+                and use.key == "schema:CaseIndex.reference_id"
                 and extended_open_index_to_first_choice(use, held)):
-            yield Decided(use, manifest_usage.HELD, (by_id[EXTENDED_OPEN_INDEX],))
+            name = at.value
+            entry = UNICODE_OPEN_INDEX if isinstance(name, str) and not name.isascii() else EXTENDED_OPEN_INDEX
+            if entry in wanted:
+                yield Decided(use, manifest_usage.HELD, (by_id[entry],))
         if SHADOW_LOAD in wanted and use.key == "schema:ShadowForm":
             yield from _shadow_default_extra_actions(use, held, by_id[SHADOW_LOAD], places)
         if wanted.intersection(REGISTRATION_ENTRIES) and use.key in REGISTRATION_KEYS:
