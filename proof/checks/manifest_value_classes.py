@@ -13672,6 +13672,10 @@ def two_parent_links_date_prompt_key(use, manifest):
     return _parent_path_prompt_key(use, "parent/parent/", "date")
 
 
+def three_parent_links_date_prompt_key(use, manifest):
+    return _parent_path_prompt_key(use, "parent/parent/parent/", "date")
+
+
 def two_parent_links_text_prompt_key(use, manifest):
     return _parent_path_prompt_key(use, "parent/parent/")
 
@@ -13695,6 +13699,7 @@ def prompt_key_outside_nova_s_name_grammar(use, manifest):
     if (name in PROMPT_REQUEST_KEYS or direct_parent_text_prompt_key(use, manifest)
             or direct_parent_date_prompt_key(use, manifest)
             or two_parent_links_date_prompt_key(use, manifest)
+            or three_parent_links_date_prompt_key(use, manifest)
             or two_parent_links_text_prompt_key(use, manifest)
             or three_parent_links_text_prompt_key(use, manifest)):
         return False

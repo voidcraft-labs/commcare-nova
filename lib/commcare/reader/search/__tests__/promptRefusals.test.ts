@@ -1175,7 +1175,7 @@ describe("a plain native parent Search field", () => {
 		);
 	});
 
-	it.each([1, 2])(
+	it.each([1, 2, 3])(
 		"keeps an ordinary exact date prompt over %i parent links",
 		async (hops) => {
 			const key = `${"parent/".repeat(hops)}village`;
@@ -1215,7 +1215,7 @@ describe("a plain native parent Search field", () => {
 	it.each([
 		["parent/village", "daterange"],
 		["host/parent/village", undefined],
-		["parent/parent/parent/village", "date"],
+		["parent/parent/parent/parent/village", "date"],
 		["parent/parent/parent/parent/village", undefined],
 	])("refuses an unproved field %s with widget %s", async (key, widget) => {
 		expect(

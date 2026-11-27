@@ -408,6 +408,7 @@
 			"case-search/search-on-clear",
 			"case-search/prompt-key-matching-a-direct-parent-date",
 			"case-search/prompt-key-matching-two-parent-links-for-a-date",
+			"case-search/prompt-key-matching-three-parent-links-for-a-date",
 			"case-search/address-picker-on-a-search-screen",
 			"case-search/appearance-address-geocoder-broadcast-emitted-input-address",
 			"case-search/address-picker-with-a-saved-text-default",
@@ -475,6 +476,7 @@
 			"case-search/prompt-key-matching-a-direct-parent-property",
 			"case-search/prompt-key-matching-a-direct-parent-date",
 			"case-search/prompt-key-matching-two-parent-links-for-a-date",
+			"case-search/prompt-key-matching-three-parent-links-for-a-date",
 			"case-search/prompt-key-matching-two-parent-links",
 			"case-search/prompt-key-matching-three-parent-links",
 			"case-search/subcase-exists-id-q-subcase-count-id-q-op-n-ancestor-exists-path"

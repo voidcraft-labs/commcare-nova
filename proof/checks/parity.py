@@ -77,6 +77,7 @@ from proof.checks.manifest_value_classes import (
     direct_host_text_filter,
     direct_parent_date_prompt_key,
     two_parent_links_date_prompt_key,
+    three_parent_links_date_prompt_key,
     direct_parent_text_prompt_key,
     extended_open_index_to_first_choice,
     inline_search_result_own_text_property,
@@ -120,6 +121,7 @@ PARENT_PROMPT_SHAPES = {
     DIRECT_PARENT_PROMPT: direct_parent_text_prompt_key,
     "case-search/prompt-key-matching-a-direct-parent-date": direct_parent_date_prompt_key,
     "case-search/prompt-key-matching-two-parent-links-for-a-date": two_parent_links_date_prompt_key,
+    "case-search/prompt-key-matching-three-parent-links-for-a-date": three_parent_links_date_prompt_key,
     TWO_PARENT_LINKS_PROMPT: two_parent_links_text_prompt_key,
     "case-search/prompt-key-matching-three-parent-links": three_parent_links_text_prompt_key,
 }
