@@ -463,6 +463,11 @@ export function applyModuleMutation(
 				if (value === null || value === undefined) delete target[key];
 				else target[key] = value;
 			}
+			if (
+				mod.parentCaseLink !== undefined &&
+				mod.parentCaseLink.parentUuid !== mod.parentCaseModuleUuid
+			)
+				delete mod.parentCaseLink;
 			reconcilePostSubmitWithMenuShape(draft, before);
 			return;
 		}
