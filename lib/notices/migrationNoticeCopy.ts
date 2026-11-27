@@ -351,6 +351,8 @@ export const PLATFORM_CAUSE_WORDS: Readonly<Record<string, string>> = {
 	"window-width": "reads of the window's width",
 	"raw-grouped-tile-body-field":
 		"Android-only fields below tile group headings",
+	"answer-root-name-requires-android":
+		"forms with non-ASCII characters in their submitted answer root",
 	"worker-distance": "distances from the worker",
 	"sort-by-distance": "case lists ordered by distance",
 	"connect-app": "CommCare Connect",

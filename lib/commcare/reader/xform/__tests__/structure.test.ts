@@ -417,3 +417,75 @@ it("retains the form's submitted root through reading, wording edits and republi
 	expect(built).toContain("/survey/meta/timeEnd");
 	expect(built).not.toContain("/data/");
 });
+
+it("offers Android for an exact Unicode answer root", async () => {
+	const root = "survéy";
+	const outcome = await readWhole(
+		xformSource({
+			root,
+			data: "<name/>",
+			model: `<bind nodeset="/${root}/name" type="xsd:string"/>`,
+			body: `<input ref="/${root}/name"><label>Name</label></input>`,
+		}),
+	);
+	if (outcome.kind !== "read")
+		throw new Error(JSON.stringify(outcome.findings));
+	const { doc, declaration } = outcome.draft;
+	if (declaration.kind !== "choices") throw new Error("Expected Android");
+	expect(declaration.choices.map(({ runsOnlyOn }) => runsOnlyOn)).toEqual([
+		"android",
+	]);
+	const form = Object.values(doc.forms)[0];
+	expect(form.dataRootName).toBe(root);
+	const xml = buildXForm(doc, form.uuid, { xmlns: XMLNS });
+	expect(xml).toContain(`<${root} `);
+	const input = findOne(
+		(node) => node.name === "input",
+		parseDocument(xml, { xmlMode: true }).children,
+		true,
+	);
+	expect(input?.attribs.ref).toBe(`/${root}/name`);
+});
+
+it("gates an authored Unicode answer root before committing the edit", async () => {
+	const outcome = await readWhole(
+		xformSource({
+			data: "<name/>",
+			model: '<bind nodeset="/data/name" type="xsd:string"/>',
+			body: '<input ref="/data/name"><label>Name</label></input>',
+		}),
+	);
+	if (outcome.kind !== "read")
+		throw new Error(JSON.stringify(outcome.findings));
+	const { doc } = outcome.draft;
+	const form = Object.values(doc.forms)[0];
+	const change = (dataRootName: string) =>
+		[{ kind: "updateForm", uuid: form.uuid, patch: { dataRootName } }] as const;
+	for (const runsOnlyOn of [undefined, "web-apps", "android"] as const) {
+		const before = { ...doc, appSettings: { ...doc.appSettings, runsOnlyOn } };
+		expect(
+			mutationCommitVerdict(
+				before,
+				change("survey"),
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			),
+		).toMatchObject({ ok: true });
+		const verdict = mutationCommitVerdict(
+			before,
+			change("survéy"),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (runsOnlyOn === "android") expect(verdict.ok).toBe(true);
+		else {
+			if (verdict.ok) throw new Error("Web Apps cannot open this answer root");
+			expect(verdict.findings).toContainEqual(
+				expect.objectContaining({
+					code: "PLATFORM_FEATURE_UNAVAILABLE",
+					details: expect.objectContaining({
+						feature: "answer-root-name-requires-android",
+					}),
+				}),
+			);
+		}
+	}
+});

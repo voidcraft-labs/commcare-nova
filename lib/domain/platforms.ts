@@ -219,6 +219,7 @@ const CASE_LIST_MENU_ITEM_WEB_APPS_NOTE =
 export const PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"answer-name-requires-android",
+	"answer-root-name-requires-android",
 	"advanced-index-name-requires-android",
 	"web-apps-form-behavior",
 	"case-list-android-lookup",
@@ -319,6 +320,7 @@ export type PlatformFeatureId = (typeof PLATFORM_FEATURE_IDS)[number];
 export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"answer-name-requires-android",
+	"answer-root-name-requires-android",
 	"advanced-index-name-requires-android",
 	"case-list-icon-actions",
 	"case-list-here",
@@ -356,6 +358,21 @@ export const PLATFORM_FEATURES: Readonly<
 			what: "has an answer ID reserved in Web Apps",
 			why: "Web Apps would read this answer as an instruction when the worker submits the form.",
 			alternative: "give the answer a different ID",
+		},
+	},
+	"answer-root-name-requires-android": {
+		label: "Submitted answer roots with non-ASCII characters",
+		channel: "structure",
+		webApps: {
+			reading: "unavailable",
+			note: "it cannot open a form with this answer root",
+			remedy: "Use an answer root with ASCII characters.",
+		},
+		android: { reading: "runs" },
+		refusal: {
+			what: "uses an answer root with non-ASCII characters",
+			why: "Web Apps cannot open a form with this answer root.",
+			alternative: "use an answer root with ASCII characters",
 		},
 	},
 	"advanced-index-name-requires-android": {

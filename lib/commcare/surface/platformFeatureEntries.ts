@@ -164,6 +164,9 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"answer-name-requires-android": [
 		"questions/submitted-answer-name-only-android-stores",
 	],
+	"answer-root-name-requires-android": [
+		"questions/answer-root-with-a-non-ascii-name",
+	],
 	"android-app-question": [
 		"questions/android-app-callout-input-appearance-intent-id-bind-type-intent",
 	],

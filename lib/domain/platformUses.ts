@@ -83,7 +83,10 @@ import {
 } from "./platforms";
 import { firstMenuCaseRead } from "./postSubmit";
 import { expressionSlotValues } from "./referenceSlots";
-import { answerRequiresAndroid } from "./submittedAnswerName";
+import {
+	answerRequiresAndroid,
+	submittedElementNameNeedsAndroid,
+} from "./submittedAnswerName";
 import type { Uuid } from "./uuid";
 
 export type PlatformFeatureOwner =
@@ -461,6 +464,18 @@ export function platformFeatureUses(
 						),
 					);
 			}
+			if (
+				wanted("answer-root-name-requires-android") &&
+				form.dataRootName !== undefined &&
+				submittedElementNameNeedsAndroid(form.dataRootName)
+			)
+				formUses.push(
+					slotUse(
+						"answer-root-name-requires-android",
+						formOwner,
+						"dataRootName",
+					),
+				);
 			if (wanted("advanced-index-name-requires-android")) {
 				for (const operation of form.caseOperations ?? [])
 					for (const [index, link] of (operation.links ?? []).entries())

@@ -226,6 +226,9 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/submitted-answer-name-only-android-stores@web-apps": structural(
 		"answer-name-requires-android",
 	),
+	"questions/answer-root-with-a-non-ascii-name@web-apps": structural(
+		"answer-root-name-requires-android",
+	),
 	"menus-and-case-lists/lookup-with-text-extras@web-apps": stated(
 		"case-list-android-lookup",
 	),

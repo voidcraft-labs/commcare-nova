@@ -1083,6 +1083,25 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			}),
 		use: slotUse("answer-name-requires-android", FIELD_OWNER, "id"),
 	},
+	"answer-root-name-requires-android": {
+		with: () =>
+			survey([], {
+				configure(doc) {
+					doc.forms[FIXTURE_FORM].dataRootName = "survéy";
+				},
+			}),
+		without: () =>
+			survey([], {
+				configure(doc) {
+					doc.forms[FIXTURE_FORM].dataRootName = "survey";
+				},
+			}),
+		use: slotUse(
+			"answer-root-name-requires-android",
+			FORM_OWNER,
+			"dataRootName",
+		),
+	},
 	"advanced-index-name-requires-android": {
 		with: () => advancedConnectionProducer("Ωprobe"),
 		without: () => advancedConnectionProducer("my.parent"),

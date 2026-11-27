@@ -15,7 +15,10 @@ import { AUTHORED_CASE_PROPERTY_NAME_PATTERN } from "./casePropertyName";
 import { suffixUntilFree } from "./idSlug";
 import { isPortableName } from "./portableName";
 import { questionIdProblem } from "./questionId";
-import { submittedAction } from "./submittedAnswerName";
+import {
+	submittedAction,
+	submittedElementNameNeedsAndroid,
+} from "./submittedAnswerName";
 import { XML_NCNAME_PATTERN } from "./xmlName";
 
 export const CASE_OPERATION_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -63,7 +66,10 @@ export function isAdvancedCaseIndexIdentifier(value: string): boolean {
 /** Formplayer decodes the form's submitted XML as ASCII. This is a
  * writer boundary; lookup steps can still read a Unicode index from restore. */
 export function advancedCaseIndexNeedsAndroid(value: string): boolean {
-	return /[^\x20-\x7e]/.test(value) && isAdvancedCaseIndexIdentifier(value);
+	return (
+		submittedElementNameNeedsAndroid(value) &&
+		isAdvancedCaseIndexIdentifier(value)
+	);
 }
 
 export function isCaseOperationProperty(value: string): boolean {

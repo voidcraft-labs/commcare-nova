@@ -7090,7 +7090,7 @@
 		"id": "questions/data-root-element-named-other-than-data",
 		"area": "questions",
 		"section": "Binds, actions, model and head content",
-		"item": "a data root whose element is named other than `data` (Vellum keeps the name it finds, `parser.js::parseDataTree`), so every answer's path starts with that name",
+		"item": "an ASCII data root whose element is named other than `data` (Vellum keeps the name it finds, `parser.js::parseDataTree`), so every answer's path starts with that name",
 		"surfaceKeys": ["xform:model/instance/*"],
 		"valueClass": "root-named-other-than-data",
 		"disposition": "HELD",
@@ -7101,6 +7101,33 @@
 			"cell": "RUNS / RUNS",
 			"webApps": {
 				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "Nova writes the form’s submitted answer root",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/answer-root-with-a-non-ascii-name",
+		"area": "questions",
+		"section": "Binds, actions, model and head content",
+		"item": "An addressable primary instance root with a non-ASCII name, such as survéy",
+		"surfaceKeys": ["xform:model/instance/*"],
+		"valueClass": "answer-root-with-a-non-ascii-name",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the form’s submitted answer root in an Android-only app. Formplayer decodes the instance as ASCII before opening the form.",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "UNAVAILABLE on Web Apps / RUNS on Android",
+			"webApps": {
+				"reading": "unavailable",
+				"note": "it cannot open a form with this answer root"
 			},
 			"android": {
 				"reading": "runs"

@@ -74,7 +74,7 @@ export const updateFormInputSchema = formAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				"The first name in every submitted answer address. Set this when an existing reporting or data workflow expects a particular name. Null restores data.",
+				"The first name in every submitted answer address. Set this when an existing reporting or data workflow expects a particular name. Web Apps requires a name with ASCII characters. Null restores data.",
 			),
 		purpose: z
 			.string()

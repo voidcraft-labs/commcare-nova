@@ -723,6 +723,11 @@ const PLATFORM_BUILDER_COPY = {
 			`${subject} has an answer ID that Web Apps reserves for its own instructions.`,
 		alternative: "give the answer a different ID",
 	},
+	"answer-root-name-requires-android": {
+		lead: (subject) =>
+			`${subject} uses non-ASCII characters in its submitted answer root. Web Apps can't open the form.`,
+		alternative: "use an answer root with ASCII characters",
+	},
 	"datetime-question": {
 		lead: (subject) =>
 			`${subject} asks for a date and time, which Web Apps can't show.`,
