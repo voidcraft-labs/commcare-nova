@@ -9168,8 +9168,8 @@ def test_a_reader_places_each_shape_read_with_the_observations_readings(entry_id
 def test_a_held_new_reader_decides_by_the_uses_own_value(manifest):
     """Contract: a HELD-NEW class's reader decides by the use's own value and the objects or elements that hold it,
     never by another part of the app or by what the observation read. Each of its shapes is read again with no app
-    beside the use (an app JSON's slot keeps its own objects, from the root down to the slot, and loses every read
-    of the app as a whole) and with no readings, and gives the same verdict. The plausible failure: a reader that
+    beside the use (an app JSON's slot keeps its enclosing objects and an answer write keeps its own form
+    source) and with no readings, and gives the same verdict. The plausible failure: a reader that
     reads the app's languages, its other menus or a parse, so its class is no longer one value's, and parity's join
     over a variant's added uses compares a reading the use alone does not settle."""
     readers = sorted(entry.id for entry in _held_new_readers(manifest))
@@ -9184,7 +9184,7 @@ def test_a_held_new_reader_decides_by_the_uses_own_value(manifest):
             for use in uses:
                 at = use.at
                 if isinstance(at, classes.JsonAt):
-                    alone = classes.JsonAt(None, at.scope, at.key)
+                    alone = replace(at, app=None)
                 else:
                     at.document.readings = None
                     alone = at

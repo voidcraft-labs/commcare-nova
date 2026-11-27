@@ -79,11 +79,13 @@ class XmlAt:
 @dataclass(frozen=True, eq=False)
 class JsonAt:
     """A use in an app JSON: the app (``App``), the schema objects from the root down to the slot's own, each
-    ``(class, object)``, and the slot's key (None where the use is the object itself)."""
+    ``(class, object)``, and the slot's key (None where the use is the object itself). A Basic answer write also
+    carries its own parsed form source, where the referenced question and its type are declared."""
 
     app: object
     scope: tuple
     key: str | None = None
+    own_xform: Form | None = None
 
     @property
     def owner(self):
@@ -13190,7 +13192,7 @@ def _basic_accented_update(at, slot, key, name):
     form = at.nearest("Form")
     if form is None or _requires(form) != "case":
         return False
-    module = at.app.module_of(form)
+    module = at.nearest("Module")
     if module is None or _multi_select(module):
         return False
     actions = _actions(form)
@@ -13200,7 +13202,7 @@ def _basic_accented_update(at, slot, key, name):
     mapping = _held(_held(update, "update"), key)
     if not isinstance(mapping, dict) or mapping.get("update_mode", "always") != "always":
         return False
-    xform = at.app.xform(form)
+    xform = at.own_xform
     if xform is None:
         return False
     path = _absolute(xform, _held(mapping, "question_path"))

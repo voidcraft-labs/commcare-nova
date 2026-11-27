@@ -561,11 +561,6 @@ def app_json_uses(
     root = app.get("doc_type") or "Application"
     document = App(app, artifact, configurations, authored=authored, read=read)
     found.documents.append(document)
-    scope = ((root, app),)
-    # The app's own class sits at the whole document, whose pointer is the empty one (RFC 6901), as each object's
-    # use sits at its own pointer.
-    found.add(f"schema:{root}", artifact, "", JsonAt(document, scope))
-    _walk_object(app, root, "", manifest, artifact, found, document, scope)
     sources = app.get("_attachments") or {}
     for m, module in enumerate(app.get("modules") or []):
         for f, form in enumerate((module or {}).get("forms") or []):
@@ -577,6 +572,11 @@ def app_json_uses(
                 parsed = xform_uses(source.encode("utf-8"), manifest, f"{_prefix(artifact)}form:{m}.{f}", found)
                 parsed.app_form = (document, form or {})
                 document.forms.setdefault((form or {}).get("unique_id"), parsed)
+    scope = ((root, app),)
+    # Basic update slots can now bind to the source of their own form. The app's class sits at the whole
+    # document, whose pointer is the empty one (RFC 6901), as each object's use sits at its own pointer.
+    found.add(f"schema:{root}", artifact, "", JsonAt(document, scope))
+    _walk_object(app, root, "", manifest, artifact, found, document, scope)
 
 
 def _prefix(artifact):
@@ -645,6 +645,8 @@ def _walk_object(value, cls, pointer, manifest, artifact, found, document, scope
                 continue
         at = f"{pointer}/{pointer_token(key)}"
         slot = JsonAt(document, scope, key)
+        if (cls, key) in _BASIC_UPDATE_SLOTS and (form := slot.nearest("Form")) is not None:
+            slot = JsonAt(document, scope, key, document.xform(form))
         item = manifest.item(f"schema:{cls}.{key}")
         if item is None or _undeclared_member(item):
             found.add(schema_key(manifest, cls, key), artifact, at, slot)
@@ -680,6 +682,13 @@ def _walk_object(value, cls, pointer, manifest, artifact, found, document, scope
             if dispatched:
                 found.add(f"schema:{chosen}", artifact, where, JsonAt(document, inner))
             _walk_object(element, wrapped, where, manifest, artifact, found, document, inner)
+
+
+_BASIC_UPDATE_SLOTS = frozenset({
+    ("Form", "actions"),
+    ("FormActions", "update_case"),
+    ("UpdateCaseAction", "update"),
+})
 
 
 def key_name(text):
