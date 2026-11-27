@@ -78,6 +78,7 @@
 		"hq-case-lists/audio-column",
 		"hq-case-lists/automatic-fixed-text-callout",
 		"hq-case-lists/calculated-callout",
+		"hq-case-lists/callout-with-a-multi-step-field-argument",
 		"hq-case-lists/calculation-loading-faster",
 		"hq-case-lists/call-link-on-the-detail",
 		"hq-case-lists/callout-name-with-the-callout-off",

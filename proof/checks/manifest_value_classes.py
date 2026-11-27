@@ -6708,7 +6708,7 @@ def _supported_lookup_value(text):
 def lookup_with_nonliteral_arguments(use, manifest):
     """Read the extra's XPath with HQ's parser independently of Nova's lookup reader."""
     detail = _short_lookup(use)
-    if detail is None or _missing_lookup_arguments(detail):
+    if detail is None or _missing_lookup_arguments(detail) or lookup_with_native_integer_sum(use, manifest):
         return False
     return any(
         isinstance(extra, dict)
@@ -6823,13 +6823,7 @@ def _lookup_name(value):
     return isinstance(value, str) and value != "" and value.strip() == value
 
 
-def lookup_outside_fixed_text(use, manifest):
-    """The remaining active short-detail lookup settings beside a fixed-text action."""
-    detail = _short_lookup(use)
-    if detail is None or _missing_lookup_arguments(detail):
-        return False
-    if _bare_relative_lookup_extra(detail) or _empty_case_id_result_header(detail):
-        return False
+def _lookup_has_other_unsupported_setting(use, manifest, detail):
     extras = detail["lookup_extras"]
     return (
         lookup_with_result_column(use, manifest)
@@ -6839,8 +6833,42 @@ def lookup_outside_fixed_text(use, manifest):
         or not _lookup_names(detail["lookup_responses"], {"key"})
         or not _lookup_names(extras, {"key", "value"})
         or any(extra["key"] == "force_xpath_parsing" or not isinstance(extra["value"], str) for extra in extras)
-        or lookup_with_nonliteral_arguments(use, manifest)
     )
+
+
+def _native_lookup_integer_sum(value):
+    tree = expression_tree(value)
+    if not tree or tree[:2] != ["binary", "+"]:
+        return False
+    left, right = tree[2:]
+    return (
+        left[0] == right[0] == "number" and type(left[1]) is type(right[1]) is int
+        and 0 <= left[1] and 0 <= right[1] and left[1] + right[1] <= 2_147_483_647
+        and value == f"{left[1]} + {right[1]}"
+    )
+
+
+def lookup_with_native_integer_sum(use, manifest):
+    """A whole-number addition Android may evaluate or send verbatim on the installed short detail."""
+    detail = _short_lookup(use)
+    if detail is None or _missing_lookup_arguments(detail) or _lookup_has_other_unsupported_setting(use, manifest, detail):
+        return False
+    if detail.get("lookup_autolaunch") is not None and not isinstance(detail["lookup_autolaunch"], bool):
+        return False
+    values = [extra["value"] for extra in detail["lookup_extras"]]
+    sums = [_native_lookup_integer_sum(value) for value in values]
+    return any(sums) and all(is_sum or _supported_lookup_value(value) for value, is_sum in zip(values, sums))
+
+
+def lookup_outside_fixed_text(use, manifest):
+    """The remaining active short-detail lookup settings beside a fixed-text action."""
+    detail = _short_lookup(use)
+    if detail is None or _missing_lookup_arguments(detail):
+        return False
+    if (_bare_relative_lookup_extra(detail) or _empty_case_id_result_header(detail)
+            or lookup_with_native_integer_sum(use, manifest)):
+        return False
+    return _lookup_has_other_unsupported_setting(use, manifest, detail) or lookup_with_nonliteral_arguments(use, manifest)
 
 
 def _tabs(detail):
@@ -14063,6 +14091,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/callout-with-no-extras-or-no-responses": lookup_without_arguments,
     "menus-and-case-lists/lookup-on-the-long-detail-tabbed-or-not": lookup_on_long_detail,
     "menus-and-case-lists/lookup-enabled-lookup-action": lookup_outside_fixed_text,
+    "menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum": lookup_with_native_integer_sum,
     "menus-and-case-lists/lookup-extra-relative-without-case-context": lookup_extra_relative_without_case_context,
     "menus-and-case-lists/lookup-extras-key-value": lookup_with_nonliteral_arguments,
     "menus-and-case-lists/lookup-case-id-result-without-a-header-map": lookup_missing_case_id_result_header,

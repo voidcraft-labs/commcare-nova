@@ -11723,7 +11723,7 @@
 	{
 		"id": "hq-case-lists/calculated-callout",
 		"base": "hq-case-lists",
-		"entry": "menus-and-case-lists/lookup-enabled-lookup-action",
+		"entry": "menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum",
 		"standing": "not-yet",
 		"place": {
 			"kind": "case-list",
@@ -11733,6 +11733,17 @@
 		"change": {
 			"op": "named",
 			"name": "calculated_callout"
+		}
+	},
+	{
+		"id": "hq-case-lists/callout-with-a-multi-step-field-argument",
+		"base": "hq-case-lists",
+		"entry": "menus-and-case-lists/lookup-enabled-lookup-action",
+		"standing": "not-yet",
+		"place": { "kind": "case-list", "menu": 0, "name": "Patients" },
+		"change": {
+			"op": "named",
+			"name": "callout_with_a_multi_step_field_argument"
 		}
 	},
 	{
