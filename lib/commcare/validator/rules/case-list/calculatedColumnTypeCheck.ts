@@ -9,6 +9,8 @@ import {
 	columnRunsOnResults,
 	detailColumnRowScope,
 } from "@/lib/domain/expression/detailRowScope";
+import { ordinaryDeviceCaseList } from "@/lib/domain/expression/directHostTextEquality";
+import { countsOwnRestoredType } from "@/lib/domain/expression/ruleSets";
 import { resolveSearchResultDetailRoute } from "@/lib/domain/searchResultDetail";
 import {
 	inlineResultPropertyColumnSupported,
@@ -176,6 +178,23 @@ export function calculatedColumnTypeCheck(
 				rows: [{ kind: "case", caseType: mod.caseType, root: "casedb" }],
 			});
 		}
+		if (
+			countsOwnRestoredType(column.expression, mod.caseType) &&
+			!ordinaryDeviceCaseList(doc, moduleUuid)
+		)
+			errors.push(
+				validationError(
+					"CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
+					"module",
+					"Move this count to a top-level list that reads the worker’s cases.",
+					{ moduleUuid, moduleName: mod.name },
+					{
+						columnUuid: column.uuid,
+						slot: `caseListConfig.columns[${index}].expression`,
+						registrySlot: "case_list_column_expression",
+					},
+				),
+			);
 		const typeErrors = scopes.flatMap((scope) =>
 			semanticCheckErrors(checkExpression(column.expression, scope)),
 		);

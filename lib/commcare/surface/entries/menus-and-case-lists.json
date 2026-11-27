@@ -4804,7 +4804,7 @@
 		],
 		"valueClass": "calculated-lifting-into-value-expression",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `calculated` column",
+		"dispositionCell": "**HELD**: `calculated` column. An ordinary device list can show how many cases of its own type the worker has restored.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

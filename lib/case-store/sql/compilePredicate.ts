@@ -118,10 +118,7 @@ import {
 	compileTemporalValues,
 	type ExpressionCompileContext,
 } from "./compileExpression";
-import {
-	caseHasNoUndismissedParkedValues,
-	compileRelationPath,
-} from "./compileRelationPath";
+import { compileRelationPath, restoredTypeRows } from "./compileRelationPath";
 import {
 	boundComparandValue,
 	compileStoredText,
@@ -212,18 +209,13 @@ export function compilePredicate(
 	// A candidate already witnesses its own type. For two cases, check the
 	// same worker's restore once for the list, independently of row pagination.
 	if (restoredThreshold === 0) return eb.lit(true) as Expression<SqlBool>;
-	if (restoredThreshold === 1 && ctx.currentCaseType !== undefined) {
-		const alias = "restored_type_case";
-		const cases = ctx.db
-			.selectFrom(`cases as ${alias}`)
-			.select(`${alias}.case_id`)
-			.where(`${alias}.app_id`, "=", ctx.appId)
-			.where(`${alias}.project_id`, "=", ctx.projectId)
-			.where(`${alias}.case_type`, "=", ctx.currentCaseType)
-			.where(caseHasNoUndismissedParkedValues(sql.ref(`${alias}.case_id`)));
-		const visible = ctx.restrictToRestoreScope?.(cases, alias) ?? cases;
-		return eb.exists(visible.offset(1).limit(1));
-	}
+	if (restoredThreshold === 1 && ctx.currentCaseType !== undefined)
+		return eb.exists(
+			restoredTypeRows(ctx, ctx.currentCaseType)
+				.select(eb.lit(1).as("present"))
+				.offset(1)
+				.limit(1),
+		);
 	if (pred.kind === "term") return compileBareRead(pred.term, ctx);
 	// `boolean(...)` of one answer, the one call a record condition holds
 	// (`typeChecker.ts::effectiveBooleanOfAnswer`): Core's `boolean` reads its
