@@ -5623,8 +5623,64 @@ def _address_field(prompt):
 
 
 
+def _canonical_address_default(raw):
+    from unicodedata import category
+
+    from proof.checks.xpath_tree import tree
+
+    parsed = tree(raw) if isinstance(raw, str) else None
+    if not parsed or parsed[0] != "str":
+        return False
+    text = parsed[1]
+    return bool(
+        text.strip() and raw == f"'{text}'"
+        and not any(char in ("'", "\ufeff", "\ufffe", "\uffff") or category(char) in ("Cc", "Cs") for char in text)
+    )
+
+
+def manual_address_with_saved_text(use, manifest):
+    """The stored literal survives for the ungrouped manual picker with no active subscription."""
+    if use.key == "prompt-input:address":
+        prompt = _suite_search_child(use, "prompt", "input")
+        if prompt is not None:
+            query = prompt.getparent()
+            return (
+                prompt.get("input") == "address" and _canonical_address_default(prompt.get("default"))
+                and not any(prompt.get(key) for key in ("exclude", "hidden", "receive", "group_key", "allow_blank_value"))
+                and query.get("default_search") != "true"
+                and not any(
+                    (other.get("receive") or "").split("-", 1)[0] == prompt.get("key")
+                    for other in query.iterchildren() if _local(other) == "prompt"
+                )
+            )
+
+    at, config = _search(use)
+    if config is None or project_search_endpoint_id(config.get("case_search_endpoint_id")):
+        return False
+    prompt = at.nearest("CaseSearchProperty")
+    if prompt is None or config.get("auto_launch") is not True:
+        return False
+    name = prompt.get("name")
+    return (
+        isinstance(name, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is not None
+        and prompt.get("appearance") == "address" and _canonical_address_default(prompt.get("default_value"))
+        and not any(config.get(key) is True for key in ("default_search", "inline_search", "search_on_clear"))
+        and not any(prompt.get(key) for key in (
+            "exclude", "hidden", "is_group", "group_key", "input_", "allow_blank_value", "receiver_expression",
+        ))
+        and not _required(prompt) and not _validations(prompt)
+        and not (isinstance(prompt.get("itemset"), dict) and prompt["itemset"].get("nodeset"))
+        and not any(
+            isinstance(other.get("receiver_expression"), str) and other["receiver_expression"].split("-", 1)[0] == name
+            for other in config.get("properties") or [] if isinstance(other, dict)
+        )
+    )
+
+
 def ordinary_address_search_marker(use, manifest):
     """A stored ordinary Search address or HQ's native query input produced for it."""
+    if use.key in ("prompt-input:address", "prompt-appearance:address") and manual_address_with_saved_text(use, manifest):
+        return True
     if use.key == "prompt-input:address":
         element = _suite_search_child(use, "prompt", "input")
         return element is not None and not any(element.get(key) for key in (

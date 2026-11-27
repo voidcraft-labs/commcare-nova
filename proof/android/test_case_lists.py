@@ -689,6 +689,56 @@ def test_grouped_search_uses_plain_ordered_fields_on_android(android_documents, 
         assert "Case details" not in platform["display"]
 
 
+def test_saved_address_default_stays_out_of_an_installed_android_search(
+    android_documents, hq, android_walk_evidence
+):
+    from urllib.parse import parse_qs, urlsplit
+
+    from proof.android import observe
+    from proof.observe import services
+    from proof.observe.record import Blobs
+    from proof.webapps import hq as webapps_hq
+    from proof.webapps.test_search_geocoder import (
+        _address_default_database, _built_address_default, _enable_address_search, _stored_address_default,
+    )
+
+    document = android_documents["hq-search"]
+    command = "search_command.m0"
+    with webapps_hq.authored_project(document, "A", configure=_enable_address_search) as project:
+        _stored_address_default(project)
+        with project.released(services.formplayer(), database=_address_default_database(document)) as release:
+            archive = observe.release_archive(release)
+            built = _built_address_default(archive)
+            blobs = Blobs()
+            record = observe.app(
+                release, blobs, label="address-default", archive=archive,
+                commands=[command], views=True, search_answers={built["storage"]: {"client_name": "Amina"}},
+            )
+            answer = blobs.get_json(record["answer"])
+            exchanges = blobs.get_json(record["hq"])
+    assert answer["install"] == "Installed" and answer["signIn"].startswith("Success("), answer
+    walk = answer["walks"][command]
+    android_walk_evidence({"built": built, "walk": walk, "exchanges": exchanges})
+    (query,) = [step["query"] for step in walk["steps"] if "query" in step]
+    params = query["RemoteQuerySessionManager.getRawQueryParams"]
+    searches = [
+        {"status": exchange["status"], "params": parse_qs(urlsplit(exchange["url"]).query)}
+        for exchange in exchanges if "/phone/search/" in exchange["url"]
+    ]
+    android_walk_evidence({"built": built, "query": query, "searches": searches, "completed": answer["completedSearches"]})
+    assert "client_name" in query["prompts"] and "village" not in query["prompts"]
+    assert "Village" not in _texts(query["controls"])
+    name_filter = "case_name = 'Amina'"
+    assert name_filter in params["_xpath_query"] and "village" not in params, params
+    assert answer["completedSearches"] == [{
+        "query": built["storage"], "sources": {"results": True, "search-input:results": False},
+        "submitted": {"client_name": "Amina"},
+    }]
+    assert all("village" not in search["params"] and "Old address" not in str(search["params"]) for search in searches), searches
+    submitted = [search for search in searches if name_filter in search["params"].get("_xpath_query", [])]
+    assert len(submitted) == 1 and submitted[0]["status"] == 200, searches
+
+
 def test_android_shows_a_linked_search_receiver_as_an_ordinary_field(android_documents, hq, android_walk_evidence):
     from proof.android import observe
     from proof.observe import casedata

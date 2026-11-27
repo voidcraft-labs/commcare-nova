@@ -11,6 +11,7 @@
  * of which is required where the first is blank, with one prompt edited as CommCare HQ stores it,
  * and holds the reading's whole account.
  */
+import { DOMParser } from "@xmldom/xmldom";
 import AdmZip from "adm-zip";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
@@ -18,7 +19,10 @@ import { localizationWireFixture } from "@/lib/commcare/__tests__/localizationWi
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { requiredProjectSpaceCapabilities } from "@/lib/commcare/projectSpaceCompatibility";
+import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { applyMutations } from "@/lib/doc/mutations";
+import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import { eq, input, literal } from "@/lib/domain/expression";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
@@ -233,6 +237,169 @@ it.each([
 			.success,
 	).toBe(false);
 });
+
+function addStoredAddressDefault(body: JsonObject) {
+	const config = (body.modules as JsonObject[])[0].search_config as JsonObject;
+	config.auto_launch = true;
+	promptsOf(body).push({
+		doc_type: "CaseSearchProperty",
+		name: "village",
+		label: { en: "Village" },
+		appearance: "address",
+		default_value: "'Old address'",
+	});
+	return config;
+}
+
+it("keeps the saved address through a label edit, both exports and normal HQ readback", async () => {
+	const { doc } = await documentOf(addStoredAddressDefault);
+	const moduleUuid = doc.moduleOrder[0];
+	const picker = doc.modules[moduleUuid].caseListConfig?.searchInputs.at(-1);
+	if (picker?.kind !== "address")
+		throw new Error("Expected a stored address picker.");
+	expect(picker.savedDefault).toBe("Old address");
+	const { savedDefault, ...visible } = picker;
+	const edited = produce(doc, (draft) => {
+		applyMutations(draft, [
+			searchInputUpdateMutation(moduleUuid, picker, {
+				...visible,
+				label: "Town",
+			}),
+		]);
+	});
+	const body = exportedBody(edited);
+	expect(promptsOf(body).at(-1)).toMatchObject({
+		appearance: "address",
+		label: { en: "Town" },
+		default_value: "'Old address'",
+	});
+	const runtimeTarget = {
+		server: "production",
+		domain: "clinic",
+		appId: "app",
+	} as const;
+	const archive = new AdmZip(
+		compileCcz(expandDoc(edited, { runtimeTarget }), edited.appName, edited, {
+			runtimeTarget,
+		}),
+	);
+	const suite = new DOMParser().parseFromString(
+		archive.readAsText("suite.xml"),
+		"application/xml",
+	);
+	const village = Array.from(suite.getElementsByTagName("prompt")).find(
+		(prompt) => prompt.getAttribute("key") === "village",
+	);
+	expect(village?.getAttribute("input")).toBe("address");
+	expect(village?.getAttribute("default")).toBe("'Old address'");
+	const readback = readHqApp(await inputFor(body));
+	expect(readback.kind).toBe("read");
+	if (readback.kind !== "read")
+		throw new Error("Expected readback of the stored address.");
+	expect(
+		readback.draft.doc.modules[
+			readback.draft.doc.moduleOrder[0]
+		].caseListConfig?.searchInputs.at(-1),
+	).toMatchObject({ kind: "address", label: "Town", savedDefault });
+	const cleared = produce(edited, (draft) => {
+		const current =
+			draft.modules[moduleUuid].caseListConfig?.searchInputs.at(-1);
+		if (current?.kind === "address") delete current.savedDefault;
+	});
+	expect(
+		produce(edited, (draft) => {
+			applyMutations(draft, diffDocsToMutations(edited, cleared));
+		}),
+	).toEqual(cleared);
+});
+
+it("refuses a Search condition that tries to read the stored address as an answer", async () => {
+	const findings = await account((body) => {
+		addStoredAddressDefault(body);
+		const condition = promptsOf(body)[1].required as JsonObject;
+		const test = condition.test as string;
+		expect(test).toContain("'case_name'");
+		condition.test = test.replace("'case_name'", "'village'");
+	});
+	expect(findings).toContainEqual([
+		`${S}required-or-validation-test-outside-what-nova-types`,
+		"search",
+		String(promptsOf(exportedBody(PROMPTS))[1].name),
+	]);
+});
+
+it("refuses to put a held address default into an automatic search or connect a receiver", async () => {
+	const { doc } = await documentOf(addStoredAddressDefault);
+	const module = doc.modules[doc.moduleOrder[0]];
+	const rejected = (candidate: typeof module) =>
+		searchAddressReceiverCompatibility(candidate, module.uuid).map(
+			(finding) => finding.details?.reason,
+		);
+	expect(rejected(module)).toEqual([]);
+	expect(
+		rejected({ ...module, caseSearchConfig: { workflow: "skipToResults" } }),
+	).toEqual(["saved-default"]);
+	expect(
+		rejected(
+			produce(module, (draft) => {
+				const inputs = draft.caseListConfig?.searchInputs;
+				const source = inputs?.at(-1);
+				const receiver = inputs?.[0];
+				if (
+					source?.kind !== "address" ||
+					!receiver ||
+					!isVisibleSearchInput(receiver)
+				)
+					throw new Error("Expected a visible Search receiver.");
+				receiver.addressReceiver = {
+					kind: "address",
+					source: source.uuid,
+					parts: ["city"],
+				};
+			}),
+		),
+	).toEqual(["saved-default"]);
+	expect(
+		requiredProjectSpaceCapabilities({
+			...doc,
+			appSettings: { ...doc.appSettings, runsOnlyOn: "android" },
+		}),
+	).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				id: "case-search",
+				reasons: expect.arrayContaining([
+					"An address field keeps a value saved in CommCare HQ.",
+				]),
+			}),
+		]),
+	);
+});
+
+it.each(["exclude", "linked", "computed", "blank", "skip", "inline", "clear"])(
+	"leaves %s outside the saved address default class",
+	async (different) => {
+		const findings = await account((body) => {
+			const config = addStoredAddressDefault(body);
+			const picker = promptsOf(body).at(-1);
+			if (!picker) throw new Error("Expected an address picker.");
+			if (different === "exclude") picker.exclude = true;
+			if (different === "linked")
+				first(body).receiver_expression = "village-city";
+			if (different === "computed")
+				picker.default_value = "concat('Old ', 'address')";
+			if (different === "blank") picker.default_value = "''";
+			if (different === "skip") config.default_search = true;
+			if (different === "inline") config.inline_search = true;
+			if (different === "clear") config.search_on_clear = true;
+		});
+		expect(findings).toContainEqual([
+			`${S}appearance-address-geocoder-broadcast-emitted-input-address`,
+			"search",
+			"village",
+		]);
+	},
+);
 
 const CASES: readonly Case[] = [
 	{

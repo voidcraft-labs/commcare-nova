@@ -320,9 +320,17 @@ export function searchInputUpdateMutation(
 	moduleUuid: Uuid,
 	current: SearchInputDef,
 	replacement: SearchInputDef,
+	source: "editor" | "document-diff" = "editor",
 ): UpdateSearchInputMutation {
+	const retainedDefault =
+		source === "editor" &&
+		current.kind === "address" &&
+		replacement.kind === "address"
+			? current.savedDefault
+			: undefined;
 	const { uuid: _uuid, ...searchInput } = {
 		...structuredClone(replacement),
+		...(retainedDefault !== undefined && { savedDefault: retainedDefault }),
 		uuid: current.uuid,
 	};
 	return {
