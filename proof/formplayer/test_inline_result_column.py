@@ -191,4 +191,13 @@ def test_the_retained_visits_projection_needs_its_actual_inline_instance(
             evidence("retained-inline-columns", screens)
             expected = {"served-client"} if route == "parent-first" else {"served-client", "other-client"}
             assert set(row_ids) == expected, screens
+            assert results["headers"] == ["Name", "Found in", "Recorded village"], screens
+            assert all(item["data"] == [item["id"], "north", "north"] for item in results["entities"]), screens
+            detail, = screens["details"]["details"]
+            assert detail["headers"] == results["headers"] and detail["details"] == ["served-client", "north", "north"]
+            request, = served.hq.searches
+            expected_filters = ("village = 'north'",)
+            if route == "parent-first":
+                expected_filters += ("ancestor-exists(parent, @case_type='household')",)
+            assert request.values("_xpath_query") == expected_filters, screens
             assert not served.hq.failures(), served.hq.failures()
