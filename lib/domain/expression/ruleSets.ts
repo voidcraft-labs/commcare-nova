@@ -247,8 +247,7 @@ export function readsRestoredCaseTypeQuery(expression: Expression): boolean {
 	return reads;
 }
 
-/** Core numerically orders these text operands when a simple Search prompt
- * calculates its starting value in the worker session. */
+/** Core coerces these worker-session operands before comparing them. */
 export function searchUsernameTextOrder(
 	kind: ComparisonKind,
 	left: Expression,

@@ -722,6 +722,12 @@ names no string of the app or equals the table's string, and is refused otherwis
 The generated-key reader takes its exact control identity and output role from the string registry.
 Each case and search column registers its own positions while producing its short and long detail.
 A menu or form text badge keeps the editor’s ordinary text in `custom_icons` and registers its own generated badge wording. Commands in menus that list another menu’s forms reference the source form’s `forms.m#f#.badge` locale. Independently stored shared form entries have their own form badge wording. Synthetic empty-Search registration commands cannot carry badges.
+A shared owner exclusion can choose its IDs with a numeric comparison of
+the worker’s username against a text literal. The reader requires the
+same rule in the short list and Search. Web Apps, Android and Preview
+coerce the operands before selecting the branch. A nonnumeric operand
+makes greater-than false.
+
 A supported Android lookup results heading registers one module-owned `case_lists.m#.callout.header` for the case and standalone Search short details. The typed `lookup_field_header` keeps the ordinary Case List editor label.
 
 A lookup argument can be a saved sum of two fixed whole numbers. Pinned Android normally evaluates it and sends a string, but its legacy reporting-domain mode sends the saved value verbatim unless `force_xpath_parsing` is `yes`. The reader accounts a canonical bounded sum under its own held entry and keeps the existing gates for other calculation or configuration shapes.
