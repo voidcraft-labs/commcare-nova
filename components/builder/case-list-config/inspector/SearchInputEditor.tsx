@@ -405,10 +405,15 @@ function AddressFillSetting({
 	const linked = receiver?.kind === "address" ? receiver : undefined;
 	const source = addresses.find((input) => input.uuid === linked?.source);
 	const label = source?.label || source?.name;
+	const savedTopic = receiver?.kind !== "address" ? receiver?.topic : undefined;
 	return (
 		<FieldRow
 			label="Fill from an address"
-			hint="Workers can still edit the answer in Web Apps."
+			hint={
+				savedTopic === undefined
+					? "Workers can still edit the answer in Web Apps."
+					: "This saved topic has no address field to fill the answer. You can choose a field below."
+			}
 		>
 			{review && (
 				<p className="text-[12px] text-nova-text-muted">
@@ -421,14 +426,11 @@ function AddressFillSetting({
 					ref={triggerRef}
 					render={<Button type="button" variant="outline" />}
 				>
-					{label ??
-						(receiver?.kind === "unsubscribed"
-							? receiver.topic
-							: "No address field")}
+					{label ?? savedTopic ?? "No address field"}
 				</DropdownMenuTrigger>
 				<DropdownMenuContent>
 					<DropdownMenuRadioGroup
-						value={source?.uuid ?? ""}
+						value={source?.uuid ?? savedTopic ?? ""}
 						onValueChange={(choice) => {
 							const selected = addresses.find((input) => input.uuid === choice);
 							onChange(

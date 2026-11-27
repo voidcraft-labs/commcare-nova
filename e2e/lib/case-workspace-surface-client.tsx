@@ -174,7 +174,10 @@ if (scenario === "search-clone")
 			),
 		),
 	];
-if (scenario === "search-address-removal") {
+if (
+	scenario === "search-address-removal" ||
+	scenario === "search-address-unmatched-topic"
+) {
 	const otherAddressId = uuidSchema.parse(
 		"00000000-0000-7000-8000-000000006006",
 	);
@@ -197,7 +200,10 @@ if (scenario === "search-address-removal") {
 		},
 		{
 			...simpleSearchInputDef(siblingId, "region", "Region", "text", "region"),
-			addressReceiver: { kind: "address", source: searchId, parts: ["city"] },
+			addressReceiver:
+				scenario === "search-address-unmatched-topic"
+					? { kind: "unsubscribed-topic", topic: "address||city" }
+					: { kind: "address", source: searchId, parts: ["city"] },
 		},
 		{
 			...simpleSearchInputDef(

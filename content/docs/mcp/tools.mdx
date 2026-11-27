@@ -218,7 +218,9 @@ For an address picker on a case Search screen, use `kind: "address"` and
 field can use `addressReceiver` with
 `{ kind: "address", source: "<uuid>", parts: ["us_state", "city"] }`.
 Search tries the parts in order. Web Apps fills the connected fields where
-the project space has Geocoder and advanced case search.
+the project space has Geocoder and advanced case search. A text field brought
+in from HQ can also keep a saved topic with no matching address picker. Choose
+a picker and its parts to start filling that field.
 
 Literal opening braces and backslashes are escaped with a backslash. Read
 tools return the same wording and expression format accepted by edits, in

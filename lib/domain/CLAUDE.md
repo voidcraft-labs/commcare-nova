@@ -570,7 +570,9 @@ it tries in order. Text fields can share an identical subscription. A
 multiple-choice field needs its own address parts or picker across the Search
 screen. A brought-in subscription with ordinary topic and component syntax
 keeps its spelling when the topic has no picker. An edit may activate the
-subscription by linking the field to a picker by identity. A bare subscription
+subscription by linking the field to a picker by identity. A brought-in text
+field also keeps an unmatched topic such as `home||city`, which cannot be a
+picker's name. A bare subscription
 to a picker on the same screen requires repair in HQ because Web Apps raises
 an error when it receives an address. Android leaves linked fields as ordinary
 inputs. The search compiler resolves linked identities to current names at the

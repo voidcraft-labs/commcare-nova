@@ -719,6 +719,54 @@ test("native Search dependency review follows exact editors and recomputes peer 
 		),
 	).toEqual(["region"]);
 });
+test("native Search explains an unmatched address topic and can replace it with a picker", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=search-address-unmatched-topic`);
+	const before = (await savedModule(page)).caseListConfig.searchInputs;
+	const control = (name: string) =>
+		page
+			.getByRole("button", { name, exact: true })
+			.and(page.locator('[aria-haspopup="menu"]'));
+	await page.locator(`[data-case-search-field="${before[2].uuid}"]`).click();
+	await expect(
+		page.getByText(
+			"This saved topic has no address field to fill the answer.",
+			{ exact: false },
+		),
+	).toBeVisible();
+	await control("address||city").click();
+	await page
+		.getByRole("menuitemradio", { name: "No address field", exact: true })
+		.click();
+	await expect
+		.poll(
+			async () =>
+				(await savedModule(page)).caseListConfig.searchInputs[2]
+					.addressReceiver,
+		)
+		.toBeUndefined();
+	await control("No address field").click();
+	await page
+		.getByRole("menuitemradio", { name: "Find an address", exact: true })
+		.click();
+	await expect
+		.poll(
+			async () =>
+				(await savedModule(page)).caseListConfig.searchInputs[2]
+					.addressReceiver,
+		)
+		.toEqual({
+			kind: "address",
+			source: before[0].uuid,
+			parts: ["city"],
+		});
+	await expect(control("Find an address")).toBeVisible();
+	expect((await savedModule(page)).caseListConfig.searchInputs[3]).toEqual(
+		before[3],
+	);
+});
+
 test("native Search address removal reviews, retargets and clears links", async ({
 	page,
 }) => {

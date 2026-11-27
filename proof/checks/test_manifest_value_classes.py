@@ -4301,6 +4301,24 @@ def _search_and_menus():
             refused("suite", INPUT_SUITE, "parser:QueryPromptParser/prompt@input", "prompt[1]/@input"),
             accepted("suite", INPUT_SUITE, "parser:QueryPromptParser/prompt@input", "prompt[2]/@input"),
         ),
+        "case-search/receiver-expression": tuple(
+            make(
+                "app",
+                search(_search_module(properties=[
+                    _prompt("village", receiver_expression=receiver),
+                    _prompt("home", appearance=appearance, exclude=True),
+                ])),
+                "schema:CaseSearchProperty.receiver_expression",
+                f"{prompts}/receiver_expression",
+            )
+            for make, receiver, appearance in (
+                (refused, "home-city-extra", "address"),
+                (accepted, "home-city-extra", None),
+                (accepted, "home-wide-extra", "address"),
+                (accepted, "home-region", "address"),
+                (accepted, "home||city", "address"),
+            )
+        ),
         "case-search/address-receiver-matching-a-picker-without-a-component": tuple(
             make(
                 "app",
@@ -8942,6 +8960,34 @@ def test_retained_search_matches_only_proven_parent_text_paths(manifest, name, w
     use, = (one for one in found.uses if one.key == key and one.where.endswith(pointer))
     matches = [entry for entry, classify in parity.PARENT_PROMPT_SHAPES.items() if classify(use, manifest)]
     assert matches == ([held_entry] if held_entry else [])
+
+
+@pytest.mark.parametrize(("receive", "publisher", "input_", "held"), [
+    ("home||city", "home", None, True),
+    ("home||city", None, None, True),
+    ("home||city", "home||city", None, False),
+    ("home||city", "home", "checkbox", False),
+    ("home||city", "home", "select", False),
+    ("home", "home", None, False),
+    ("home-city-extra", "home", None, False),
+    ("home||city||region", "home", None, False),
+])
+def test_retained_search_unmatched_topic_is_scoped_to_plain_text_and_no_publisher(manifest, receive, publisher, input_, held):
+    from proof.checks import parity
+
+    prompts = [_prompt("village", receiver_expression=receive, input_=input_)]
+    if publisher is not None:
+        prompts.append(_prompt(publisher, appearance="address", exclude=True))
+    key = "schema:CaseSearchProperty.receiver_expression"
+    pointer = "/modules/0/search_config/properties/0/receiver_expression"
+    source = _app([_search_module(properties=prompts)])
+    found = _shape_uses(accepted("app", source, key, pointer), manifest)
+    use, = (one for one in found.uses if one.key == key and one.where.endswith(pointer))
+    assert classes.unmatched_address_receive_topic(use, manifest) is held
+    base = _app([_search_module(properties=[_prompt("village")])])
+    decided = parity.added_uses(base, source, entries=(parity.UNMATCHED_ADDRESS_TOPIC,))
+    unmatched = [one for one in decided if any(entry.id == parity.UNMATCHED_ADDRESS_TOPIC for entry in one.entries)]
+    assert [one.use.where for one in unmatched] == ([pointer] if held else [])
 
 
 def test_literal_itemset_row_position_is_scoped_to_retained_parity(manifest):

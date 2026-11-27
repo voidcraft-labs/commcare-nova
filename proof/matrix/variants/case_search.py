@@ -703,6 +703,16 @@ def address_picker_and_receiver_without_component(authoring, app_id):
     ops.set_json(authoring, app_id, "/modules/0/search_config/properties/2/receiver_expression", "home")
 
 
+def address_picker_and_unmatched_receiver_topic(authoring, app_id):
+    _address_picker_for_lookup(authoring, app_id, "select")
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties/2/receiver_expression", "home||city")
+
+
+def address_picker_receiver_with_extra_hyphen(authoring, app_id):
+    _address_picker_for_lookup(authoring, app_id, "select")
+    ops.set_json(authoring, app_id, "/modules/0/search_config/properties/2/receiver_expression", "home-city-extra")
+
+
 def _address_picker_for_lookup(authoring, app_id, choice_type):
     """The exact Search picker fills a text field and an existing lookup choice."""
     prompts = _modules(authoring, app_id)[0]["search_config"]["properties"]

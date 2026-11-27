@@ -21,7 +21,10 @@ import { requiredProjectSpaceCapabilities } from "@/lib/commcare/projectSpaceCom
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { eq, input, literal } from "@/lib/domain/expression";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
-import { isVisibleSearchInput } from "@/lib/domain/modules";
+import {
+	isVisibleSearchInput,
+	searchAddressReceiverSchema,
+} from "@/lib/domain/modules";
 import { searchAddressReceiverCompatibility } from "../../../validator/rules/case-list/searchAddressReceiverCompatibility";
 import { runValidation } from "../../../validator/runner";
 import { DERIVED_WIRE_IDENTITY } from "../../../wireIdentity";
@@ -109,7 +112,13 @@ it.each([
 	},
 	{
 		webAppsOn: true,
-		receive: "home||city",
+		receive: "home-city-extra",
+		entry: "receiver-expression",
+		standing: "not-yet",
+	},
+	{
+		webAppsOn: true,
+		receive: "home||city||region",
 		entry: "receiver-expression",
 		standing: "not-yet",
 	},
@@ -145,6 +154,56 @@ it.each([
 		]);
 	},
 );
+
+it("keeps an unmatched topic byte for byte beside a live address subscription", async () => {
+	const { doc } = await documentOf((body) => {
+		sharedAddress(body);
+		promptsOf(body)[1].receiver_expression = "home||city";
+	});
+	const [picker, unmatched, live] =
+		doc.modules[doc.moduleOrder[0]].caseListConfig?.searchInputs ?? [];
+	expect(unmatched).toMatchObject({
+		addressReceiver: { kind: "unsubscribed-topic", topic: "home||city" },
+	});
+	expect(live).toMatchObject({
+		addressReceiver: {
+			kind: "address",
+			source: picker.uuid,
+			parts: ["region"],
+		},
+	});
+	expect(
+		promptsOf(exportedBody(doc))
+			.slice(1, 3)
+			.map((field) => field.receiver_expression),
+	).toEqual(["home||city", "home-region"]);
+
+	const runtimeTarget = {
+		server: "production",
+		domain: "clinic",
+		appId: "app",
+	} as const;
+	const expanded = expandDoc(doc, { runtimeTarget });
+	const archive = new AdmZip(
+		compileCcz(expanded, doc.appName, doc, { runtimeTarget }),
+	);
+	expect(archive.readAsText("suite.xml")).toContain('receive="home||city"');
+	expect(archive.readAsText("suite.xml")).toContain('receive="home-region"');
+});
+
+it.each([
+	"home",
+	"home-city",
+	"home||city||region",
+	"home||city ",
+	"home.foo||city",
+	"instance('casedb')/casedb/case",
+])("does not allow %s as a saved unmatched topic", (topic) => {
+	expect(
+		searchAddressReceiverSchema.safeParse({ kind: "unsubscribed-topic", topic })
+			.success,
+	).toBe(false);
+});
 
 const CASES: readonly Case[] = [
 	{
