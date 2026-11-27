@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	addFixtureField,
@@ -120,20 +120,25 @@ it("derives the exact fresh-case date overwrite only from the committed required
 	const engine = engineFor(doc, formUuid);
 	engine.setValue("/data/written_text", "blue");
 	engine.setValue("/data/written_date", "2025-12-01");
-	const mutation = engine.computeSubmissionMutation({
-		caseIds: [],
-		entryKey: ENTRY_KEY,
-	});
-	const build = (blueprint: typeof doc) =>
-		buildCaseOperationProgramFromDoc({
+	const build = (
+		blueprint: typeof doc,
+		form: FormEngine,
+		device: ReturnType<typeof webAppsDevice>,
+	) => {
+		const mutation = form.computeSubmissionMutation({
+			caseIds: [],
+			entryKey: ENTRY_KEY,
+		});
+		return buildCaseOperationProgramFromDoc({
 			blueprint,
 			identity: IDENTITY,
-			device: webAppsDevice(),
+			device,
 			mutation,
 			projection: validateCaptureSubmissionProjection(mutation),
 		}).program;
+	};
 	expect(
-		build(doc)?.operations.map(
+		build(doc, engine, webAppsDevice())?.operations.map(
 			({ requiredDateRetypeProperty }) => requiredDateRetypeProperty,
 		),
 	).toEqual([undefined, "kept"]);
@@ -144,10 +149,48 @@ it("derives the exact fresh-case date overwrite only from the committed required
 		fields: { ...doc.fields, [date]: { ...field, required: undefined } },
 	};
 	expect(
-		build(optional)?.operations.map(
+		build(optional, engine, webAppsDevice())?.operations.map(
 			({ requiredDateRetypeProperty }) => requiredDateRetypeProperty,
 		),
 	).toEqual([undefined, undefined]);
+
+	vi.useFakeTimers({ toFake: ["Date"] });
+	try {
+		vi.setSystemTime(new Date(2026, 10, 27, 12));
+		const nativeDay = "2026-11-27";
+		const chosenDay = "2025-12-01";
+		const datePath = "/data/written_date";
+		const input = buildEngineInput(doc, formUuid, null);
+		if (!input) throw new Error("Expected the committed survey entry.");
+		const device = androidDevice();
+		for (const selected of [undefined, chosenDay]) {
+			const android = new FormEngine(
+				input,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ device },
+			);
+			android.setValue("/data/written_text", "blue");
+			android.enterScreen(datePath);
+			expect(android.getState(datePath)).toMatchObject({
+				value: "",
+				androidPickerDay: nativeDay,
+			});
+			if (selected) android.setValue(datePath, selected);
+			android.saveScreenAnswers();
+			expect(android.validateScreen(datePath)).toBe(true);
+			const program = build(doc, android, device);
+			expect(program?.operations[1]?.requiredDateRetypeProperty).toBe("kept");
+			const values = program?.scopes[0].iterations[0]?.formFields;
+			expect(values?.get(source)).toBe("blue");
+			expect(values?.get(date)).toBe(selected ?? nativeDay);
+		}
+	} finally {
+		vi.useRealTimers();
+	}
 });
 
 describe("automatic submission location", () => {
