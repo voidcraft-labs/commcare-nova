@@ -52,6 +52,7 @@ import {
 import { readManagedPlaceIds } from "./managedData";
 import { hqAnsweredWrite } from "./remoteWrites";
 import { deploymentEnding, publishedRemoteApp } from "./resources";
+import { DeploymentSessionEndedError } from "./sessionManagementGrant";
 import {
 	admitWorkerWrite,
 	type DeploymentScope,
@@ -245,6 +246,7 @@ export async function provisionWorkers(
 		domain: input.domain,
 	};
 
+	await input.scope.requireOperation?.();
 	const resolved = await resolveCredentials(input);
 	if ("code" in resolved) return refused(resolved);
 	const { creds, domain } = resolved;
@@ -438,7 +440,10 @@ export async function provisionWorkers(
 			 * their admissions and answered beside the refusal. A member who
 			 * may still make them is told the app was deleted; anyone else gets
 			 * the not-found as it stands. */
-			if (!(error instanceof DeploymentError && error.code === "not_found"))
+			if (
+				!(error instanceof DeploymentSessionEndedError) &&
+				!(error instanceof DeploymentError && error.code === "not_found")
+			)
 				throw error;
 			const deleted = error instanceof DeploymentAppDeletedError;
 			if (writeIds.length === 0)

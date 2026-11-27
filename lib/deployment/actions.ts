@@ -37,7 +37,10 @@ import {
 	setupArtifactFor,
 	stopPublishing,
 } from "./service";
-import { sessionManagementGrant } from "./sessionManagementGrant";
+import {
+	DeploymentSessionEndedError,
+	sessionManagementGrant,
+} from "./sessionManagementGrant";
 import type { SetupArtifact } from "./setupArtifact";
 import {
 	type DeploymentScope,
@@ -904,6 +907,7 @@ async function provisionedView(
 ): Promise<ProvisionWorkersView["view"]> {
 	if (deployment === null) return null;
 	try {
+		await scope.requireOperation?.();
 		return {
 			deployment,
 			artifact: await setupArtifactFor(scope, deployment, doc, organization),
@@ -918,7 +922,10 @@ async function provisionedView(
 		/* The app went to recently deleted, or the caller lost it, during the
 		 * call: there is no record of it to show them, which is expected, and
 		 * the accounts go out either way. */
-		if (error instanceof DeploymentError && error.code === "not_found")
+		if (
+			error instanceof DeploymentSessionEndedError ||
+			(error instanceof DeploymentError && error.code === "not_found")
+		)
 			return null;
 		log.error("[deployment] provisioning view could not be built", error, {
 			appId: scope.appId,

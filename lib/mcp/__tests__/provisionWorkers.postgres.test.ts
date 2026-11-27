@@ -1022,7 +1022,7 @@ it.each([
 
 it("answers the browser the account made before the app was deleted mid-call, with the deletion beside it", async () => {
 	await seed();
-	session();
+	await session();
 	await withHttpPeer(async (peer) => {
 		search(peer);
 		let password: unknown;
@@ -1054,6 +1054,66 @@ it("answers the browser the account made before the app was deleted mid-call, wi
 	});
 });
 
+it("refuses a revoked browser session before contacting CommCare HQ", async () => {
+	await seed();
+	await session();
+	await revokeBrowserSession();
+	await withHttpPeer(async (peer) => {
+		const before = await snapshot();
+		const result = await provisionWorkersAction({
+			appId: APP,
+			...TARGET,
+			workers: [{ personaUuid: AMINA, username: "amina" }],
+		});
+		expect(result).toMatchObject({ success: false, code: "not_permitted" });
+		expect(peer.getCallHistory()?.calls()).toHaveLength(0);
+		expect(await snapshot()).toEqual(before);
+	});
+});
+
+it("settles the admitted worker when its browser session ends mid-call", async () => {
+	await seed();
+	await session();
+	await withHttpPeer(async (peer) => {
+		search(peer);
+		let password: unknown;
+		wire(peer).reply(async (request) => {
+			password = JSON.parse(
+				(await readHttpRequestBody(request)).toString(),
+			).password;
+			await revokeBrowserSession();
+			return { statusCode: 201, data: '{"id":"hq-amina"}' };
+		});
+		const result = await provisionWorkersAction({
+			appId: APP,
+			...TARGET,
+			workers: requested.map((worker) => ({
+				personaUuid: worker.persona_uuid,
+				username: worker.username,
+			})),
+		});
+		if (!result.success) throw new Error(result.message);
+		expect(result.data.refusal).toMatchObject({ code: "app_not_available" });
+		expect(result.data.workers.map((worker) => worker.password)).toEqual([
+			password,
+		]);
+		expect(result.data.view).toBeNull();
+		expect(peer.getCallHistory()?.calls()).toHaveLength(2);
+		const deployment = await readDeployment(SCOPE, TARGET);
+		expect(
+			deployment?.active.filter((mapping) => mapping.kind === "worker"),
+		).toMatchObject([{ novaResourceId: AMINA, remoteId: "hq-amina" }]);
+		expect(
+			await h
+				.db()
+				.selectFrom("hq_remote_writes")
+				.select("id")
+				.where(openRemoteWrite)
+				.execute(),
+		).toEqual([]);
+	});
+});
+
 it.each(["viewer", "outsider", "scope"])(
 	"enforces %s access through actual SDK and membership before contacting HQ",
 	async (access) => {
@@ -1076,8 +1136,15 @@ it.each(["viewer", "outsider", "scope"])(
 	},
 );
 
-function session() {
+const browserSessionId = "worker-provision-browser-session";
+async function session() {
 	const now = new Date();
+	const expiresAt = new Date(now.getTime() + 60_000);
+	const token = "worker-provision-browser-token";
+	await sql`
+		INSERT INTO auth_session (id, token, "userId", "expiresAt", "createdAt", "updatedAt")
+		VALUES (${browserSessionId}, ${token}, ${ACTOR}, ${expiresAt}, ${now}, ${now})
+	`.execute(h.db());
 	vi.mocked(getSession).mockResolvedValue({
 		user: {
 			id: ACTOR,
@@ -1089,20 +1156,26 @@ function session() {
 			updatedAt: now,
 		},
 		session: {
-			id: "session",
-			token: "session-token",
+			id: browserSessionId,
+			token,
 			userId: ACTOR,
-			expiresAt: new Date(now.getTime() + 60_000),
+			expiresAt,
 			createdAt: now,
 			updatedAt: now,
 		},
 	});
 }
+async function revokeBrowserSession() {
+	await sql`DELETE FROM auth_session WHERE id = ${browserSessionId}`.execute(
+		h.db(),
+	);
+}
+
 it.each(["complete", "partial", "reporting-read"])(
 	"keeps credentials in the actual browser action's %s result",
 	async (outcome) => {
 		await seed({ organization: outcome === "reporting-read" });
-		session();
+		await session();
 		if (outcome === "reporting-read") {
 			// The mapping commits, then the view's fresh organization read meets a
 			// real schema failure. This lives only in the disposable test database.
