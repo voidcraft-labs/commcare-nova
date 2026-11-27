@@ -145,9 +145,9 @@ function compare(plan: Plan, left: Expression, right: Expression): Expression {
 			: gt(left, right);
 }
 
-/** Choose a compatible slot after the value's direct and transitive inputs.
+/** Choose a compatible slot after the value's direct inputs.
  * Preseeded logic can read a field inserted later, such as a generated date
- * companion. Follow those dependencies too before adding another edge.
+ * companion. Exclude any destination the value already depends on indirectly.
  * Conditions accumulate plans and values keep the destination's scalar type.
  */
 function attachForm(
@@ -169,6 +169,7 @@ function attachForm(
 		});
 	};
 	collectInputs(value);
+	const lastRead = ordered.findLastIndex((field) => inputs.has(field.uuid));
 	for (const uuid of inputs)
 		for (const { ref, expression } of expressionSlotValues(doc, {
 			entity: "field",
@@ -183,10 +184,10 @@ function attachForm(
 					ref.slot === "ids_query")
 			)
 				collectInputs(expression);
-	const lastRead = ordered.findLastIndex((field) => inputs.has(field.uuid));
 	const fields = ordered.filter(
 		(field, index) =>
 			index > lastRead &&
+			!inputs.has(field.uuid) &&
 			field.uuid !== source?.uuid &&
 			(!sameParent ||
 				doc.fieldParent[field.uuid] ===
