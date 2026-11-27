@@ -200,7 +200,7 @@ def _bounded_flat_close_shapes():
     key = "schema:Detail.max_select_value"
     where = "/case_details/short/max_select_value"
 
-    def app(maximum=101, *, form_source=source, web_apps=True):
+    def app(maximum=101, *, form_source=source, web_apps=True, followup=False, several=True):
         return _with_forms({
             "doc_type": "Application",
             "cloudcare_enabled": web_apps,
@@ -209,12 +209,12 @@ def _bounded_flat_close_shapes():
                 "case_type": "patient",
                 "case_details": {"doc_type": "DetailPair", "short": {
                     "doc_type": "Detail",
-                    "multi_select": True,
+                    "multi_select": several,
                     "max_select_value": maximum,
                 }},
                 "forms": [{
                     "doc_type": "Form", "unique_id": "close", "requires": "case",
-                    "actions": {"close_case": {"condition": {"type": "always"}}},
+                    "actions": {} if followup else {"close_case": {"condition": {"type": "always"}}},
                 }],
             }],
         }, close=form_source)
@@ -225,7 +225,37 @@ def _bounded_flat_close_shapes():
         app(web_apps=False),
         app(form_source=source.replace(b"'yes'", b"../record")),
     )
+    read_only = b"""<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms">
+    <h:head><model><instance><data xmlns="urn:test"><choice/><note/></data></instance>
+    <bind nodeset="/data/choice" type="xsd:string"/>
+    <bind nodeset="/data/note" type="xsd:string" relevant="/data/choice = 'followup'"/>
+    </model></h:head><h:body><input ref="/data/choice"/><input ref="/data/note"/></h:body></h:html>"""
+
+    def followup(maximum=500, *, body=read_only, web_apps=True, several=True):
+        return app(maximum, form_source=body, web_apps=web_apps, followup=True, several=several)
+
     return {
+        "menus-and-case-lists/detail-max-select-value-for-flat-followup": (
+            refused("app", followup(101), key, where),
+            refused("app", followup(), key, where),
+            accepted("app", followup(501), key, where),
+            accepted("app", followup(web_apps=False), key, where, standing=manifest_usage.REFUSED),
+            accepted(
+                "app",
+                followup(body=read_only.replace(b" = 'followup'", b" != 'followup'")),
+                key,
+                where,
+            ),
+            accepted("app", app(500), key, where),
+        ),
+        "menus-and-case-lists/detail-max-select-value-above-101-on-android-only-app": (
+            refused("app", followup(102, web_apps=False), key, where),
+            refused("app", followup(2_147_483_647, web_apps=False), key, where),
+            accepted("app", followup(101, web_apps=False), key, where),
+            accepted("app", followup(2_147_483_648, web_apps=False), key, where),
+            accepted("app", followup(), key, where),
+            accepted("app", followup(web_apps=False, several=False), key, where),
+        ),
         "menus-and-case-lists/detail-max-select-value-for-flat-close": (
             refused("app", app(), key, where),
             accepted("app", app(102), key, where),
