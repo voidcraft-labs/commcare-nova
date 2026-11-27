@@ -20,6 +20,9 @@ import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import { caseStoreMigrations } from "..";
 
 const first = "20260914000000_authoring_plans";
+// This historical repair runs while both Connect carriers still exist. The
+// later HQ round-trip completion is a separate, explicitly converted cutover.
+const beforeRoundTripCompletion = "20261208100000_preview_web_activity";
 const database = setupPerTestDatabase({
 	databaseNamePrefix: "authoring_cutover_",
 	establishLocalMigrationAuthority: true,
@@ -169,7 +172,7 @@ function authoredApp(id: string): PersistableDoc {
 
 /** Saves `doc` as its birth wrote it. An app born before
  * `apps.app_settings` existed holds no settings (`schema: "earlier"`). */
-async function save(doc: PersistableDoc, schema: "earlier" | "latest") {
+async function save(doc: PersistableDoc, schema: "earlier" | "pre-completion") {
 	const db = database.db as Kysely<AppDatabase>;
 	await db.transaction().execute(async (tx) => {
 		await sql`INSERT INTO apps (id, owner, project_id, app_name, app_name_lower, case_types, localization, mutation_seq, run_id)
@@ -177,7 +180,7 @@ async function save(doc: PersistableDoc, schema: "earlier" | "latest") {
 				${JSON.stringify(doc.caseTypes)}::jsonb, ${JSON.stringify(doc.localization)}::jsonb, 1, 'genesis')`.execute(
 			tx,
 		);
-		if (schema === "latest") {
+		if (schema === "pre-completion") {
 			await sql`UPDATE apps SET app_settings = ${JSON.stringify(doc.appSettings)}::jsonb, connect_roles = ${doc.connectRoles}::text[] WHERE id = ${doc.appId}`.execute(
 				tx,
 			);
@@ -227,7 +230,7 @@ it("upgrades the installed schema, preserves old history and records complete mu
 	const result = await new Migrator({
 		db: database.db,
 		provider: { getMigrations: async () => caseStoreMigrations },
-	}).migrateToLatest();
+	}).migrateTo(beforeRoundTripCompletion);
 	if (result.error) throw result.error;
 	// The app was saved before `apps.app_settings` and `apps.connect_roles`
 	// existed, so both columns are NULL: the projection leaves the settings
@@ -393,7 +396,7 @@ it("upgrades the installed schema, preserves old history and records complete mu
 			.executeTakeFirstOrThrow(),
 	).toEqual({ authoring_version: 0 });
 	const fresh = authoredApp("new-app");
-	await save(fresh, "latest");
+	await save(fresh, "pre-completion");
 	expect(await snapshot(fresh.appId)).toEqual(fresh);
 	const baseline = await db
 		.selectFrom("app_change_fold_baselines")
