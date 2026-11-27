@@ -110,6 +110,12 @@ Part of the surface inventory of the HQ round-trip research. Section names in qu
 
 HQ's build runs its case list and case detail checks (`ModuleDetailValidatorMixin.validate_details_for_build`) only for basic and shadow modules (`validate_case_list_field_actions` runs in every module with case details, and `validate_detail_columns` in every module that needs case details); an advanced module's validator never calls them (`helpers/validators.py::AdvancedModuleValidator`; executed: two address columns, a bad filter and a bad sort field build there). A row refused by one of those checks names what happens in an advanced module. Search-result details (`search_short`/`search_long`) are deep copies of the case list with `instance_name='results'` (`ModuleDetailsMixin.search_detail`, and `AdvancedModule.search_detail`), so every row applies to them too. Nova's one column set serves both surfaces (`visibleInList` / `visibleInDetail`, two orders); an HQ property shown differently on the list and the detail imports as two Nova columns.
 
+In Web Apps, an ordinary Search-first menu can give a detail-only calculated
+column fixed text for a signed Search result and separate fixed text for its
+ordinary list route. If the native guarded result refers to a prompt the
+screen never offers, Nova holds the resulting fixed text and the original
+ordinary fallback.
+
 ### Detail screens (`Detail`)
 
 | HQ item | Disposition | Web Apps / Android | Emission |
