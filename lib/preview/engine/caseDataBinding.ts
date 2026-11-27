@@ -2517,7 +2517,7 @@ export async function submitFormAction(
 					? openingCarryScope({ ...receiptAudience, run })
 					: undefined,
 			},
-			...(admitted.device.platform === "web-apps" &&
+			...(previewPlatformRules(admitted.device.platform).recentFormActivity &&
 				opening?.webActivity && {
 					webActivity: opening.webActivity,
 				}),

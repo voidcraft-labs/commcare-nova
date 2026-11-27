@@ -31,6 +31,7 @@ import {
 	inPlatform,
 	PLATFORM_LABELS,
 	type Platform,
+	platformBehavior,
 	platformDeclarationPhrase,
 } from "@/lib/domain/platforms";
 
@@ -48,6 +49,19 @@ export function effectivePreviewPlatform(
 }
 
 export interface PreviewPlatformRules {
+	/** Formplayer records activity at entry and submission. Android ignores
+	 * the activity keys (proof/formplayer/test_form_activity.py). */
+	readonly recentFormActivity: boolean;
+	/** Reopening an incomplete Android form from Home carries its existing
+	 * entry and answers into the new run (proof/android/test_case_blocks.py).
+	 * Web Apps restores its own current session instead. */
+	readonly resumeDraftAcrossRuns: boolean;
+	/** Core's extended text is the default. Android's help dialog and
+	 * eligible choice widgets ask for their Markdown form first
+	 * (proof/android/test_form_reads.py). */
+	readonly questionProseForms: "extended-first" | "markdown-first";
+	/** The companion-app action on a case list (case-list-android-lookup). */
+	readonly caseListDeviceLookup: boolean;
 	/** Core Selection.attachChoice; Formplayer PromptToJson.parseQuestionAnswer;
 	 * Android FormHierarchyBuilder.getQuestionDisplayText and instance restore. */
 	readonly unavailableInlineChoice: "display" | "summary-or-restore";
@@ -592,6 +606,12 @@ export interface PreviewPlatformRules {
  *  missing on either platform a type error. */
 export const PREVIEW_PLATFORM_RULES = {
 	"web-apps": Object.freeze({
+		recentFormActivity: true,
+		resumeDraftAcrossRuns: false,
+		questionProseForms: "extended-first",
+		caseListDeviceLookup:
+			platformBehavior("case-list-android-lookup", "web-apps").reading ===
+			"runs",
 		unavailableInlineChoice: "display",
 		appHome: "root-menu",
 		postSubmitAppHome: "root-menu",
@@ -699,6 +719,12 @@ export const PREVIEW_PLATFORM_RULES = {
 		caseMap: "switched-first-address",
 	}),
 	android: Object.freeze({
+		recentFormActivity: false,
+		resumeDraftAcrossRuns: true,
+		questionProseForms: "markdown-first",
+		caseListDeviceLookup:
+			platformBehavior("case-list-android-lookup", "android").reading ===
+			"runs",
 		unavailableInlineChoice: "summary-or-restore",
 		appHome: "device-home",
 		postSubmitAppHome: "device-home",

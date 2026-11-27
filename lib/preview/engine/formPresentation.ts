@@ -9,7 +9,8 @@ import type {
 import { fieldProseTemplate } from "@/lib/domain/expressionSource";
 import { fieldHasWorkerControl } from "@/lib/domain/fieldForm";
 import type { Form } from "@/lib/domain/forms";
-import type { Platform } from "@/lib/domain/platforms";
+import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
+import { effectivePreviewPlatform } from "../platform";
 import { runtimeMessage } from "../runtimeMessages";
 import { workerFieldProseSlot } from "../workerProse";
 import { controlValuePath, type FieldTreeNode } from "./fieldTree";
@@ -189,6 +190,7 @@ export function projectFormPresentation(
 	nodes: FormPresentationNode[];
 } {
 	const rootPath = options.rootPath ?? "/data";
+	const platform = effectivePreviewPlatform(PLATFORMS, options.platform);
 	const fields: PresentedField[] = [];
 	const text = (
 		field: Field,
@@ -206,12 +208,7 @@ export function projectFormPresentation(
 			field,
 			slot === "label"
 				? slot
-				: workerFieldProseSlot(
-						field,
-						slot,
-						options.textForm ?? {},
-						options.platform ?? "web-apps",
-					),
+				: workerFieldProseSlot(field, slot, options.textForm ?? {}, platform),
 		);
 		return prose === undefined ? undefined : options.text(prose);
 	};
