@@ -621,10 +621,9 @@ describe("operation-level execution of a Save to Case worker update", () => {
 /**
  * A Save to Case update of the worker's record beside another update of it in
  * the same form: CommCare HQ's form builder keeps each block, and a device
- * and HQ's server apply both in the form's order, but the gate refuses a
- * second update of the worker's record (`CASE_OPERATION_TARGET_INVALID`,
- * reason `worker-record-twice`), since Nova keeps a form's writes of it in
- * one update. Each source is Nova's print of two such updates (a write's own
+ * and HQ's server apply both in the form's order. Nova keeps disjoint direct
+ * writes and refuses overlapping writes (`CASE_OPERATION_TARGET_INVALID`,
+ * reason `worker-record-twice`). Each source is Nova's print of two such updates (a write's own
  * condition keeps an update in a block): `usercase_update` beside a block,
  * two blocks, and an advanced form's load of the worker's record beside a
  * block.
@@ -657,6 +656,45 @@ describe("a Save to Case update of the worker's record beside another update of 
 			draft.forms[form]?.caseOperations?.push(second as never);
 		});
 	}
+	it("keeps separate root updates of disjoint worker properties", async () => {
+		const property = "visit_seen";
+		const propertyUuid = testUuid("worker-keys-second-property");
+		const doc = produce(
+			withSecond(basicApp(false), FORM, {
+				uuid: testUuid("worker-keys-disjoint"),
+				id: "disjoint",
+				action: "update",
+				caseType: "commcare-user",
+				target: { kind: "worker-record" },
+				writes: [{ property, value: term(literal("seen")) }],
+			}),
+			(draft) => {
+				(draft.userProperties ??= {})[propertyUuid] = {
+					uuid: propertyUuid,
+					slug: property,
+					label: "Seen",
+				};
+				(draft.userPropertyOrder ??= []).push(propertyUuid);
+			},
+		);
+		const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		const outcome = await readWith(doc, WRITTEN);
+		if (outcome.kind !== "read")
+			throw new Error(JSON.stringify(outcome.findings));
+		const workerWrites = outcome.draft.doc.forms[FORM]?.caseOperations
+			?.filter(
+				(operation) =>
+					operation.action !== "own" &&
+					operation.target.kind === "worker-record",
+			)
+			.flatMap(
+				(operation) => operation.writes?.map((write) => write.property) ?? [],
+			);
+		expect(workerWrites).toHaveLength(2);
+		expect(workerWrites).toEqual(expect.arrayContaining([WRITTEN, property]));
+	});
+
 	const cases: readonly (readonly [string, () => BlueprintDoc])[] = [
 		[
 			"usercase_update beside a block",

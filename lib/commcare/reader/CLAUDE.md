@@ -1053,14 +1053,12 @@ A change that holds one removes its line.
   finding at the block under
   `questions/a-savetocase-update-of-commcare-user-under-a-condition-or-inside-a-repeat`
   (`caseManagement/saveToCase.ts::readBlock`).
-- **A Save to Case update of the worker's record beside another update of it in the same form**
-  (CommCare HQ's `usercase_update`, an advanced form's load of the worker's record, or a second
-  such block): one finding at the form under
+- **Independent updates of the worker's record** stay in their own Save to Case or managed
+  blocks when each update directly targets the worker, runs at most once and writes different properties.
+  HQ may append its managed block after the authored blocks without changing those writes.
+  Overlapping, repeated and aliased combinations still use the form-level
   `questions/a-savetocase-update-of-commcare-user-beside-another-update-of-the-worker-s-record`
-  (`caseManagement/index.ts::settleCaseChanges`, asking the gate's own
-  `validator/rules/caseOperations.ts::validateCaseOperations` for reason `worker-record-twice`). A
-  device and HQ's server apply both in the form's order, and Nova keeps a form's writes of the worker's
-  record in one update, which prints one block.
+  finding where the validator refuses them (reason `worker-record-twice`).
 - **A Save to Case block that changes the form's own case beside the form's own change of it**: a
   row of a property the own change also writes (its name and owner among them), or a close of that
   case: one finding at the form under

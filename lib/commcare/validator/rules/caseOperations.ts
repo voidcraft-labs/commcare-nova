@@ -1970,22 +1970,43 @@ function workerRecordTwiceFinding(
 	);
 }
 
-/**
- * The worker's record (`{kind: "worker-record"}`) is the target of at most
- * one update of `commcare-user` per form, which only saves properties: HQ's
- * usercase block writes property updates alone (`xform.py::_add_usercase`),
- * and Nova keeps that one operation the form's every write to the record.
- */
+/** Disjoint single-occurrence writes commute even when HQ moves its managed
+ * block after the authored blocks. Empty blocks, aliases and repetitions keep
+ * their existing restrictions. */
+function disjointDirectWorkerUpdates(
+	operations: readonly CaseOperation[],
+): boolean {
+	const properties = new Set<string>();
+	for (const operation of operations) {
+		if (
+			!isWorkerRecordUpdate(operation) ||
+			operation.forEach !== undefined ||
+			!operation.writes?.length
+		)
+			return false;
+		for (const write of operation.writes) {
+			if (write.via !== undefined || properties.has(write.property))
+				return false;
+			properties.add(write.property);
+		}
+	}
+	return true;
+}
+
+/** The worker's record can only receive property updates. A form's separate
+ * direct updates can coexist when every property belongs to one block. */
 function workerRecordFindings(
 	ctx: OperationRuleContext,
 	operations: readonly CaseOperation[],
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
-	const repeatedWorker = operations.find(isRepeatedWorkerUpdate);
+	const workerOperations = operations.filter((operation) =>
+		addressesWorkerRecord(ctx.form, operation, ctx.module.caseType),
+	);
+	const repeatedWorker = workerOperations.find(isRepeatedWorkerUpdate);
+	const disjoint = disjointDirectWorkerUpdates(workerOperations);
 	let first: CaseOperation | undefined;
-	for (const operation of operations) {
-		if (!addressesWorkerRecord(ctx.form, operation, ctx.module.caseType))
-			continue;
+	for (const operation of workerOperations) {
 		// A repeated direct block cannot also reach the worker through an
 		// own case, a worker selection, or another direct worker change.
 		if (
@@ -2015,7 +2036,8 @@ function workerRecordFindings(
 			operation.target.kind === "worker-record"
 		) {
 			if (first === undefined) first = operation;
-			else errors.push(workerRecordTwiceFinding(ctx, operation, first));
+			else if (!disjoint)
+				errors.push(workerRecordTwiceFinding(ctx, operation, first));
 		}
 		for (const [facet, words] of WORKER_RECORD_FACETS) {
 			// Only a direct worker-record target can carry its own condition.

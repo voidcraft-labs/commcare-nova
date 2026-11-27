@@ -3326,15 +3326,14 @@ def save_to_case_keyed_beside_worker(authoring, app_id):
 # household's ``note`` under a condition.
 
 
-def save_to_case_worker_twice(authoring, app_id):
-    """In hq-case-management's first follow-up form, which writes the worker's record, a Save to Case update of
-    the worker's record."""
+def save_to_case_worker_twice(authoring, app_id, property_name="visit_seen"):
+    """Add a root Save to Case worker update beside the basic managed block."""
     block = _block(
         "worker",
         "commcare-user",
-        "<update><visit_seen/></update>",
+        f"<update><{property_name}/></update>",
         WORKER_CASE,
-        [("update/visit_seen", "calculate=\"'yes'\"")],
+        [(f"update/{property_name}", "calculate=\"'yes'\"")],
     )
     _edit(
         authoring,
@@ -3350,6 +3349,10 @@ def save_to_case_worker_twice(authoring, app_id):
         ),
         form=1,
     )
+
+
+def save_to_case_worker_overlapping(authoring, app_id):
+    save_to_case_worker_twice(authoring, app_id, "last_visit_note")
 
 
 def save_to_case_own_case_beside(authoring, app_id):

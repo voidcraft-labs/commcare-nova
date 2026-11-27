@@ -3612,7 +3612,7 @@
 		"surfaceKeys": ["mug:SaveToCase"],
 		"valueClass": "worker-record-update-beside-another",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a form that writes the worker's record in more than one update: Nova keeps a form's every write of the worker's record in one update (`validator/rules/caseOperations.ts::workerRecordFindings`, reason `worker-record-twice`), as CommCare HQ's own `usercase_update` block is one (`xform.py::XForm._add_usercase`), and no one update prints two blocks; HQ's form builder keeps each block (`saveToCase.js` refuses only a create, a close or a link of `commcare-user`), and a device and HQ's server apply every block in the form's order (Core's `CaseXmlParser`, block by block; HQ's `casexml/apps/case/xform.py::get_case_updates` groups a case's blocks and sorts them stably by their first action, so two updates keep the form's order)",
+		"dispositionCell": "**HELD-NEW**: overlapping, repeated or aliased updates of the worker's record still need their own effect ordering. Disjoint single-occurrence direct updates use the retained Save to Case update class.",
 		"subject": "worker-record",
 		"owner": "forms-and-case-management",
 		"platforms": {
@@ -3923,7 +3923,7 @@
 		],
 		"valueClass": "savetocase-update",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseOperations[] {action: update, target: expression}` or one root update of the worker's record. When the worker update has its own condition, the block is submitted only when that condition holds.",
+		"dispositionCell": "**HELD**: `caseOperations[] {action: update, target: expression}` or a direct update of the worker's record. A form can keep separate single-occurrence worker updates when their direct property writes are disjoint. When a worker update has its own condition, the block is submitted only when that condition holds.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
