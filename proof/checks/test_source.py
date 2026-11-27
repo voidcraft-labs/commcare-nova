@@ -424,7 +424,11 @@ def test_only_a_single_declared_fixture_ordinal_is_its_explicit_position_spellin
             ("changed", pattern + "/:respelled", at + "/:respelled"),
         ]
     assert _parts(form(path + "[2.0]"), after) == [("changed", pattern + "/:respelled", at + "/:respelled")]
-    for expression in ( "[(2)]", "[(2.5)]", "[-2]", "[2147483648]", "[last() - 1]", "[name != ''][2]"):
+    overflow = form(path + "[2147483648]")
+    assert _parts(overflow, form(path + "[position() = 2147483647]")) == [
+        ("changed", pattern + "/:respelled", at + "/:respelled"),
+    ]
+    for expression in ("[(2)]", "[(2.5)]", "[-2]", "[2147483648]", "[last() - 1]", "[name != ''][2]"):
         assert _parts(form(path + expression), after) == [("changed", pattern, at)]
     assert _parts(before, form(path + "[position() = 1]")) == [("changed", pattern, at)]
     assert _parts(before, form(path + "[position() = 2][name != '']")) == [("changed", pattern, at)]

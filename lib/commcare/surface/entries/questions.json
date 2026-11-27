@@ -3120,7 +3120,7 @@
 		],
 		"valueClass": "predicate-filter",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `optionsSource.filter`. A declared lookup fixture row index written as a bare nonnegative number that truncates to a nonnegative Java integer is held as an explicit comparison with that position. A position of zero yields no choices.",
+		"dispositionCell": "**HELD**: `optionsSource.filter`. A bare finite nonnegative index on a declared lookup fixture is held as an explicit position. Core truncates the fraction and caps the result at 2,147,483,647. A position of zero yields no choices.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

@@ -167,6 +167,9 @@ def test_fractional_fixture_row_index_truncates_after_vellum_reopens(
         ("zero", "0", {"choices": []}),
         ("fractional-truncated-to-zero", "0.5", {"choices": []}),
         ("explicit-zero-position", "position() = 0", {"choices": []}),
+        ("overflow", "2147483648", {"choices": []}),
+        ("non-wrapping-overflow", "4294967297", {"choices": []}),
+        ("saturated-position", "position() = 2147483647", {"choices": []}),
     )
     observed = {}
     with hq_check(document.exports["minimum"].configuration.hq()) as (unit, _):
