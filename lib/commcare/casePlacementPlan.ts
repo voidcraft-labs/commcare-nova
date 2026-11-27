@@ -1,5 +1,7 @@
 import {
+	bareRead,
 	basicOwnExternalIdDayValue,
+	basicOwnNameCalendarDay,
 	caseSlotFacts,
 } from "@/lib/domain/basicCaseSlots";
 import { formCaseEntryPlan } from "./formCaseEntryPlan";
@@ -397,14 +399,21 @@ function buildPlan(
 			operation.action === "own" &&
 			!isRegistration(form) &&
 			operation.name !== undefined
-		)
+		) {
+			const direct =
+				formKind === "basic"
+					? basicOwnNameCalendarDay(caseSlotFacts(doc, formUuid), operation)
+					: undefined;
 			put(
 				"name",
 				operation.name,
 				"case_name",
 				mode(operation.nameOnlyIfChanged),
 				"name",
+				undefined,
+				direct === undefined ? undefined : bareRead(direct),
 			);
+		}
 		if (operation.rename !== undefined)
 			put(
 				"name",

@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+import pytest
 from lxml import etree
 
 from proof.core.artifacts import TEMPLATE_RESTORE
@@ -28,14 +29,18 @@ OFFSET_CAST = "2025-04-05T06:24:47.125Z"
 DAY = "2025-04-06"
 
 
-def test_datetime_question_stored_directly_in_external_id(hq, core_runner, editor_driver, tmp_path):
+@pytest.mark.parametrize("property_name", ["external_id", "name"], ids=["external-id", "case-name"])
+def test_datetime_question_stored_directly_in_a_case_text_facet(
+    hq, core_runner, editor_driver, tmp_path, property_name,
+):
+    wire_property = "case_name" if property_name == "name" else property_name
     with hq_check(BASE.configuration) as (unit, record):
         authoring = Authoring(state=unit, documents={}, base=BASE.id, driver=editor_driver, operation=unit.operation)
         app_id = BASE.build(authoring)
         for menu, form in BASE.vellum:
             ops.builder_save(authoring, app_id, menu, form)
         ops.set_json(
-            authoring, app_id, "/modules/0/forms/3/actions/update_case/update/external_id",
+            authoring, app_id, f"/modules/0/forms/3/actions/update_case/update/{property_name}",
             {"question_path": QUESTION, "update_mode": "always", "doc_type": "ConditionalCaseUpdate"},
         )
 
@@ -47,8 +52,8 @@ def test_datetime_question_stored_directly_in_external_id(hq, core_runner, edito
         assert saved.save is not None and not saved.refused, (saved.alerts, saved.unsent, saved.response)
         form = held_form()
         fields = form.actions.update_case.update
-        assert fields["external_id"].question_path == QUESTION
-        assert fields["external_id"].update_mode == "always"
+        assert fields[property_name].question_path == QUESTION
+        assert fields[property_name].update_mode == "always"
         assert fields["seen_at"].question_path == "/data/nova_datetime_seen_at"
 
         starting_case = _case(
@@ -60,7 +65,7 @@ def test_datetime_question_stored_directly_in_external_id(hq, core_runner, edito
             built = compare.build(unit, app_id, record)
             assert not built.errors, built.errors
             xml = etree.fromstring(built.files["modules-0/forms-3.xml"])
-            (bind,) = xml.xpath("//*[local-name()='bind'][contains(@nodeset,'/update/external_id')]")
+            (bind,) = xml.xpath(f"//*[local-name()='bind'][contains(@nodeset,'/update/{wire_property}')]")
             assert bind.get("calculate") == QUESTION
             assert bind.get("type") is None
             assert bind.get("relevant") == f"count({QUESTION}) > 0"
@@ -79,7 +84,7 @@ def test_datetime_question_stored_directly_in_external_id(hq, core_runner, edito
             submission, tokens = unmarked_submission(run)
             payload = etree.fromstring(submission)
             snapshot = etree.fromstring(form_step(run)["caseDb"].encode())
-            stored = snapshot.findtext(f"case[@case_id='{RECORD}']/external_id")
+            stored = snapshot.findtext(f"case[@case_id='{RECORD}']/{wire_property}")
             initial = operations.process_case_blocks(unit, _submission(starting_case))
             assert initial.refusal is None
             applied = operations.process_case_blocks(unit, submission, cases=[initial.touched[RECORD].case])
@@ -87,14 +92,17 @@ def test_datetime_question_stored_directly_in_external_id(hq, core_runner, edito
             kept = applied.touched.get(RECORD) or initial.touched[RECORD]
             return payload, tokens.get(stored, stored), kept.case
 
+        def hq_value(case):
+            return case.name if property_name == "name" else case.external_id
+
         def expects_moment(label, answer, moment, day):
             payload, on_device, on_hq = read(label, [answer])
             assert datetime.fromisoformat(payload.findtext("{*}seen_at")) == datetime.fromisoformat(moment)
             update = payload.find(f"{{{CASE}}}case/{{{CASE}}}update")
-            assert update.findtext(f"{{{CASE}}}external_id") == day
+            assert update.findtext(f"{{{CASE}}}{wire_property}") == day
             assert datetime.fromisoformat(update.findtext(f"{{{CASE}}}seen_at")) == datetime.fromisoformat(moment)
-            assert on_device == on_hq.external_id == day
-            assert "external_id" not in on_hq.case_json
+            assert on_device == hq_value(on_hq) == day
+            assert wire_property not in on_hq.case_json
             assert datetime.fromisoformat(on_hq.case_json["seen_at"]) == datetime.fromisoformat(moment)
 
         expects_moment("utc-clock", MOMENT, MOMENT, DAY)
@@ -103,9 +111,13 @@ def test_datetime_question_stored_directly_in_external_id(hq, core_runner, edito
         expects_moment("foreign-offset-cast", OFFSET_INPUT, OFFSET_CAST, "2025-04-05")
 
         payload, on_device, on_hq = read("blank", [""])
-        external = payload.find(f"{{{CASE}}}case/{{{CASE}}}update/{{{CASE}}}external_id")
-        assert external is not None and not external.text
-        assert not on_device and not on_hq.external_id
+        leaf = payload.find(f"{{{CASE}}}case/{{{CASE}}}update/{{{CASE}}}{wire_property}")
+        if property_name == "name":
+            assert leaf is None or not leaf.text
+            assert on_device == hq_value(on_hq) == "One household", (on_device, hq_value(on_hq))
+        else:
+            assert leaf is not None and not leaf.text
+            assert not on_device and not hq_value(on_hq)
 
         def hide(root, _form):
             (bind,) = root.xpath("//*[local-name()='bind'][@nodeset=$path]", path=QUESTION)
@@ -113,5 +125,5 @@ def test_datetime_question_stored_directly_in_external_id(hq, core_runner, edito
 
         ops.set_form_source(authoring, app_id, 0, 3, hide, what="hide the date-and-time question")
         payload, on_device, on_hq = read("irrelevant", [MOMENT])
-        assert payload.find(f"{{{CASE}}}case/{{{CASE}}}update/{{{CASE}}}external_id") is None
-        assert on_device == on_hq.external_id == ORIGINAL
+        assert payload.find(f"{{{CASE}}}case/{{{CASE}}}update/{{{CASE}}}{wire_property}") is None
+        assert on_device == hq_value(on_hq) == ("One household" if property_name == "name" else ORIGINAL)
