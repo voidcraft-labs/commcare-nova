@@ -3694,8 +3694,17 @@ async function bringInOverPeer(input: {
 				`Nova's review of ${id} read a menu or form the peer's summary does not hold (${read.at}), which acceptance refuses before a review answers.`,
 			);
 		}
+		// The saved-source comparison checks the raw reading and requires
+		// the declaration under which this HQ review read it to be offered.
+		// Keep the declaration without changing the raw question structure.
 		reading = {
-			doc: storedDocument(checked.draft.doc),
+			doc: storedDocument({
+				...checked.draft.doc,
+				appSettings: {
+					...checked.draft.doc.appSettings,
+					runsOnlyOn: checked.declaration.runsOnlyOn ?? undefined,
+				},
+			}),
 			identity: read.rows.map(
 				({ entityKind, novaEntityUuid, uniqueId, xmlns }) => ({
 					entityKind,

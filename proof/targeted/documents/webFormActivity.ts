@@ -1,6 +1,5 @@
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { targetedDocument, targetedUuid } from "../build";
-import { answerHeld } from "./echo";
 
 const id = "targeted-web-form-activity";
 const uuid = (name: string) => targetedUuid(id, name);
@@ -75,12 +74,13 @@ export function webFormActivity() {
 		],
 		expected: {
 			intent: [
-				answerHeld(
-					"activity-initial-record",
+				{
+					id: "activity-initial-record",
+					export: "local",
 					form,
-					"/data/record",
-					"Northern clinic",
-				),
+					request: { expressions: ["/data/record"] },
+					expect: [{ pointer: "/values/0/value", value: "Northern clinic" }],
+				},
 			],
 		},
 	});

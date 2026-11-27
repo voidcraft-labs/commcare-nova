@@ -40,6 +40,7 @@ import { wirePathFor } from "@/lib/commcare/multimedia/assetWirePath";
 import {
 	knownCaseTypesOf,
 	knownLanguageCodesOf,
+	knownPositionedCaseOperationIdsOf,
 	type ReadDraft,
 	type ReaderInput,
 	type ReaderLookupCatalog,
@@ -1052,6 +1053,7 @@ async function readBack(
 		knownCaseTypes: knownCaseTypesOf(doc),
 		knownFormEntryChoices: knownFormEntryChoicesOf(doc),
 		knownParentPathSearchNames: knownParentPathSearchNamesOf(doc),
+		knownPositionedCaseOperationIds: knownPositionedCaseOperationIdsOf(doc),
 		knownLanguageCodes: knownLanguageCodesOf(doc),
 	};
 	const discovery = sourceFactoryReads({
