@@ -111,10 +111,16 @@ export function caseListDeviceLookup(
 								name: "Visit",
 								type: "followup",
 								fields: [
-									f({ kind: "text", id: "note", label: proseText("Note") }),
+									f({
+										uuid: uuid("note"),
+										kind: "text",
+										id: "note",
+										label: proseText("Note"),
+									}),
 									...(count
 										? [
 												f({
+													uuid: uuid("lookup_count"),
 													kind: "hidden",
 													id: "lookup_count",
 													calculate: { kind: "case-list-lookup-count", module },
