@@ -8013,10 +8013,12 @@ def _held_new():
         ),
         "case-search/prompt-key-outside-nova-s-name-grammar": (
             refused("app", search(name="parent/dob"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
-            refused("app", search(name="parent/parent/village", label={"en": "Village"}, input_="date"),
+            refused("app", search(name="parent/parent/parent/village", label={"en": "Village"}, input_="date"),
                     "schema:CaseSearchProperty.name", f"{prompts}/name"),
             refused("app", search(name="_x"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
             accepted("app", search(name="parent/village", label={"en": "Village"}, input_="date"),
+                     "schema:CaseSearchProperty.name", f"{prompts}/name"),
+            accepted("app", search(name="parent/parent/village", label={"en": "Village"}, input_="date"),
                      "schema:CaseSearchProperty.name", f"{prompts}/name"),
             accepted("app", search(name="dob"), "schema:CaseSearchProperty.name", f"{prompts}/name"),
             # Excluded from the search, the prompt names no case property.
@@ -9656,7 +9658,10 @@ def test_the_pollsensor_hqs_build_writes_is_held_in_a_local_archive_and_refused_
 
 @pytest.mark.parametrize(("layout", "stored", "held"), [
     ("manual", "'Old address'", True),
-    ("manual", "concat('Old ', 'address')", False),
+    ("manual", "concat('Old ', 'address')", True),
+    ("manual", "concat('Old ', instance('commcaresession')/session/context/username)", False),
+    ("linked", "concat('Old ', 'address')", False),
+    ("automatic", "concat('Old ', 'address')", False),
     ("manual", "''", False),
     ("manual", '"Old address"', False),
     ("linked", "'Old address'", False),
