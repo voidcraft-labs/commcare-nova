@@ -470,6 +470,12 @@ def three_parts_assembled_for_ordering(authoring, app_id):
               "three-parts-assembled-for-ordering")
 
 
+def text_with_literal_prefix_ordered_against_text(authoring, app_id):
+    """A literal prefix is outside the admitted answer-leading assembly."""
+    _language(authoring, app_id, "if(concat('prefix', /data/code) < 'm', 'early', 'late')",
+              "text-with-literal-prefix-ordered-against-text")
+
+
 def choice_name_on_a_lookup_select(authoring, app_id):
     """``farmer_name`` shown where ``jr:choice-name`` of ``crop``, a select whose choices come from a table, is
     ``Maize``."""

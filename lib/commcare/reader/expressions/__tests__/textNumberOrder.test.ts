@@ -119,13 +119,49 @@ it.each([
 	},
 );
 
+it("keeps three concatenated parts in a root calculation", async () => {
+	const implicit =
+		"if(concat(/data/code, '-', /data/code) < 'm', 'early', 'late')";
+	const body = exportedBody(calculationFixture(), {
+		xml: (xml) =>
+			xml.replace(
+				'calculate="424242"',
+				() => `calculate="${serializeXmlValue(implicit, true)}"`,
+			),
+	});
+	const result = readHqApp(await inputFor(body), { claims: "full" });
+	if (result.kind !== "read") throw Error(JSON.stringify(result.findings));
+	const hidden = Object.values(result.draft.doc.fields).find(
+		({ id }) => id === "result",
+	);
+	expect(hidden).toMatchObject({
+		calculate: {
+			cond: {
+				left: {
+					fn: "number",
+					args: [
+						{
+							kind: "concat",
+							parts: [
+								{ kind: "term", term: { kind: "field" } },
+								term(literal("-")),
+								{ kind: "term", term: { kind: "field" } },
+							],
+						},
+					],
+				},
+			},
+		},
+	});
+});
+
 it.each([
 	[
 		"if(/data/code < '15:00', 'early', 'late')",
 		"expressions-and-data/or-with-a-time-on-either-side-a-time-answer-property-or-string",
 	],
 	[
-		"if(concat(/data/code, '-', /data/code) < 'm', 'early', 'late')",
+		"if(concat('prefix', /data/code) < 'm', 'early', 'late')",
 		"expressions-and-data/a-form-expression-outside-what-nova-types",
 	],
 ])("keeps the existing refusal for %s", async (calculate, entry) => {

@@ -2005,7 +2005,7 @@ function rootTextOrderLeaf(
 	);
 }
 
-/** A single answer or a two-part concatenation of root Text and Text or a literal suffix. */
+/** One root Text answer or a flat concatenation starting with that answer. */
 function rootTextOrderInput(
 	doc: BlueprintDoc,
 	form: Uuid,
@@ -2015,22 +2015,21 @@ function rootTextOrderInput(
 	if (value.kind !== "concat")
 		return rootTextOrderLeaf(doc, form, value, source);
 	if (
-		value.parts.length !== 2 ||
 		source.kind !== "call" ||
 		source.name !== "concat" ||
-		source.args.length !== 2
+		value.parts.length !== source.args.length
 	)
 		return false;
-	const [first, second] = value.parts;
-	const [sourceFirst, sourceSecond] = source.args;
-	return (
-		rootTextOrderLeaf(doc, form, first, sourceFirst) &&
-		(sourceSecond.kind === "string"
-			? second.kind === "term" &&
-				second.term.kind === "literal" &&
-				second.term.value === sourceSecond.value
-			: rootTextOrderLeaf(doc, form, second, sourceSecond))
-	);
+	return value.parts.every((part, index) => {
+		const operand = source.args[index];
+		if (index === 0 || operand.kind !== "string")
+			return rootTextOrderLeaf(doc, form, part, operand);
+		return (
+			part.kind === "term" &&
+			part.term.kind === "literal" &&
+			part.term.value === operand.value
+		);
+	});
 }
 
 /** Root text answers ordered against text in a root Hidden Value's
