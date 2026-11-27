@@ -808,6 +808,11 @@ const PLATFORM_BUILDER_COPY = {
 			`${subject} reads the window width, which Android doesn't have.`,
 		alternative: "take it out",
 	},
+	"search-result-detail-text": {
+		lead: (subject) =>
+			`${subject} shows a submitted Search answer, which Android doesn't keep with the results.`,
+		alternative: "remove the Search answer from Details",
+	},
 	"raw-grouped-tile-body-field": {
 		lead: (subject) =>
 			`${subject} is visible below the group heading in Web Apps, where its value is meant to stay hidden.`,
