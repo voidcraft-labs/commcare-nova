@@ -426,6 +426,20 @@ describe("findingLine", () => {
 		).toBe(fixInHqSentence("repeats", "breaks-when-run"));
 	});
 
+	it("explains that Android can send a lookup calculation as written", () => {
+		expect(
+			findingLine({
+				code: "menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum",
+				standing: "not-yet",
+				subject: "case-list-callout",
+				place: { kind: "case-list", menu: 0, name: "Visits" },
+				detail: {},
+			}).sentence,
+		).toContain(
+			"the companion receives the calculation as written or its result",
+		);
+	});
+
 	it("names a circumstance only where its row puts the name on its own line", () => {
 		for (const code of READ_CIRCUMSTANCES) {
 			const row = rowName(code);

@@ -6853,7 +6853,8 @@ def lookup_with_native_integer_sum(use, manifest):
     detail = _short_lookup(use)
     if detail is None or _missing_lookup_arguments(detail) or _lookup_has_other_unsupported_setting(use, manifest, detail):
         return False
-    if detail.get("lookup_autolaunch") is not None and not isinstance(detail["lookup_autolaunch"], bool):
+    if any(detail.get(key) is not None and not isinstance(detail[key], bool)
+           for key in ("lookup_autolaunch", "lookup_display_results")):
         return False
     values = [extra["value"] for extra in detail["lookup_extras"]]
     sums = [_native_lookup_integer_sum(value) for value in values]
