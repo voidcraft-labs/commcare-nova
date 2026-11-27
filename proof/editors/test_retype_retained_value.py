@@ -69,12 +69,19 @@ def _submitted(unit, document, app_id, runner, *, full_name, visit_date, must_an
         date_question = question_map["/data/visit_date"]
         if visit_date is not None:
             answers[date_question["ix"]] = visit_date
-        reply = web.submit(screen["session_id"], answers, prevalidated=not must_answer_date)
+        session = screen["session_id"]
+        if must_answer_date:
+            text = web.answer(session, question_map["/data/full_name"]["ix"], full_name)
+            assert text["status"] == "accepted", text
+            date = web.answer(session, date_question["ix"], visit_date)
+            assert date["status"] == ("accepted" if visit_date is not None else "validation-error"), date
+        reply = web.submit(session, answers, prevalidated=not must_answer_date or visit_date is not None)
         if must_answer_date and visit_date is None:
             return {
                 "status": reply.get("status"),
                 "required": date_question.get("required"),
                 "submissions": len(served.hq.submissions),
+                "answerRefusal": date,
             }
         assert reply.get("status") == "success", reply
         submission, = served.hq.submissions
