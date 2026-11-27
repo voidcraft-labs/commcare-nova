@@ -328,6 +328,7 @@ async function checkDatetimePicker(
 	page: Page,
 	platform: "android" | "web-apps",
 ) {
+	await page.clock.setFixedTime(new Date("2025-11-02T06:00:00Z"));
 	await openScenario(page, `datetime-picker-${platform}`);
 	const clock = page.getByRole("textbox", { name: "Time", exact: true });
 	await expect(clock).toBeVisible();
@@ -339,9 +340,7 @@ async function checkDatetimePicker(
 	expect(applied).toBe(true);
 	await expect(
 		page.getByRole("button", { name: "Date", exact: true }),
-	).toContainText(
-		platform === "android" ? "November 1, 2025" : "November 2, 2025",
-	);
+	).toContainText("November 1, 2025");
 	if (platform === "android") {
 		await expect(clock).toHaveValue("11:24 PM");
 		await page.getByRole("button", { name: "Next", exact: true }).click();
@@ -353,7 +352,11 @@ async function checkDatetimePicker(
 			.toBe("2025-11-01T23:24:00.000-07:00");
 		await page.getByRole("button", { name: "Back", exact: true }).click();
 	} else {
-		await expect(clock).toHaveValue(/06:24:47\.125/);
+		await expect(clock).toHaveValue(/23:24:47\.125/);
+		const existing = await answer(page, PLATFORM_IDS.datetime);
+		expect(Date.parse(existing ?? "")).toBe(
+			Date.parse("2025-11-02T06:24:47.125Z"),
+		);
 	}
 	await clock.fill("11:26:48 PM");
 	await clock.press("Tab");
@@ -362,11 +365,15 @@ async function checkDatetimePicker(
 		.toBe(
 			platform === "android"
 				? "2025-11-01T23:26:00.000-07:00"
-				: "2025-11-02T23:26:48.000-08:00",
+				: "2025-11-01T23:26:48.000-07:00",
 		);
 	if (platform === "android") {
 		await page.getByRole("button", { name: "Date", exact: true }).click();
-		await page.locator('button[data-day="11/2/2025"]').click();
+		const nextDay = page
+			.locator('[data-slot="calendar"]')
+			.getByRole("button", { name: /November 2(?:nd)?,? 2025/ });
+		await expect(nextDay).toBeVisible();
+		await nextDay.click();
 		await expect
 			.poll(() => answer(page, PLATFORM_IDS.datetime))
 			.toBe("2025-11-02T23:26:00.000-08:00");
