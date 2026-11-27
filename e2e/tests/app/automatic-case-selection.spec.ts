@@ -100,10 +100,14 @@ test("submits a bounded 101-record selection from manual pages and automatic sel
 				preview.getByRole("heading", { name: "101 cases selected" }),
 			).toBeVisible();
 			await form.click();
-			if (!closes)
-				await preview
-					.getByRole("textbox", { name: "Outcome", exact: true })
-					.fill("Reviewed");
+			if (!closes) {
+				const outcome = preview.getByRole("textbox", { name: /\bOutcome$/ });
+				await expect(outcome, `Outcome appears in ${formName}`).toBeVisible({
+					timeout: 10_000,
+				});
+				await outcome.fill("Reviewed");
+				await expect(outcome).toHaveValue("Reviewed");
+			}
 
 			const submit = preview.getByRole("button", {
 				name: "Submit",
