@@ -694,6 +694,53 @@ def test_search_lookup_filter_orders_text_as_numbers(
     evidence("lookup-number-order", observed)
 
 
+def test_a_saved_search_choice_reads_open_cases_from_the_worker_restore(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence,
+):
+    from proof.hq import operations
+    from proof.matrix import ops, registry
+    from proof.matrix.authoring import Authoring
+    from proof.observe.search_address import enable_address_search
+
+    document = webapps_documents["hq-search"]
+    variant = next(row for row in registry.load_variants() if row.id == "hq-search/choices-read-from-open-cases")
+    seed = casedata.document_case_database(document)
+    client = next(case for case in seed.cases if case.case_type == "client")
+    cases = tuple(
+        dataclasses.replace(client, case_id=key, name=name, case_type=case_type, owner_id=owner, indices=())
+        for key, name, case_type, owner in (
+            ("open-z", "Zebra", "client", seed.user_id),
+            ("other-type", "Beta", "household", seed.user_id),
+            ("open-a", "Alpha", "client", seed.user_id),
+            ("other-worker", "Gamma", "client", "somebody-else"),
+        )
+    )
+    with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
+        author = Authoring(project.unit, {}, document.id, operation=project.unit.operation)
+        ops.set_json(author, project.app_id, variant.change["pointer"], variant.change["value"])
+        app = operations.held_app(project.unit, project.app_id)
+        app.cloudcare_enabled = True
+        app.save()
+        with project.released(
+            formplayer_runner, database=dataclasses.replace(seed, cases=cases),
+            driver=editor_driver, saves=((pages.CASE_LIST, project.module_id(0)),),
+            label="search-choices-from-case-data",
+        ) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Client search"), *steps.choose("Clients"), *steps.choose("Followup Form"),
+                *steps.arrive(any_screen=True), steps.SCREEN, {"eval": PROMPT_CHOICES},
+            ])
+            observed = {
+                "prompts": run.value(-1), "screens": run.screens, "errors": run.page_errors, "dialogs": run.dialogs,
+                "stored": release.doc["modules"][0]["search_config"]["properties"][5]["itemset"],
+            }
+            evidence("search-choices-from-case-data", observed)
+            prompts = {row["label"]: row["choices"] for row in observed["prompts"]}
+            assert not run.page_errors and not run.dialogs, observed
+            assert observed["stored"]["nodeset"] == variant.change["value"]["itemset"]["nodeset"], observed
+            assert prompts.get("District") == ["Alpha", "Zebra"], observed
+
+
 CHECKED_REGIONS = """() => [...document.querySelectorAll("fieldset.query-field input[type=checkbox]")].map(box =>
     [box.value, box.labels[0].textContent.trim(), box.checked])"""
 
