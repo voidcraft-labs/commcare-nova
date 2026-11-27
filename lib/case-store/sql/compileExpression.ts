@@ -52,6 +52,7 @@ import {
 	unhandledKindMessage,
 } from "@/lib/domain/expression/errors";
 import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
+import { countsOwnRestoredType } from "@/lib/domain/expression/ruleSets";
 import {
 	asTemporalType,
 	readingCaseMetadataType,
@@ -72,6 +73,7 @@ import { compileTableLookup } from "./compileLookup";
 import {
 	compileRelationPath,
 	relationPathContextFrom,
+	restoredTypeRows,
 } from "./compileRelationPath";
 import {
 	compileBoundRef,
@@ -239,6 +241,14 @@ export function compileExpression(
 		case "switch":
 			return compileSwitch(expr.on, expr.cases, expr.fallback, ctx);
 		case "count":
+			if (
+				ctx.currentCaseType !== undefined &&
+				ctx.reading === "casedb" &&
+				countsOwnRestoredType(expr, ctx.currentCaseType)
+			)
+				return restoredTypeRows(ctx, ctx.currentCaseType).select(
+					eb.fn.countAll<number>().as("n"),
+				);
 			if (!isRelationPath(expr.via))
 				throw new Error(
 					compilerBugMessage({

@@ -76,6 +76,7 @@ import {
 	ANY_TYPE,
 	accumulateBranchType,
 	coercedEquality,
+	countsOwnRestoredType,
 	describe,
 	type EqualityOperand,
 	isAnswerWriteAssignable,
@@ -815,6 +816,26 @@ export function checkExpression(
 			);
 	}
 
+	if (
+		slot.slot === "case_list_column_expression" &&
+		readsRestoredCaseTypeQuery(expression)
+	) {
+		const row = ctx.rows[0];
+		if (
+			!countsOwnRestoredType(
+				expression,
+				row?.kind === "case" ? row.caseType : undefined,
+			)
+		)
+			errors.push(
+				refusal(
+					"arm-unavailable",
+					"This column can count the cases of its own type on the worker’s device.",
+					"device-column-restored-type-count",
+				),
+			);
+	}
+
 	if (slot.slot === "search_input_required_when") {
 		walkExpression(expression, {
 			visitExpression(node, path) {
@@ -1276,7 +1297,8 @@ function admission(
 		const restoredQuery =
 			ctx.slot.slot === "search_input_required_when"
 				? isSearchRequiredCaseQuery
-				: ctx.slot.slot === "case_list_filter"
+				: ctx.slot.slot === "case_list_filter" ||
+						ctx.slot.slot === "case_list_column_expression"
 					? isRestoredCaseTypeQuery
 					: undefined;
 		if (
