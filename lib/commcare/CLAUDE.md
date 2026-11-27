@@ -1845,6 +1845,8 @@ Nova's authoring words for vertical alignment (`top`/`middle`/`bottom`) map to `
 
 On a custom tile, HQ's Case List page keeps a leading hyphen or two connection names separated by one space. `DetailGroupParser` rejects the resulting index step during suite installation. The reader attributes each refusal to the stored index name. A hyphen or period after the first character remains part of one connection name in the reader, authoring surfaces and Preview.
 
+The same page keeps a path such as `parent/parent`. Core's `CaseChildElement` builds each case index as a scalar with a target ID and no children. When Formplayer tries to open the grouped list, reading through that scalar fails before it can show the rows. The reader identifies this two-step path on a custom tile.
+
 Computed-datum functions declare, on the owning entry, every instance their wire tree reads. `deriveEntryDefinition` and `deriveCaseListEntryDefinition` collect those sets alongside explicit datum metadata. Core's session evaluator imports the entry's declarations; `commcaresession` and `casedb` are not ambient. The grouped parent-id companion therefore declares both before selection completion evaluates it. Native `TileGroupingRuntimeTest` retains the old missing-declaration failure and executes all three grouped form variants through actual parent selection.
 
 

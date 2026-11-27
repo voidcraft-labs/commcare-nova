@@ -3979,6 +3979,27 @@
 		"gates": []
 	},
 	{
+		"id": "menus-and-case-lists/case-tile-group-path-through-a-scalar-index",
+		"area": "menus-and-case-lists",
+		"section": "Case list and case detail",
+		"subsection": "Detail screens",
+		"item": "A custom tile groups by two plain path steps, such as `parent/parent`",
+		"surfaceKeys": ["schema:CaseTileGroupConfig.index_identifier"],
+		"valueClass": "grouping-path-through-scalar-index",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: the group key tries to read a child of a scalar case index and the worker cannot open the list",
+		"subject": "case-tile-group-index",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "The current Case List editor saves the path, but Core exposes each case index as a scalar link with no children. Formplayer cannot compute the key for the first row."
+			}
+		],
+		"platforms": { "kind": "none", "cell": "—" },
+		"emission": { "cell": "—", "markers": [] },
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name",
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
