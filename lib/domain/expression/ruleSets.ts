@@ -322,6 +322,29 @@ export function countsOwnRestoredType(
 	);
 }
 
+/** Row-local text comparison over the worker’s restored type, for an ordinary column. */
+export function restoredColumnCountMatch(
+	expression: Expression,
+	caseType: string | undefined,
+): { property: string; value: string } | undefined {
+	if (
+		expression.kind !== "count" ||
+		expression.where !== undefined ||
+		isRelationPath(expression.via)
+	)
+		return;
+	const match = restoredCasePropertyMatch(expression.via);
+	if (match?.match.kind === "text" && match.caseType === caseType)
+		return { property: match.property, value: match.match.value };
+}
+
+export function isRestoredColumnCaseQuery(expression: Expression): boolean {
+	return (
+		isRestoredCaseTypeQuery(expression) ||
+		restoredCasePropertyMatch(expression)?.match.kind === "text"
+	);
+}
+
 /** The two bounded whole-list checks use only the restored candidates’ type. */
 export function sameTypeRestoredThreshold(
 	expression: Expression,
@@ -339,11 +362,14 @@ export function sameTypeRestoredThreshold(
 	return threshold === 0 || threshold === 1 ? threshold : undefined;
 }
 
-export function readsRestoredCaseTypeQuery(expression: Expression): boolean {
+export function readsRestoredCaseTypeQuery(
+	expression: Expression,
+	isQuery = isRestoredCaseTypeQuery,
+): boolean {
 	let reads = false;
 	walkExpression(expression, {
 		visitExpression(node) {
-			if (isRestoredCaseTypeQuery(node)) reads = true;
+			if (isQuery(node)) reads = true;
 		},
 	});
 	return reads;

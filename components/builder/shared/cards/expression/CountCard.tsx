@@ -188,10 +188,17 @@ function DeviceCountCard({
 	const ctx = usePredicateEditContext();
 	const rows = value.via;
 	const conditionIdentity = useStableListIdentity(rows.where);
-	const kinds = ctx.caseTypes ?? [];
 	const slot = ctx.expressionContext?.slot.slot;
 	const isSearchButton = slot === "search_button_display_condition";
-	const singleCaseType = slot === "search_input_required_when";
+	const columnCount =
+		slot === "case_list_column_expression" && rows.kind === "cases";
+	const requiredSearchCount = slot === "search_input_required_when";
+	const singleCaseType = columnCount || requiredSearchCount;
+	const columnRow = ctx.expressionContext?.rows[0];
+	const ownType = columnRow?.kind === "case" ? columnRow.caseType : undefined;
+	const kinds = (ctx.caseTypes ?? []).filter(
+		(kind) => !columnCount || kind.name === ownType,
+	);
 	const allCases = isSearchButton || ctx.expressionContext?.profile.caseData;
 	const tables =
 		isSearchButton || singleCaseType ? [] : (ctx.lookupTables ?? []);
@@ -322,34 +329,36 @@ function DeviceCountCard({
 					</Select>
 					{propertyMatch && (
 						<>
-							<Select
-								value={
-									propertyMatch.match.kind === "property"
-										? propertyMatch.match.value
-										: "$text"
-								}
-								onValueChange={(choice) => {
-									if (choice !== null)
-										setPropertyMatch(
-											propertyMatch.property,
-											choice === "$text"
-												? { kind: "text", value: "" }
-												: { kind: "property", value: choice },
-										);
-								}}
-							>
-								<SelectTrigger aria-label="Compare with">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="$text">Entered text</SelectItem>
-									{textProperties.map(({ name }) => (
-										<SelectItem key={name} value={name}>
-											{name}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
+							{requiredSearchCount && (
+								<Select
+									value={
+										propertyMatch.match.kind === "property"
+											? propertyMatch.match.value
+											: "$text"
+									}
+									onValueChange={(choice) => {
+										if (choice !== null)
+											setPropertyMatch(
+												propertyMatch.property,
+												choice === "$text"
+													? { kind: "text", value: "" }
+													: { kind: "property", value: choice },
+											);
+									}}
+								>
+									<SelectTrigger aria-label="Compare with">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="$text">Entered text</SelectItem>
+										{textProperties.map(({ name }) => (
+											<SelectItem key={name} value={name}>
+												{name}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							)}
 							{propertyMatch.match.kind === "text" && (
 								<BlurCommitTextInput
 									ariaLabel="Text to match"

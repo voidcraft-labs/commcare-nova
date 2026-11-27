@@ -52,7 +52,10 @@ import {
 	unhandledKindMessage,
 } from "@/lib/domain/expression/errors";
 import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
-import { countsOwnRestoredType } from "@/lib/domain/expression/ruleSets";
+import {
+	countsOwnRestoredType,
+	restoredColumnCountMatch,
+} from "@/lib/domain/expression/ruleSets";
 import {
 	asTemporalType,
 	readingCaseMetadataType,
@@ -240,13 +243,15 @@ export function compileExpression(
 			return compileIf(expr.cond, expr.then, expr.else, ctx);
 		case "switch":
 			return compileSwitch(expr.on, expr.cases, expr.fallback, ctx);
-		case "count":
+		case "count": {
+			const match = restoredColumnCountMatch(expr, ctx.currentCaseType);
 			if (
 				ctx.currentCaseType !== undefined &&
 				ctx.reading === "casedb" &&
-				countsOwnRestoredType(expr, ctx.currentCaseType)
+				(match !== undefined ||
+					countsOwnRestoredType(expr, ctx.currentCaseType))
 			)
-				return restoredTypeRows(ctx, ctx.currentCaseType).select(
+				return restoredTypeRows(ctx, ctx.currentCaseType, match).select(
 					eb.fn.countAll<number>().as("n"),
 				);
 			if (!isRelationPath(expr.via))
@@ -259,6 +264,7 @@ export function compileExpression(
 					}),
 				);
 			return compileCount(expr.via, expr.where, ctx);
+		}
 		case "format-date":
 			return compileFormatDate(expr.date, expr.pattern, ctx);
 		case "table-lookup":
