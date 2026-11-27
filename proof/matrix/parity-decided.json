@@ -735,6 +735,7 @@
 		"hq-search/field-with-an-unknown-heading",
 		"hq-search/fields-with-a-blank-heading",
 		"hq-search/four-link-date-field-named-by-a-parent-path",
+		"hq-search/five-link-date-field-named-by-a-parent-path",
 		"hq-search/grouped-fields",
 		"hq-search/hidden-choice-field",
 		"hq-search/hidden-field-matched-by-its-name",

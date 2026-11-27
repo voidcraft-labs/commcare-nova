@@ -22,7 +22,6 @@ import { sameLookupRead } from "@/lib/domain/lookupRead";
 import {
 	DEFAULT_SEARCH_MODE_KIND,
 	isParentPathSearchProperty,
-	MAX_PARENT_PATH_SEARCH_LINKS,
 	type SavedSearchAddressDefault,
 	SEARCH_ADDRESS_PARTS,
 	SEARCH_INPUT_NAME_PATTERN,
@@ -124,6 +123,10 @@ export const PROMPT_CLAIMS = defineClaims("search.prompts", {
 	),
 	thirdParentDateName: take(
 		`${S}prompt-key-matching-three-parent-links-for-a-date`,
+		"schema:CaseSearchProperty.name",
+	),
+	fourthParentDateName: take(
+		`${S}prompt-key-matching-four-parent-links-for-a-date`,
 		"schema:CaseSearchProperty.name",
 	),
 	nestedParentName: take(
@@ -1008,7 +1011,8 @@ function parentPathPromptBinding(prompt: JsonCursor):
 				| (typeof PARENT_PROMPT_CLAIMS)[number]
 				| typeof P.parentDateName
 				| typeof P.nestedParentDateName
-				| typeof P.thirdParentDateName;
+				| typeof P.thirdParentDateName
+				| typeof P.fourthParentDateName;
 	  }
 	| undefined {
 	const key = prompt.peek("name");
@@ -1018,18 +1022,16 @@ function parentPathPromptBinding(prompt: JsonCursor):
 	const widget = prompt.peek("input_");
 	const nameClaim =
 		widget === "date"
-			? [P.parentDateName, P.nestedParentDateName, P.thirdParentDateName][
-					parts.length - 1
-				]
+			? [
+					P.parentDateName,
+					P.nestedParentDateName,
+					P.thirdParentDateName,
+					P.fourthParentDateName,
+				][parts.length - 1]
 			: !widget
 				? PARENT_PROMPT_CLAIMS[parts.length - 1]
 				: undefined;
-	if (
-		!property ||
-		parts.length > MAX_PARENT_PATH_SEARCH_LINKS ||
-		!nameClaim ||
-		parts.some((part) => part !== "parent")
-	)
+	if (!property || !nameClaim || parts.some((part) => part !== "parent"))
 		return undefined;
 	const via: Extract<RelationPath, { kind: "ancestor" }> = {
 		kind: "ancestor",
