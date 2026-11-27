@@ -43,16 +43,22 @@ if BROUGHT_IN:
         document, hq, core_runner, editor_driver
     ):
         records = observations.records_for(document, core_runner, editor_driver=editor_driver)
+        scoped_search = not {changes.SEARCH_ORDER_SUFFIX, changes.LEGACY_SEARCH_GROUP_WORDING}.isdisjoint(
+            document.next_publish
+        )
+        behavior, behavior_sites = (
+            proof3.document_behavior_and_sites(document, records)
+            if scoped_search else (proof3.document_behavior(document, records), changes.NO_SITES)
+        )
         checked = {
             "proof1": proof1.document_identity(document, records),
             "proof2": proof2.document_build_equivalence(document, records),
-            "proof3": proof3.document_behavior(document, records),
+            "proof3": behavior,
         }
         observed = readers.named()
         sites = (
-            proof2.document_sites(document, records)
-            if changes.UNSHOWN_MEDIA in document.next_publish
-            else changes.NO_SITES
+            changes.merged_sites(proof2.document_sites(document, records), behavior_sites)
+            if scoped_search or changes.UNSHOWN_MEDIA in document.next_publish else changes.NO_SITES
         )
         found = changes.differences(document, checked, readers=observed, sites=sites)
         applying = changes.placed(document, changes.load())

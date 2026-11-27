@@ -64,7 +64,8 @@
    values in sequence. The first uses two leading signs on its first term.
    HQ keeps the stored text and uses its first sign, so the first publish
    removes only the redundant sign (``search-order-direction-signs-respelled``).
-   The second order stays as written.
+   The second keeps its explicit comparison and drops the ignored suffix
+   (``search-order-unused-suffix-removed``).
 5. A referrals menu that searches case attributes, a date, an ancestor and
    the worker's owner ID. Independent rows use both the matched and excluded
    prompts. A separate device filter narrows the worker's list after the
@@ -162,7 +163,7 @@ def field(name, label, **settings):
     return {"name": name, "label": label, "hint": "", "appearance": "", "receiver_expression": "", **settings}
 
 
-def save_search(authoring, app_id, menu, *, fields=(), rows=(), filters=(), **workflow):
+def save_search(authoring, app_id, menu, *, fields=(), rows=(), filters=(), step=None, **workflow):
     """The menu's Search saved as the Case List page saves it (``edit_module_detail_screens``, whose
     ``_gather_and_update_search_properties`` builds the menu's ``CaseSearch`` from ``search_properties``): the
     fields, each row as a default filter of ``_xpath_query``, no title and no description, and ``workflow``'s
@@ -184,7 +185,7 @@ def save_search(authoring, app_id, menu, *, fields=(), rows=(), filters=(), **wo
         "search_button_display_condition": "",
         "blacklisted_owner_ids_expression": "",
     }
-    with authoring.step(f"build:search:{menu}", json.dumps(search, sort_keys=True).encode()):
+    with authoring.step(step or f"build:search:{menu}", json.dumps(search, sort_keys=True).encode()):
         module = operations.held_app(authoring.state, app_id).get_module(menu)
         body, content_type = ops.form_body([("type", json.dumps("case")), ("search_properties", json.dumps(search))])
         ops.post(
@@ -281,12 +282,10 @@ def build(authoring) -> str:
 
     follow_up_menu(authoring, app_id, 2, "Visits", "visit_summary", "Summarize the visit")
     save_list_filter(authoring, app_id, 2, LIST_FILTER)
+    repeated_signs = ("commcare_sort", "'+-client_code:exact,-dob:date'")
     save_search(
         authoring, app_id, 2, rows=[JOINED_ROW],
-        filters=[
-            ("commcare_sort", "'+-client_code:exact,-dob:date'"),
-            ("commcare_sort", "'+name'"),
-        ],
+        filters=[repeated_signs, ("commcare_sort", "'+name'")],
         auto_launch=True, inline_search=True,
     )
     follow_up_menu(authoring, app_id, 3, "Referrals", "referral_note", "What help did the client receive?")
@@ -318,6 +317,13 @@ def build(authoring) -> str:
             independent_answer("client_code", "omit_code"),
         ],
         auto_launch=True,
+    )
+    # Edit the existing Visits Search after all menus and forms have their
+    # retained identities. Earlier authoring keeps the same operation keys.
+    save_search(
+        authoring, app_id, 2, rows=[JOINED_ROW],
+        filters=[repeated_signs, ("commcare_sort", "'+name:exact:obsolete'")],
+        auto_launch=True, inline_search=True, step="build:search:unused-order-suffix",
     )
     return app_id
 

@@ -2970,6 +2970,32 @@ const PAIRS: Readonly<
 			menu.search_config.default_properties[0].defaultValue = "'++name:exact'";
 		}),
 	),
+	"search-order-unused-suffix-removed": editedPair(
+		() =>
+			patients([plainColumn(uuid(1), "case_name", "Name")], {
+				search: {},
+				list: {
+					searchFilters: [
+						{
+							uuid: uuid(19),
+							kind: "order",
+							order: [
+								{
+									property: "case_name",
+									comparison: "text",
+									direction: "ascending",
+									recordName: true,
+								},
+							],
+						},
+					],
+				},
+			}),
+		onMenu((menu) => {
+			menu.search_config.default_properties[0].defaultValue =
+				"'+name:exact:obsolete'";
+		}),
+	),
 	// A sort over a property the list does not show.
 	"sort-rule-kept-as-hidden-column": editedPair(
 		() => patients([plainColumn(uuid(1), "case_name", "Name")]),

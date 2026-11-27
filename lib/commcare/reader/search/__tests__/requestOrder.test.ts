@@ -267,7 +267,72 @@ it("reads repeated direction signs by their first sign and records the exact sou
 	).not.toContain("search-order-direction-signs-respelled");
 });
 
+it("discards an unused suffix without moving a sort term or filter", async () => {
+	const reading = await readLists(patients([], { search: {} }), {
+		edit: (app) => {
+			app.modules[0].search_config.default_properties = [
+				{
+					property: "commcare_sort",
+					defaultValue: "'-date_opened:date:old,+notes:exact:obsolete'",
+				},
+				{ property: "commcare_sort", defaultValue: "'name'" },
+			];
+		},
+	});
+	expect(closedCodes(reading)).toEqual([]);
+	const searchFilters = listOf(reading).searchFilters;
+	expect(
+		searchFilters?.map(
+			(filter) => "order" in filter && requestOrderText(filter.order),
+		),
+	).toEqual(["-date_opened:date,+notes:exact", "name"]);
+	expect(reading.ctx.facts.sameStateRewrites).toContainEqual(
+		expect.objectContaining({
+			register: "search-order-unused-suffix-removed",
+			path: "/modules/0/search_config/default_properties/0/defaultValue",
+		}),
+	);
+	const canonical = await readLists(
+		patients([], { search: {}, list: { searchFilters } }),
+	);
+	expect(closedCodes(canonical)).toEqual([]);
+	expect(canonical.app.modules[0].search_config.default_properties).toEqual([
+		{
+			property: "commcare_sort",
+			defaultValue: "'-date_opened:date,+notes:exact'",
+		},
+		{ property: "commcare_sort", defaultValue: "'name'" },
+	]);
+	expect(
+		canonical.ctx.facts.sameStateRewrites.map((row) => row.register),
+	).not.toContain("search-order-unused-suffix-removed");
+});
+
 it.each([
+	[
+		"'-date_opened:date,+priority::obsolete'",
+		"case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+	],
+	...["date-opened", "external-id", "p".repeat(256)].map((key) => [
+		`'+${key}:exact:obsolete'`,
+		"case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+	]),
+	[
+		"'+priority:unknown:obsolete'",
+		"case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+	],
+	[
+		"'+status:exact:obsolete'",
+		"case-search/a-server-order-naming-a-property-nova-reserves",
+	],
+	[
+		"'+location_id:exact:obsolete'",
+		"case-search/a-server-order-naming-a-property-only-devices-hold",
+	],
+	[
+		"'++priority:exact:obsolete'",
+		"case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+	],
 	[
 		"'++priority:unknown'",
 		"case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
@@ -281,7 +346,7 @@ it.each([
 		"case-search/a-server-order-naming-a-property-only-devices-hold",
 	],
 ])(
-	"keeps the refusal for %s even with repeated signs",
+	"keeps the refusal for %s with unsupported sort terms",
 	async (defaultValue, finding) => {
 		const reading = await readLists(patients([], { search: {} }), {
 			edit: (app) => {

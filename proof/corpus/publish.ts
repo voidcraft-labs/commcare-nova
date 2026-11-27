@@ -2760,6 +2760,8 @@ export interface BringInRecord {
 	readonly legacyRelatedCaseTextPlaces?: readonly string[];
 	/** Exact owning Search rows and locale keys the current reading respells. */
 	readonly legacySearchGroupWordingPlaces?: readonly string[];
+	/** Exact stored default order rows normalized by the current reading. */
+	readonly searchOrderSuffixPlaces?: readonly string[];
 	/** `brought-in`: the change was committed; `recorded`: nothing in the app changed. */
 	readonly taken: "brought-in" | "recorded";
 	/** Whether the bring-in removed changes made in Nova (the plan applied to the published document). */
@@ -3732,6 +3734,14 @@ async function bringInOverPeer(input: {
 				legacySearchGroupWordingPlaces: firstPublishChangePlaces(
 					checked.declaration.firstPublishFacts,
 					["legacy-search-group-wording-rekeyed"],
+				)[0].places,
+			}),
+			...(checked?.plan.publishChanges.includes(
+				"search-order-unused-suffix-removed",
+			) && {
+				searchOrderSuffixPlaces: firstPublishChangePlaces(
+					checked.declaration.firstPublishFacts,
+					["search-order-unused-suffix-removed"],
 				)[0].places,
 			}),
 			taken: committed ? "brought-in" : "recorded",

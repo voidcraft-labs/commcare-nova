@@ -114,8 +114,9 @@ def test_authored_search_keeps_its_list_filter_out_of_the_request(
                 steps.SCREEN,
             ])
             requests = [search.values("_xpath_query") for search in release.hq.searches]
+            orders = [search.values("commcare_sort") for search in release.hq.searches]
         evidence(f"authored-visits-filter-{publication}", {
-            "requests": requests, "screens": run.screens, "queryAnswers": _query_answers(run),
+            "requests": requests, "orders": orders, "screens": run.screens, "queryAnswers": _query_answers(run),
             "stepOutcomes": run.outcomes,
         })
         assert run.page_errors == [] and run.dialogs == []
@@ -123,6 +124,11 @@ def test_authored_search_keeps_its_list_filter_out_of_the_request(
         assert "query-submit-button" in query["query"]["buttons"], query
         assert not any(outcome.get("missed") for outcome in run.outcomes), run.outcomes
         assert requests == [(witness["query"],)], requests
+        expected_order = {
+            "A": ("+-client_code:exact,-dob:date", "+name:exact:obsolete"),
+            "B": ("+client_code:exact,-dob:date", "+name:exact"),
+        }
+        assert orders == [expected_order[publication]], orders
         assert [row["id"] for row in results["list"]["rows"]] == [f"row-{case_id}" for case_id in witness["rows"]]
 
 

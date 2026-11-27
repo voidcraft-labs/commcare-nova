@@ -30,6 +30,7 @@ export const FIRST_PUBLISH_CHANGE_IDS = [
 	"question-display-respelled",
 	"search-filter-rows-recut",
 	"search-order-direction-signs-respelled",
+	"search-order-unused-suffix-removed",
 	"sort-rule-kept-as-hidden-column",
 	"legacy-related-case-text-rekeyed",
 	"list-settings-respelled",
@@ -133,6 +134,7 @@ export const FIRST_PUBLISH_TOUCHES_WORKERS: Readonly<
 	"question-display-respelled": false,
 	"search-filter-rows-recut": false,
 	"search-order-direction-signs-respelled": false,
+	"search-order-unused-suffix-removed": false,
 	"sort-rule-kept-as-hidden-column": false,
 	"legacy-related-case-text-rekeyed": false,
 	"list-settings-respelled": false,
@@ -183,6 +185,7 @@ export const ANSWERED_FIRST_PUBLISH_CHANGES: readonly CurrentFirstPublishChangeI
 export const FIRST_PUBLISH_SAID_BY = {
 	"search-filter-rows-recut": "forms-and-settings-rewritten",
 	"search-order-direction-signs-respelled": "forms-and-settings-rewritten",
+	"search-order-unused-suffix-removed": "forms-and-settings-rewritten",
 	"list-settings-respelled": "forms-and-settings-rewritten",
 	"question-display-respelled": "forms-and-settings-rewritten",
 	"names-respelled": "forms-and-settings-rewritten",

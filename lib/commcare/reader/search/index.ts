@@ -458,11 +458,12 @@ function readDefaultFilters(
 					syntax.ok && syntax.node?.kind === "string"
 						? syntax.node.value
 						: undefined;
-				const order =
+				const parsedOrder =
 					text === undefined ? undefined : readRequestOrderText(text);
 				sortRefusal =
 					text === undefined ? undefined : requestOrderTextRefusal(text);
-				if (order !== undefined) {
+				if (parsedOrder !== undefined) {
+					const { order, removedSuffix } = parsedOrder;
 					const occurrence = names.get(property)?.length ?? 0;
 					addName(property, row);
 					const uuid = accounting.identity(
@@ -484,7 +485,9 @@ function readDefaultFilters(
 							ctx,
 							C.defaultOrderValue.entry,
 							`${row.pointer}/defaultValue`,
-							"search-order-direction-signs-respelled",
+							removedSuffix
+								? "search-order-unused-suffix-removed"
+								: "search-order-direction-signs-respelled",
 						);
 					filters.push({ uuid, kind: "order", order });
 					return;

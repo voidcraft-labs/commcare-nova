@@ -566,7 +566,11 @@ A literal Search order keeps each property, comparison and direction in request 
 HQ strips all leading signs from a term and takes direction from the first sign.
 Nova publishes only that first sign and records the exact source value under
 `search-order-direction-signs-respelled`. The proof judge only allows a change
-that leaves the rest of the order intact.
+that leaves the rest of the order intact. The receiver also ignores a suffix
+after an explicit comparison. A literal with a single nonempty suffix on a
+supported term is written without that suffix and records
+`search-order-unused-suffix-removed` at its saved value. A blank comparison
+resets the preceding sort and remains held.
 
 `matchingResolver` answers a key the map holds with its UUID and gives any other key a UUID the
 map holds under no key (`identity.ts::freeEntityUuid`): a map holds a renamed entity's UUID, minted
