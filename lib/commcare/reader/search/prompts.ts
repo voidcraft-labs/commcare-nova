@@ -96,6 +96,7 @@ import { pendingPlaceholder } from "../pendingExpressions";
 import { sourceFactories } from "../sourceFactories";
 import { readFormSyntax, readStoredNameSyntax } from "../syntaxRead";
 import { readGuardText } from "./guardSplit";
+import { requiredCaseChildAsBlank } from "./requiredCaseChild";
 import { BLANK_IS_ABSENT, spelledAsShown } from "./settings";
 import { storedPrompts, withoutRuntimeGuard } from "./systemSentences";
 import { searchPlace } from "./workflow";
@@ -2023,14 +2024,23 @@ function readPrompt(
 		required = {};
 		if (typeof test === "string" && test.trim() === "true()")
 			assertion.take("test", P.requiredAlways, String).value;
-		else if (typeof test === "string")
+		else if (typeof test === "string") {
+			const normalized = requiredCaseChildAsBlank(test);
 			requiredWhen = register(
 				"search_input_required_when",
-				test,
+				normalized ?? test,
 				{ json: assertion, key: "test" },
 				"no-case",
 				"schema:Assertion.test",
 			);
+			if (normalized !== undefined)
+				sameState(
+					ctx,
+					"case-search/required-condition-counts-restored-cases",
+					`${assertion.pointer}/test`,
+					"list-settings-respelled",
+				);
+		}
 		const message = sourceText(ctx, text);
 		const nova = requiredDefaultTexts(ctx);
 		const novaSentence =

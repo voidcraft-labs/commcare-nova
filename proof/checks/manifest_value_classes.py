@@ -5997,6 +5997,10 @@ def required_condition_counts_restored_cases(use, manifest):
                                     return bool(first)
                                 case ("path", None, None, (("step", "child", second, ()),)):
                                     return bool(first and second)
+                                case ("path", "SLASH", ("path", None, None, (
+                                    ("step", "child", parent, ()),
+                                )), (("step", "child", child, ()),)):
+                                    return bool(first and child and parent not in {"index", "attachments"})
         return any(contains_count(child) for child in node)
 
     return contains_count(tree(raw))

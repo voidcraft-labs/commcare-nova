@@ -100,6 +100,7 @@ import { sameSyntax, sameXPathText } from "../syntaxCompare";
 import { readFormSyntax } from "../syntaxRead";
 import { itemsetSource } from "./itemsetSource";
 import type { PromptReading } from "./prompts";
+import { requiredCaseChildAsBlank } from "./requiredCaseChild";
 import { searchPlace } from "./workflow";
 
 const S = "case-search/";
@@ -1523,7 +1524,12 @@ function promptDifference(
 	if ((reqA === undefined) !== (reqB === undefined))
 		return "schema:CaseSearchProperty.required";
 	if (reqA !== undefined && reqB !== undefined) {
-		if (!sameXPathValue(reqA.test, reqB.test)) return "schema:Assertion.test";
+		const normalized =
+			typeof reqA.test === "string"
+				? requiredCaseChildAsBlank(reqA.test)
+				: undefined;
+		if (!sameXPathValue(normalized ?? reqA.test, reqB.test))
+			return "schema:Assertion.test";
 		if (
 			!sameTexts(
 				codes,
