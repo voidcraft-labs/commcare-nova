@@ -4,9 +4,8 @@ from lxml import etree
 
 from proof.checks.compare.app_strings import parse_app_strings
 from proof.hq import operations
-from proof.matrix import ops
+from proof.matrix import ops, registry
 from proof.matrix.authoring import Authoring
-from proof.matrix.variants.application_and_settings import translation_competes_with_a_legacy_heading_in_two_languages
 from proof.observe.search_address import enable_address_search
 from proof.webapps import hq as webapps_hq
 
@@ -21,7 +20,8 @@ def test_bilingual_legacy_search_group_uses_the_same_words_after_rekey(
     with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
         authoring = Authoring(project.unit, {}, document.id, operation=project.unit.operation)
         app_id = project.app_id
-        translation_competes_with_a_legacy_heading_in_two_languages(authoring, app_id)
+        variant = registry.named_change("translation_competes_with_a_legacy_heading_in_two_languages")
+        variant(authoring, app_id)
 
         def observe():
             app = operations.held_app(project.unit, app_id)
