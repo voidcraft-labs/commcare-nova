@@ -13503,8 +13503,8 @@ def auto_select_on_a_single_basic_list(use, manifest):
     if at is not None and at.key == "auto_select" and at.scope[-1][0] == "Detail":
         module, pair = at.nearest(*MODULES), at.nearest("DetailPair")
         return (module is not None and module.get("doc_type") in (None, "Module") and bool(module.get("case_type"))
-                and pair is not None and pair.get("short") is at.owner and at.value is True
-                and at.owner.get("multi_select") is not True)
+                and pair is not None and module.get("case_details") is pair and pair.get("short") is at.owner
+                and at.value is True and at.owner.get("multi_select") is not True)
     # A runtime datum alone cannot identify the Basic list: HQ also emits an
     # automatic single datum for Advanced loads from a lookup fixture.
     return None

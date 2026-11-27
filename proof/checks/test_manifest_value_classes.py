@@ -83,9 +83,9 @@ def _basic_auto_select_shapes():
     key = "schema:Detail.auto_select"
     place = "/modules/0/case_details/short/auto_select"
 
-    def app(several):
+    def app(several, pair="case_details"):
         return {"doc_type": "Application", "modules": [{
-            "doc_type": "Module", "case_type": "sample", "case_details": {
+            "doc_type": "Module", "case_type": "sample", pair: {
                 "doc_type": "DetailPair", "short": {"doc_type": "Detail", "auto_select": True, "multi_select": several},
             },
         }]}
@@ -93,6 +93,7 @@ def _basic_auto_select_shapes():
     return (
         refused("app", app(False), key, place),
         accepted("app", app(True), key, place),
+        accepted("app", app(False, "ref_details"), key, place.replace("case_details", "ref_details")),
     )
 
 
