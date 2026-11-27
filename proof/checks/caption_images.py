@@ -8,6 +8,7 @@ import io
 import zipfile
 from collections import Counter
 from dataclasses import replace
+from functools import cache
 from urllib.parse import quote
 
 from proof.checks import (
@@ -20,6 +21,7 @@ from proof.checks import (
     xform_parts,
 )
 from proof.checks.compare.xml_tree import XmlNotWellFormed, parse_xml
+from proof.checks.manifest_value_classes import Form
 from proof.formplayer.walk import USE_SELECTED_VALUES
 from proof.hq.operations import upload_field
 from proof.observe.walks import language_of, navigation
@@ -63,22 +65,51 @@ def _saved_image(document, saved, reads):
     return old, f"{ROOT}commcare/{digest}{extensions.pop()}", originals[0]["multimediaId"], content
 
 
-def _label_bindings(xml, path, languages=None):
-    """Unambiguous label images of this file, grouped by the control's data binding across translations."""
-    labels = {}
-    for at, (_, value) in (xform_parts.parts(xml, languages) or {}).items():
+def _label_bindings(xml, path, locale, languages=None):
+    """Each question displaying this image in the walk's locale, including Core's default fallback."""
+    try:
+        form = Form(parse_xml(xml), None)
+    except XmlNotWellFormed:
+        return set()
+    translations = list(form.translations)
+    default = form.default_translation
+    if languages is not None:
+        # HQ removes translations outside the app's languages and marks its first language as the default.
+        translations = [t for t in translations if t.get("lang") in languages]
+        first = [t for t in translations if t.get("lang") == languages[0]]
+        default = next(iter(first or translations), None)
+    if default is None:
+        return set()
+    codes = [t.get("lang") for t in translations]
+    if len(codes) != len(set(codes)):
+        return set()
+    default_code = default.get("lang")
+    values, ambiguous = {}, set()
+    for at, (_, value) in (xform_parts.parts(xml, codes) or {}).items():
         steps = changes.unescaped(at)
-        if len(steps) >= 5 and steps[-4:-2] == [":itext", "label"] and steps[-1] == "image":
-            labels.setdefault(tuple(steps[:-4]), []).append(value)
-    return [binding for binding, images in labels.items() if all(image == path for image in images)]
+        if len(steps) < 5:
+            continue
+        if steps[-4:-2] == [":itext", "label"] and steps[-1] == "image":
+            values.setdefault(tuple(steps[:-4]), {})[steps[-2]] = value
+        elif steps[-5:-3] == [":itext", "label"] and steps[-2] == "image" and steps[-1].isdigit():
+            ambiguous.add((tuple(steps[:-5]), steps[-3]))
+        elif steps[-4:-2] == [":itext", "label"] and steps[-1].startswith("image["):
+            ambiguous.add((tuple(steps[:-4]), steps[-2]))
+    held = set()
+    for binding, images in values.items():
+        code = locale if locale in images else default_code
+        if (binding, code) not in ambiguous and images.get(code) == path:
+            held.add(binding)
+    return held
 
 
-def source_labels(source, path):
+def source_labels(source, path, locale):
     languages = source.get("langs")
     if (
         not isinstance(languages, list)
         or not languages
         or not all(isinstance(lang, str) and lang for lang in languages)
+        or locale not in languages
     ):
         return {}
     found = {}
@@ -87,12 +118,12 @@ def source_labels(source, path):
             xml = (source.get("_attachments") or {}).get(f"{form.get('unique_id')}.xml")
             namespace = form.get("xmlns")
             if isinstance(xml, str) and namespace:
-                for binding in _label_bindings(xml, path, languages):
+                for binding in _label_bindings(xml, path, locale, languages):
                     found["form", f"{m}.{f}", "xform", *binding] = namespace
     return found
 
 
-def installed_labels(files, state, path, source):
+def installed_labels(files, state, path, source, locale):
     """The label image's source field and primary namespace must agree with this side's installed XForm."""
     differing = (state.get("releaseDiffers") or {}).get("differing") or ()
     installed = android_titles.installed_resources(files or {}, differing)
@@ -100,17 +131,22 @@ def installed_labels(files, state, path, source):
     labels = set()
     for ns, pos in namespaces.items():
         filename, _ = installed[pos]
-        for binding in _label_bindings(files[filename], path):
+        for binding in _label_bindings(files[filename], path, locale):
             owner = ("form", pos, "xform", *binding)
             if source.get(owner) == ns:
                 labels.add(owner)
     return namespaces, labels
 
 
-def formplayer_label_sites(rows, trace, namespaces, owners):
+def formplayer_label_sites(rows, trace, namespaces, owners, paired):
     """Identify only the bound native questions carrying this image in the source and installed form."""
     observed = formplayer_places.locations(rows, trace, namespaces)
-    return {key: owner for key, owner in observed.items() if owner in owners}
+    found = {}
+    for key, owner in observed.items():
+        matched = paired.get(_step_at(key[1]))
+        if matched and owner in owners.get(matched[2], ()):
+            found[key] = owner
+    return found
 
 
 def installed_picture(files, state, admission, path, *, remote_url):
@@ -169,24 +205,24 @@ def browser_url(path, media_id):
     return f"/hq/multimedia/file/CommCareImage/{quote(media_id, safe='')}/{quote(path.rsplit('/', 1)[-1], safe='')}"
 
 
-def installed_rename(observed, sessions, baseline, states, local_files, side, old, new, media_id):
+def installed_rename(observed, sessions, baseline, states, local_files, side, old, new, original_id, target_id):
     """Check the later builds independently of HQ's mapping check when it reported the upload matched."""
-    if not (media_id and baseline and states.get(side) and observed.a):
+    if not (baseline and states.get(side) and observed.a):
         return False
     if side == "local":
-        target = ("local", states[side], local_files, new, None)
+        target = ("local", states[side], local_files, new, None, None)
     elif observed.b and observed.b_aligned:
-        target = ("b", states[side], observed.b_aligned.files, new, observed.b)
+        target = ("b", states[side], observed.b_aligned.files, new, observed.b, target_id)
     else:
         return False
-    for label, state, files, path, app in (
-        ("baseline", baseline, observed.a.build.files, old, observed.a),
+    for label, state, files, path, app, media_id in (
+        ("baseline", baseline, observed.a.build.files, old, observed.a, original_id),
         target,
     ):
         remote = None
         if label != "local":
             mapping = (app.doc.get("multimedia_map") or {}).get(path) or {}
-            if (mapping.get("media_type"), mapping.get("multimedia_id")) != ("CommCareImage", media_id):
+            if not media_id or (mapping.get("media_type"), mapping.get("multimedia_id")) != ("CommCareImage", media_id):
                 return False
             # proof.hq.localsettings serves the same origin as the corpus's production publish target.
             remote = "https://www.commcarehq.org" + browser_url(path, media_id)
@@ -286,17 +322,13 @@ def _caption_steps(trace):
 def paired_steps(before, after):
     """The same script, effective language, navigation requests and returned selections on both sides."""
     left, right = _caption_steps(before), _caption_steps(after)
-    return {key: walk[:2] for key, walk in left.items() if right.get(key) == walk}
+    return {key: walk[:3] for key, walk in left.items() if right.get(key) == walk}
 
 
-def same_step(difference, paired):
-    at = changes.unescaped(difference.at)
-    return (
-        len(at) > 4
-        and at[0] == "runs"
-        and at[2] == "steps"
-        and (at[1].isdigit() and at[3].isdigit() and (int(at[1]), int(at[3])) in paired)
-    )
+def _step_at(pointer):
+    at = changes.unescaped(pointer)
+    if len(at) > 4 and at[0] == "runs" and at[2] == "steps" and at[1].isdigit() and at[3].isdigit():
+        return int(at[1]), int(at[3])
 
 
 def formplayer_trace(records, state):
@@ -304,29 +336,28 @@ def formplayer_trace(records, state):
     return records.blobs.get_json(ref) if ref else {}
 
 
-def _web_sites(web, peer, trace, namespaces, path, url, app_id, paired):
+def _web_sites(web, trace, namespaces, path, url, app_id, paired):
     """Join the two browser form screens to the native walk for their script and its actual question bindings."""
     sites = {}
-    for r, (run, other) in enumerate(zip(web.get("runs") or (), peer.get("runs") or (), strict=False)):
-        if run.get("viewport") != other.get("viewport") or run.get("script") != other.get("script"):
-            continue
+    for r, run in enumerate(web.get("runs") or ()):
         opened_form = native_question_web.opened_form(trace, run)
         if not opened_form:
             continue
         ns, opened, filled = opened_form
         position = namespaces.get(ns)
         screens = [(i, s) for i, s in enumerate(run.get("screens") or ()) if "form" in s]
-        if (
-            not position
-            or not app_id
-            or len(screens) != 2
-            or any(
-                (s.get("route") or {}).get("appId") != app_id
-                or (run["script"], (s.get("route") or {}).get("selections")) not in paired.values()
-                for _, s in screens
-            )
-        ):
+        if not position or not app_id or len(screens) != 2:
             continue
+        routes = [s.get("route") or {} for _, s in screens]
+        if any(route.get("appId") != app_id for route in routes):
+            continue
+        locales = {
+            locale for script, selections, locale in paired.values()
+            if script == run["script"] and all(route.get("selections") == selections for route in routes)
+        }
+        if len(locales) != 1:
+            continue
+        [locale] = locales
         for (s, screen), nodes in zip(screens, native_question_web.question_states(opened, filled), strict=True):
             form = screen["form"]
             questions = form.get("questions") or []
@@ -351,11 +382,14 @@ def _web_sites(web, peer, trace, namespaces, path, url, app_id, paired):
                 if len(pictures) == 1 and pictures[0][1].get("src") == url:
                     i, _ = pictures[0]
                     at = f"/runs/{r}/screens/{s}/form/questions/{q}/media/{i}/src"
-                    sites["webapps@B", at] = ("form", position, "xform", *binding[1:].split("/"))
+                    owner = ("form", position, "xform", *binding[1:].split("/"))
+                    sites[at] = (run.get("viewport"), run["script"], locale, owner)
     return sites
 
 
-def saved_renames(document, name, records, observed, local_files, rows, baseline, states, sites, *, sessions):
+def saved_renames(
+    document, name, records, observed, local_files, rows, baseline, states, sites, *, sessions, question_images
+):
     """A next publish after a person's replacement. Check the particular image and its question on both sides."""
     saved = (document.hq_side or {}).get("mediaReplaced")
     candidates = [
@@ -379,67 +413,79 @@ def saved_renames(document, name, records, observed, local_files, rows, baseline
     mapping = (source.get("multimedia_map") or {}).get(old) or {}
     if (mapping.get("media_type"), mapping.get("multimedia_id")) != ("CommCareImage", media_id):
         return rows
-    labels = source_labels(source, old)
-    if not labels:
-        return rows
+    @cache
+    def labels(locale):
+        return source_labels(source, old, locale)
+
     entry = new.removeprefix(ROOT)
-    upload = ((parts.b or {}).get("publish") or {}).get("media") or {}
-    pushed = matched_images(document.exports[name].republish, upload, {new})
+    captured = document.exports[name].republish
+    publish = (parts.b or {}).get("publish") or {}
+    upload = publish.get("media") or {}
+    pushed = matched_images(captured, upload, {new})
+    target_id = media_id if pushed.get(entry) == content else None
+    if (
+        captured and observed.b and not publish.get("refused") and not upload.get("refused")
+        and (captured.meta.get("verifiedMedia") or {}).get(entry) == hashlib.sha256(content).hexdigest()
+    ):
+        # Observation checked the reused file's actual bytes against this receipt after importing B.
+        mapping = (observed.b.doc.get("multimedia_map") or {}).get(new) or {}
+        if mapping.get("media_type") == "CommCareImage":
+            target_id = mapping.get("multimedia_id")
 
     expected = {
-        "webapps@B": (browser_url(old, media_id), browser_url(new, media_id)),
+        "webapps@B": (browser_url(old, media_id), browser_url(new, target_id)) if target_id else None,
         "formplayer@B": (old, new),
         "formplayer@local.ccz": (old, new),
     }
     candidates = [d for d in candidates if (d.before, d.after) == expected[d.artifact]]
 
-    web_candidates = {d.at for d in candidates if d.artifact == "webapps@B"}
+    web_candidates = {
+        d.at: question_images[d.at] for d in candidates if d.artifact == "webapps@B" and d.at in question_images
+    }
     browser = {}
     if web_candidates and baseline.get("webapps") and (states.get("B") or {}).get("webapps"):
-        original = records.blobs.get_json(baseline["webapps"])
-        # For a newly listed app the comparison can insert ordinary B's worker runs ahead
-        # of A's App Preview runs. Those indices cannot identify a pair of A and B screens.
-        if (original.get("build", {}).get("workerApp") or {}).get("listed") is not False:
-            browser = {"A": original, "B": records.blobs.get_json(states["B"]["webapps"])}
+        browser = {side: records.blobs.get_json(state["webapps"]) for side, state in (("A", baseline), ("B", states["B"]))}
     verified = {}
     original_trace = formplayer_trace(records, baseline)
     for side, files, delivered in (
-        ("B", observed.b_aligned.files if observed.b_aligned else {}, pushed),
-        ("local", local_files, local_files),
+        ("B", observed.b_aligned.files if observed.b_aligned else {}, bool(target_id)),
+        ("local", local_files, (local_files or {}).get(entry) == content),
     ):
         target = states.get(side)
-        if not target or (delivered or {}).get(entry) != content:
+        if not target or not delivered:
             continue
-        if not installed_rename(observed, sessions, baseline, states, local_files, side, old, new, media_id):
+        if not installed_rename(observed, sessions, baseline, states, local_files, side, old, new, media_id, target_id):
             continue
         suffix = "B" if side == "B" else "local.ccz"
         target_trace = formplayer_trace(records, target)
         paired = paired_steps(original_trace, target_trace)
-        selected = [d for d in candidates if d.artifact == f"formplayer@{suffix}" and same_step(d, paired)]
+        selected = [d for d in candidates if d.artifact == f"formplayer@{suffix}"]
+        locales = {locale for _, _, locale in paired.values()}
+        if not locales:
+            continue
         observations = []
+        browser_sites = {}
         for state, build, path, label, trace in (
             (baseline, observed.a.build.files, old, "A", original_trace),
             (target, files, new, side, target_trace),
         ):
-            namespaces, owners = installed_labels(build, state, path, labels)
-            found = formplayer_label_sites(selected, trace, namespaces, owners)
+            owners = {}
+            for locale in locales:
+                namespaces, owners[locale] = installed_labels(build, state, path, labels(locale), locale)
+            found = formplayer_label_sites(selected, trace, namespaces, owners, paired)
             if browser and side == "B":
-                other = "B" if label == "A" else "A"
                 app = observed.a if label == "A" else observed.b
-                web = _web_sites(
-                    browser[label],
-                    browser[other],
-                    trace,
-                    namespaces,
-                    path,
-                    browser_url(path, media_id),
-                    app.app_id,
-                    paired,
-                )
-                found.update({key: owner for key, owner in web.items() if key[1] in web_candidates and owner in owners})
+                url = browser_url(path, media_id if label == "A" else target_id)
+                web = _web_sites(browser[label], trace, namespaces, path, url, app.app_id, paired)
+                browser_sites[label] = {at: site for at, site in web.items() if site[3] in owners[site[2]]}
             observations.append(found)
         left, right = observations
         verified.update({key: owner for key, owner in left.items() if right.get(key) == owner})
+        if browser_sites:
+            for at, (old_at, new_at) in web_candidates.items():
+                left_site = browser_sites["A"].get(old_at)
+                if left_site and left_site == browser_sites["B"].get(new_at):
+                    verified["webapps@B", at] = left_site[3]
     sites.update(verified)
     return [
         replace(d, path=f"{d.path}:renamed-file") if d in candidates and (d.artifact, d.at) in verified else d

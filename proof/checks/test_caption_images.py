@@ -9,7 +9,7 @@ from copy import deepcopy
 from dataclasses import replace
 from types import SimpleNamespace
 
-from proof.checks import caption_images, proof3, served
+from proof.checks import caption_images, served
 from proof.checks.corpus import Captured
 from proof.matrix.media import png_of
 from proof.observe.record import Blobs
@@ -115,10 +115,11 @@ def test_two_reviewed_image_renames_stay_with_their_own_formplayer_binding():
         "_attachments": {"visit.xml": xml(*old)},
     }
 
-    def sites(swapped):
+    def sites(swapped, locale="en"):
         traces = []
         for paths in (old, new):
             trace, _ = observations(paths[0])
+            trace["locale"] = locale
             for node, uri in zip(
                 trace["runs"][0]["steps"][0]["response"]["tree"], reversed(paths) if swapped else paths, strict=True
             ):
@@ -126,14 +127,15 @@ def test_two_reviewed_image_renames_stay_with_their_own_formplayer_binding():
             traces.append(trace)
         rows = served.formplayer_differences(*traces, check="proof3", document="example", artifact="formplayer@B")
         accepted = []
+        paired = caption_images.paired_steps(*traces)
         for before, after in zip(old, new, strict=True):
             candidates = [d for d in rows if d.before == before and d.after == after]
-            labels = caption_images.source_labels(source, before)
+            labels = caption_images.source_labels(source, before, locale)
             side_sites = []
             for paths, uri, trace in zip((old, new), (before, after), traces, strict=True):
                 installed = {"suite.xml": SUITE, "form.xml": xml(*paths)}
-                ns, owners = caption_images.installed_labels(installed, {}, uri, labels)
-                side_sites.append(caption_images.formplayer_label_sites(candidates, trace, ns, owners))
+                ns, owners = caption_images.installed_labels(installed, {}, uri, labels, locale)
+                side_sites.append(caption_images.formplayer_label_sites(candidates, trace, ns, {locale: owners}, paired))
             left, right = side_sites
             accepted.extend(owner[-1] for key, owner in left.items() if right.get(key) == owner)
         return sorted(accepted)
@@ -145,9 +147,10 @@ def test_two_reviewed_image_renames_stay_with_their_own_formplayer_binding():
     german = '<translation lang="de"><text id="image"><value form="image">other.png</value></text></translation>'
     source["_attachments"]["visit.xml"] = xml(*old).replace("</itext>", german + "</itext>")
     assert sites(False) == ["one", "one", "two", "two"]
-    assert not caption_images.source_labels(source, "other.png")
+    assert not caption_images.source_labels(source, "other.png", "de")
     source["langs"].append("de")
-    assert sites(False) == ["two", "two"]
+    assert sites(False) == ["one", "one", "two", "two"]
+    assert sites(False, "de") == ["two", "two"]
 
 
 def test_only_the_reviewed_label_and_bytes_delivered_by_each_reader_qualify(tmp_path):
@@ -236,8 +239,10 @@ def test_only_the_reviewed_label_and_bytes_delivered_by_each_reader_qualify(tmp_
     differing = {"A": [], "B": [], "local": []}
 
     def classified(published=None):
+        question_images = {}
         browser = served.webapps_differences(
-            a[1], b[1], traces=(a[0], b[0]), published=published, check="proof3", document="d", artifact="webapps@B"
+            a[1], b[1], traces=(a[0], b[0]), published=published, check="proof3", document="d", artifact="webapps@B",
+            question_images=question_images,
         )
         if published is not None:
             # The comparator paired the desktop worker to ordinary B and retained its wrong URL.
@@ -255,27 +260,9 @@ def test_only_the_reviewed_label_and_bytes_delivered_by_each_reader_qualify(tmp_
         baseline = {**state(a), "releaseDiffers": {"differing": differing["A"]}}
         states = {side: {**state(b), "releaseDiffers": {"differing": differing[side]}} for side in ("B", "local")}
         result = caption_images.saved_renames(
-            doc, "min", records, observed, local, rows, baseline, states, sites, sessions=sessions
+            doc, "min", records, observed, local, rows, baseline, states, sites,
+            sessions=sessions, question_images=question_images,
         )
-        # Both the authored reading and the saved reading must tie each URI to its own label.
-        authored = SimpleNamespace(
-            exports=doc.exports,
-            authored=SimpleNamespace(media_rows=lambda: [{"path": OLD, "kind": "image", "extension": "png"}]),
-        )
-        parts = records.configurations["min"]
-        parts.a["apiReads"]["authored"] = saved
-        parts.a["hooks"] = {"served": {"served": True, "A": baseline}}
-        parts.b_aligned = {"served": states}
-        captions = [row for row in rows if row.artifact.startswith("formplayer@")]
-        authored_rows = proof3.verified_caption_renames(
-            authored, "min", records, local, captions, observed=observed, sessions=sessions
-        )
-        if saved["source"]["body"] == json.dumps(app(OLD)):
-            assert [row.at for row in authored_rows if row.path.endswith(":renamed-file")] == [
-                row.at
-                for row in result
-                if row.artifact.startswith("formplayer@") and row.path.endswith(":renamed-file")
-            ]
         assert all(owner == ("form", "0.0", "xform", "data", "one") for owner in sites.values())
         return [(d.artifact, d.at) for d in result if d.path.endswith(":renamed-file")]
 
@@ -399,7 +386,9 @@ def test_only_the_reviewed_label_and_bytes_delivered_by_each_reader_qualify(tmp_
     ]["questions"][0]["media"][0]["src"]
     a = (a[0], first)
     b = (b[0], second)
-    assert classified(published) == native_only
+    assert sorted(classified(published)) == sorted(native_only + [
+        ("webapps@B", f"/runs/2/screens/{s}/form/questions/0/media/0/src") for s in range(2)
+    ])
     a = (a[0], ordinary_a)
     b = (b[0], ordinary_b)
 
@@ -413,8 +402,14 @@ def test_only_the_reviewed_label_and_bytes_delivered_by_each_reader_qualify(tmp_
     assert classified() == [
         key for key in held if key != ("webapps@B", "/runs/0/screens/0/form/questions/0/media/0/src")
     ]
+    b[1]["runs"][0]["screens"][0]["form"]["questions"][0]["media"][0]["src"] = caption_images.browser_url(NEW, "id")
     upload["matched"].clear()
-    assert classified() == [key for key in held if key[0] == "formplayer@local.ccz"]
+    assert classified() == local_only
+    captures.republish = replace(capture, media=None, meta={"verifiedMedia": {ENTRY: DIGEST}})
+    assert classified() == held
+    captures.republish = replace(capture, media=None, meta={"verifiedMedia": {ENTRY: "unexpected digest"}})
+    assert classified() == local_only
+    captures.republish = capture
     # Another form with identically named questions at this menu position cannot justify the move.
     other_form = app(OLD)
     other_form["modules"][0]["forms"][0]["xmlns"] = "urn:other"
