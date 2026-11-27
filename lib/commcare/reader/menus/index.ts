@@ -316,7 +316,21 @@ export function* settleMenusSteps(
 	);
 	for (const module of app.modules)
 		for (const form of module.forms) acceptAfterSubmit(ctx, form, formOf(form));
-	const settledDoc = ctx.doc as BlueprintDoc;
+}
+
+/** Judge the first-menu routes on the platforms the source can run.
+ * The declaration is decided after Search settles and before we close the
+ * account. Android retains that menu's chosen case where Web Apps starts
+ * with a fresh selection. */
+export function settleMenuFrames(
+	ctx: ReadContext,
+	doc: BlueprintDoc,
+	webAppsOnly: boolean,
+): void {
+	const settledDoc: BlueprintDoc = webAppsOnly
+		? { ...doc, appSettings: { ...doc.appSettings, runsOnlyOn: "web-apps" } }
+		: doc;
+	const app = ctx.draft;
 	for (const module of app.modules)
 		for (const form of module.forms) {
 			const saved = settledDoc.forms[form.uuid];
@@ -343,8 +357,8 @@ export function* settleMenusSteps(
 				);
 			}
 		}
-	settleEntryPoints(ctx);
-	for (const error of firstMenuSharedCaseFrames(ctx.doc as BlueprintDoc)) {
+	settleEntryPoints(ctx, settledDoc);
+	for (const error of firstMenuSharedCaseFrames(settledDoc)) {
 		if (error.code !== "FORM_LINK_TARGET_SHARES_FIRST_MENU_CASE") continue;
 		const form = app.modules
 			.flatMap((module) => module.forms)
