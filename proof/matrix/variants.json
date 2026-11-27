@@ -40518,17 +40518,30 @@
 	{
 		"id": "hq-search/default-filter-reset-masks-an-unknown-comparison",
 		"base": "hq-search",
-		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
-		"standing": "not-yet",
-		"place": {
-			"kind": "search",
-			"menu": 1,
-			"name": "Active clients"
-		},
+		"entry": "case-search/default-filter-resets-order-with-index-fallback",
 		"change": {
 			"op": "named",
 			"name": "default_filter_reset_masks_an_unknown_comparison"
-		}
+		},
+		"holds": [
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListConfig/searchFilters/0/order",
+				"value": [
+					{
+						"property": "priority",
+						"comparison": "discarded",
+						"savedComparison": "unknown",
+						"savedDirectionSigns": "++"
+					}
+				]
+			},
+			{
+				"key": ["module", { "$menu": 1 }],
+				"pointer": "/caseListConfig/searchFilters/1/order/0/comparison",
+				"value": "indexed-fallback"
+			}
+		]
 	},
 	{
 		"id": "hq-search/default-filter-sorting-by-a-session-value",

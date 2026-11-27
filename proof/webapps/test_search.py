@@ -178,6 +178,8 @@ def test_authored_blank_comparison_resets_sort_without_the_explicit_orders_missi
     monkeypatch.setattr(case_search, "CASE_SEARCH_MAX_RESULTS", 2)
     controls = (
         ("retained-reset", ("-visit:date", "+priority::ignored", "-visit:date"), ("two-later", "two-earlier")),
+        ("masked-comparison", ("++priority:unknown", "+priority::ignored", "-visit:date"), ("two-later", "two-earlier")),
+        ("republished-masked-comparison", ("++priority:unknown", "+priority::ignored", "-visit:date"), ("two-later", "two-earlier")),
         ("nova-republish", ("-visit:date", "+priority::ignored", "-visit:date"), ("two-later", "two-earlier")),
         ("explicit-order", ("+priority:numeric,+priority:date,+priority:exact,-visit:date",), ("letter", "two-later")),
     )
@@ -186,6 +188,8 @@ def test_authored_blank_comparison_resets_sort_without_the_explicit_orders_missi
             author = Authoring(project.unit, webapps_documents, document.id, operation=project.unit.operation)
             if label in ("retained-reset", "nova-republish"):
                 registry.named_change("default_filter_resets_earlier_sort")(author, project.app_id)
+            elif label in ("masked-comparison", "republished-masked-comparison"):
+                registry.named_change("default_filter_reset_masks_an_unknown_comparison")(author, project.app_id)
             else:
                 ops.set_json(author, project.app_id, "/modules/1/search_config/default_properties/-", {
                     "property": "commcare_sort", "doc_type": "DefaultCaseSearchProperty", "defaultValue": f"'{terms[0]}'",
@@ -194,7 +198,7 @@ def test_authored_blank_comparison_resets_sort_without_the_explicit_orders_missi
                 app = operations.held_app(project.unit, project.app_id)
                 app.cloudcare_enabled = True
                 app.save()
-            if label == "nova-republish":
+            if label in ("nova-republish", "republished-masked-comparison"):
                 state = project.unit
                 with hq_redis.shared(None), state.committing(), also_granted(privileges.API_ACCESS), api_rate_limits(state):
                     with state.operation("read-first-publish", b"retained-search-reset"):
@@ -205,7 +209,8 @@ def test_authored_blank_comparison_resets_sort_without_the_explicit_orders_missi
                     project_answers, media = retain.project_data_reads(author, project.app_id, credential)
                 source = retain.reading_input(answers, project_answers, media, registry.base(document.id), claims="full")
                 [read] = retain.run_bundle([{
-                    "id": "hq-search/default-filter-resets-earlier-sort",
+                    "id": ("hq-search/default-filter-reset-masks-an-unknown-comparison"
+                           if label == "republished-masked-comparison" else "hq-search/default-filter-resets-earlier-sort"),
                     "mode": "first-read", "input": source,
                     "emitApplication": {"appId": project.app_id, "domain": project.domain},
                 }])

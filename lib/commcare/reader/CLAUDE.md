@@ -589,8 +589,9 @@ supported term is written without that suffix and records
 resets the preceding sort. One ascending index fallback on a custom property
 is supported in a basic built-in Search that opens on results for one record
 type without prompts, related records or a dedicated order. The reader keeps
-the measured `+property::ignored` spelling and accepts only supported order
-rules around it. Other reset forms remain held. A single literal default order
+the measured `+property::ignored` spelling. A preceding literal order with an
+unmapped comparison keeps its spelling as a discarded order. The reset must
+stay later in the same Search while the discarded order is present. A single literal default order
 over a custom property with no competing order or request control on the
 built-in Search path gets an exact refusal for an unmapped comparison
 (`case_search/models.py::_parse_commcare_sort_properties`,

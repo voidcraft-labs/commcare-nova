@@ -424,6 +424,8 @@ function summarizeCaseList(mod: Module): string | undefined {
 
 /** One term of a search's server order, as the SA reads it. */
 function orderTermText(term: SearchFilterOrder[number]): string {
+	if (term.comparison === "discarded")
+		return `saved order on ${term.property} (replaced by later index fallback)`;
 	if (term.comparison === "indexed-fallback")
 		return `${term.property} as number, date, then text, ascending, missing last (replaces earlier orders)`;
 	return `${term.property} as ${term.comparison}, ${term.direction}`;

@@ -15,7 +15,10 @@ import {
 	projectSpaceMatchingFits,
 	searchInputRequestKey,
 } from "@/lib/domain/modules";
-import { moduleAllowsSearchIndexFallback } from "@/lib/domain/searchOrder";
+import {
+	moduleAllowsSearchIndexFallback,
+	searchOrderResetPosition,
+} from "@/lib/domain/searchOrder";
 import {
 	CASE_NODE_ATTRIBUTE_PROPERTIES,
 	isDeviceOnlyCaseProperty,
@@ -26,7 +29,11 @@ import {
 	readSearchFilterTarget,
 	searchFilterKey,
 } from "../../../suite/case-search/nativeFilters";
-import { indexedResetProperty } from "../../../suite/case-search/requestOrder";
+import {
+	indexedResetProperty,
+	requestOrderText,
+	unmappedSingleOrderComparison,
+} from "../../../suite/case-search/requestOrder";
 import { type ValidationError, validationError } from "../../errors";
 import {
 	checkErrorDetails,
@@ -54,6 +61,25 @@ export function nativeSearchFilters(
 		...filters.flatMap((row) => ("order" in row ? row.order : [])),
 	];
 	const resets = order.filter((term) => term.comparison === "indexed-fallback");
+	const resetPosition = searchOrderResetPosition(filters);
+	const invalidDiscarded = filters.some(
+		(filter, index) =>
+			"order" in filter &&
+			filter.order[0]?.comparison === "discarded" &&
+			(index >= resetPosition ||
+				!unmappedSingleOrderComparison(requestOrderText(filter.order))),
+	);
+	if (invalidDiscarded)
+		errors.push(
+			validationError(
+				"CASE_SEARCH_FILTER_INVALID",
+				"module",
+				"Remove the saved order before removing its later index fallback, or choose a comparison for that order.",
+				{ moduleUuid, moduleName: mod.name },
+				{ reason: "discarded-order-needs-index-fallback" },
+			),
+		);
+
 	if (
 		resets.length > 0 &&
 		(resets.length !== 1 ||
@@ -76,6 +102,7 @@ export function nativeSearchFilters(
 			.filter((type) => requested.includes(type.name))
 			.flatMap((type) => type.properties);
 		for (const term of order) {
+			if (term.comparison === "discarded") continue;
 			if (isDeviceOnlyCaseProperty(term.property)) {
 				errors.push(
 					validationError(

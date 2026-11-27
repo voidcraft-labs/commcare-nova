@@ -37,6 +37,7 @@ import { searchButtonUndeclaredInstances } from "../../suite/case-search/buttonC
 import { readSearchFilterTarget } from "../../suite/case-search/nativeFilters";
 import {
 	readDedicatedOrder,
+	readDiscardedOrderText,
 	readIndexResetOrderText,
 	readRequestOrderText,
 	requestOrderText,
@@ -435,6 +436,10 @@ function readDefaultFilters(
 	const literalOrders = orderEntries.map((entry) =>
 		literalSortText(entry.defaultValue),
 	);
+	const resetPositions = literalOrders.flatMap((text, index) =>
+		text !== undefined && readIndexResetOrderText(text) ? [index] : [],
+	);
+	const resetPosition = resetPositions[0] ?? -1;
 	const carriesIndexReset =
 		builtInOrderOnly &&
 		Array.isArray(stored) &&
@@ -447,13 +452,13 @@ function readDefaultFilters(
 		cursor.peek("auto_launch") === true &&
 		cursor.peek("default_search") === true &&
 		cursor.peek("inline_search") !== true &&
-		literalOrders.filter(
-			(text) => text !== undefined && readIndexResetOrderText(text),
-		).length === 1 &&
+		resetPositions.length === 1 &&
 		literalOrders.every(
-			(text) =>
+			(text, index) =>
 				text !== undefined &&
-				(readRequestOrderText(text) || readIndexResetOrderText(text)),
+				(readRequestOrderText(text) ||
+					readIndexResetOrderText(text) ||
+					(index < resetPosition && readDiscardedOrderText(text))),
 		);
 	const markersOnly =
 		!hasPrompts &&
@@ -544,7 +549,14 @@ function readDefaultFilters(
 					text !== undefined &&
 					singleBuiltInOrder &&
 					unmappedSingleOrderComparison(text);
-				const order = reset ?? parsedOrder?.order;
+				const discarded =
+					text !== undefined &&
+					carriesIndexReset &&
+					reset === undefined &&
+					parsedOrder === undefined
+						? readDiscardedOrderText(text)
+						: undefined;
+				const order = reset ?? parsedOrder?.order ?? discarded;
 				if (order !== undefined) {
 					const removedSuffix = parsedOrder?.removedSuffix;
 					const occurrence = names.get(property)?.length ?? 0;
@@ -562,9 +574,11 @@ function readDefaultFilters(
 						return;
 					}
 					const keyClaim =
-						reset === undefined ? C.defaultOrder : C.defaultOrderFallback;
+						reset === undefined && discarded === undefined
+							? C.defaultOrder
+							: C.defaultOrderFallback;
 					const valueClaim =
-						reset === undefined
+						reset === undefined && discarded === undefined
 							? C.defaultOrderValue
 							: C.defaultOrderFallbackValue;
 					row.take("property", keyClaim, String).value;
@@ -1065,6 +1079,7 @@ export function readSearches(ctx: ReadContext, app: DraftApp): void {
 			...filters.filters.flatMap((row) => ("order" in row ? row.order : [])),
 			...(readDedicatedOrder(cursor.peek("custom_sort_properties")) ?? []),
 		]
+			.filter((term) => term.comparison !== "discarded")
 			.map((term) => term.property)
 			.filter((property) => !CASE_NODE_ATTRIBUTE_PROPERTIES.has(property));
 		const properties = [

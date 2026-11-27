@@ -3583,7 +3583,35 @@ export const searchFilterOrderSchema = z
 			order.every((term) => term.comparison !== "indexed-fallback"),
 		{ error: "Give the automatic comparison its own order filter." },
 	);
-export type SearchFilterOrder = z.infer<typeof searchFilterOrderSchema>;
+const discardedSearchOrderTermSchema = z.strictObject({
+	property: authoredCasePropertyNameSchema,
+	comparison: z.literal("discarded"),
+	savedComparison: z
+		.string()
+		.regex(/^[A-Za-z][A-Za-z0-9_-]*$/)
+		.max(64),
+	savedDirectionSigns: z.enum(["", "+", "-", "++", "+-", "-+", "--"]),
+});
+const storedSearchFilterOrderSchema = z
+	.array(
+		z.union([
+			searchRequestOrderTermSchema,
+			searchFilterResetTermSchema,
+			discardedSearchOrderTermSchema,
+		]),
+	)
+	.min(1)
+	.refine(
+		(order) =>
+			order.length === 1 ||
+			order.every(
+				(term) =>
+					term.comparison !== "indexed-fallback" &&
+					term.comparison !== "discarded",
+			),
+		{ error: "Give the automatic comparison or saved order its own filter." },
+	);
+export type SearchFilterOrder = z.infer<typeof storedSearchFilterOrderSchema>;
 
 export const searchValueFilterSchema = z.strictObject({
 	uuid: uuidSchema,
@@ -3595,7 +3623,7 @@ export const searchValueFilterSchema = z.strictObject({
 export const searchOrderFilterSchema = z.strictObject({
 	uuid: uuidSchema,
 	kind: z.literal("order"),
-	order: searchFilterOrderSchema,
+	order: storedSearchFilterOrderSchema,
 });
 export const searchRecordTypeRowSchema = z.strictObject({
 	uuid: uuidSchema,
