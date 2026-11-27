@@ -11,7 +11,8 @@ from proof.formplayer.walk import screen_kind
 from proof.hq import operations
 from proof.hq.check import hq_check
 from proof.hq.configuration import Configuration
-from proof.matrix.registry import HQ_APPS, load_variants
+from proof.matrix.authoring import Authoring
+from proof.matrix.registry import HQ_APPS, load_variants, named_change
 from proof.observe import casedata
 from proof.webapps.hq import ReleaseRefused
 
@@ -93,15 +94,7 @@ def test_the_retained_visits_projection_needs_its_actual_inline_instance(
     source = json.loads((directory / "app.json").read_bytes())
     menus = source["modules"]
     visits = menus[2]
-    assert row.change["pointer"] == "/modules/2/case_details/short/columns/1"
-    assert row.change["value"]["field"] == FORMULA and row.change["value"]["useXpathExpression"]
     source["cloudcare_enabled"] = True
-    for side in ("short", "long"):
-        visits["case_details"][side]["columns"] = [
-            _ordinary_column("name", "Name"),
-            row.change["value"],
-            _ordinary_column("village", "Recorded village"),
-        ]
     if route == "parent-first":
         parents = menus[1]
         parents["case_type"] = "household"
@@ -133,17 +126,28 @@ def test_the_retained_visits_projection_needs_its_actual_inline_instance(
         privileges={"CLOUDCARE", "LOOKUP_TABLES"},
         case_search_enabled=True,
     )
+    def with_comparison_columns(body):
+        details = body["modules"][2]["case_details"]
+        projected = details["short"]["columns"][1]
+        assert projected["field"] == FORMULA and projected["useXpathExpression"]
+        details["short"]["columns"].append(_ordinary_column("village", "Recorded village"))
+        details["long"]["columns"].extend([projected, _ordinary_column("village", "Recorded village")])
+
     with hq_check(configuration) as (unit, _):
         with unit.operation("inline-results:authored", row.id.encode()):
             operations.save_authored_tables(unit, json.loads((directory / "tables.json").read_bytes()))
             app_id = operations.save_authored_app(unit, source, ())
+        assert row.change["op"] == "named"
+        authoring = Authoring(unit, {}, base=row.base, operation=unit.operation)
+        named_change(row.change["name"])(authoring, app_id)
         if route == "ordinary-casedb":
             with pytest.raises(ReleaseRefused, match="case search instance used in casedb case details") as refused:
                 with serve(unit, None, app_id, runner=formplayer_runner, database=database):
                     pytest.fail("HQ released ordinary casedb details depending on unattached Search results")
             evidence("retained-inline-columns", {"refusal": str(refused.value)})
             return
-        with serve(unit, None, app_id, runner=formplayer_runner, database=database) as served, served.run(route):
+        with serve(unit, None, app_id, runner=formplayer_runner, database=database,
+                   change=with_comparison_columns) as served, served.run(route):
             web = apps.web(formplayer_runner, served)
             opening = web.navigate(["2"])
             screens = {"opening": opening}
