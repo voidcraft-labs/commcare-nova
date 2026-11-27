@@ -140,6 +140,7 @@ import {
 import { readInstallationBindings } from "./installationBindings";
 import { isJsonObject, pointerToken, sameJson } from "./jsonCursor";
 import { resourcedDocument, sourceLanguageAsRead } from "./languages";
+import { settleMenuFrames } from "./menus";
 import {
 	defaultPostSubmitAbsent,
 	searchLinkGuardsAreCarriedValues,
@@ -2393,6 +2394,13 @@ export function* assembleDocumentSteps(
 	// 2. The declaration, over the document as it stands, in every reading.
 	const working = ctx.doc ?? provisionalDocument(ctx);
 	const declaration = judgeDeclaration(ctx, working);
+	if (ctx.doc !== undefined)
+		settleMenuFrames(
+			ctx,
+			working,
+			declaration.kind === "choices" &&
+				declaration.choices.every((choice) => choice.runsOnlyOn === "web-apps"),
+		);
 	settleFlatCloseSelectionLimits(
 		ctx,
 		working,

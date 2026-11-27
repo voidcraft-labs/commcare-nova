@@ -575,11 +575,10 @@ export function settleEntryCaseCreations(
 		});
 }
 
-export function settleEntryPoints(ctx: ReadContext): void {
-	const doc = ctx.doc;
+export function settleEntryPoints(ctx: ReadContext, doc: BlueprintDoc): void {
 	const read = READ.get(ctx);
-	if (doc === undefined || read === undefined || read.size === 0) return;
-	const errors = validEntryPoints(doc as BlueprintDoc);
+	if (read === undefined || read.size === 0) return;
+	const errors = validEntryPoints(doc);
 	const invalid = new Set(errors.map((error) => error.details?.entryPointUuid));
 	for (const error of errors) {
 		const details = error.details as
