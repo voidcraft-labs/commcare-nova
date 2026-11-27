@@ -1081,3 +1081,14 @@ def open_relationship_from_constrained_text(authoring, app_id):
         bind.set("required", "true()")
 
     ops.set_form_source(authoring, app_id, 1, 0, constrain_notes, what="require a valid case relationship")
+
+
+def open_relationship_from_optional_constrained_text(authoring, app_id):
+    open_relationship_from_constrained_text(authoring, app_id)
+
+    def optional_notes(root, _form):
+        bind, = root.xpath("//*[local-name()='bind'][@nodeset='/data/notes']")
+        bind.attrib.pop("required")
+
+    ops.set_form_source(authoring, app_id, 1, 0, optional_notes, what="allow a blank case relationship answer")
+

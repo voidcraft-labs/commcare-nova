@@ -393,6 +393,7 @@ export const FINDING_COPY: Readonly<
 
 /** What is set up, ending in its verb: "Case sharing is", "A question's choices are". */
 export const FIX_IN_HQ_STEMS: Readonly<Partial<Record<Subject, string>>> = {
+	"advanced-menus": "This menu’s Advanced form entry is",
 	"advanced-forms": "The cases this advanced form loads or opens are",
 	"after-submit": "Where this form goes after it is sent is",
 	"android-app-dependencies": "The Android apps this app depends on are",

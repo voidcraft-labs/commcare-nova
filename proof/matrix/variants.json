@@ -3332,14 +3332,6 @@
 		"id": "hq-advanced/open-relationship-by-constrained-question",
 		"base": "hq-advanced",
 		"entry": "forms-and-case-writes/advanced-open-relationship-from-constrained-text",
-		"standing": "held",
-		"place": {
-			"kind": "form",
-			"menu": 1,
-			"form": 0,
-			"menuName": "Member visits",
-			"name": "Untitled Form"
-		},
 		"change": {
 			"op": "named",
 			"name": "open_relationship_from_constrained_text"
@@ -3351,6 +3343,23 @@
 				"value": "parent"
 			}
 		]
+	},
+	{
+		"id": "hq-advanced/open-relationship-by-optional-constrained-question",
+		"base": "hq-advanced",
+		"entry": "forms-and-case-writes/caseindex-relationship-question-relationship-question-the-index-naming-a",
+		"standing": "not-yet",
+		"place": {
+			"kind": "form",
+			"menu": 1,
+			"form": 0,
+			"menuName": "Member visits",
+			"name": "Untitled Form"
+		},
+		"change": {
+			"op": "named",
+			"name": "open_relationship_from_optional_constrained_text"
+		}
 	},
 	{
 		"id": "hq-advanced/open-relationship-question-after-an-open",
@@ -20986,6 +20995,7 @@
 		"id": "hq-case-management/save-to-case-own-case-beside",
 		"base": "hq-case-management",
 		"entry": "questions/a-basic-own-text-write-after-an-authored-update",
+		"holds": [],
 		"change": {
 			"op": "named",
 			"name": "save_to_case_own_case_beside"
@@ -21012,6 +21022,7 @@
 		"id": "hq-case-management/save-to-case-positioned-beside-own",
 		"base": "hq-case-management",
 		"entry": "questions/a-basic-own-text-write-after-an-authored-update",
+		"holds": [],
 		"change": {
 			"op": "named",
 			"name": "save_to_case_positioned_beside_own"

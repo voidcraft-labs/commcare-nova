@@ -14539,6 +14539,8 @@ def _writer_unavailable_source(at, index, *, repeat=False):
         return False
     context = action.get("repeat_context")
     if repeat:
+        if at.app is None:
+            return False
         xform = at.app.xform(form)
         update = action.get("name_update")
         path = update.get("question_path") if isinstance(update, dict) else None
