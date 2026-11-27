@@ -638,6 +638,54 @@ def test_web_apps_lists_a_lookup_prompts_choices_in_label_order(
     assert prompts["Region"] == prompts["Regions"] == ["East", "North & coast"]
 
 
+def test_search_lookup_filter_orders_text_as_numbers(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence
+):
+    from corehq.apps.fixtures.models import Field, LookupTable, LookupTableRow
+
+    from proof.editors import pages
+    from proof.matrix import ops, registry
+    from proof.matrix.authoring import Authoring
+    from proof.observe.search_address import enable_address_search
+
+    document = webapps_documents["hq-search"]
+    variant = next(row for row in registry.load_variants()
+                   if row.id == "hq-search/choices-filtered-by-an-ordered-text")
+    observed = {}
+    for label, predicate, expected in (
+        ("lexical-right", "name > 'm'", []),
+        ("explicit-number", "number(name) > number('m')", []),
+        ("numeric-right", "name > '1'", ["2"]),
+    ):
+        with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
+            authoring = Authoring(project.unit, {}, document.id, operation=project.unit.operation)
+            source = variant.change["value"]
+            itemset = {**source["itemset"], "nodeset": source["itemset"]["nodeset"].replace("name > 'm'", predicate)}
+            ops.set_json(authoring, project.app_id, variant.change["pointer"], {**source, "itemset": itemset})
+            table = LookupTable.objects.get(domain=project.unit.domain, tag="districts")
+            with project.unit.operation("search-choice-value-controls", label.encode()):
+                rows = LookupTableRow.objects.filter(domain=project.unit.domain, table=table).order_by("sort_key", "id")
+                for index, row in enumerate(rows):
+                    row.fields["name"] = [Field(value=str(2 * index), properties={})]
+                    row.save()
+            from proof.hq import operations
+            app = operations.held_app(project.unit, project.app_id)
+            app.cloudcare_enabled = True
+            app.save()
+            menu_id = project.module_id(0)
+            saved = pages.fresh_section_save(editor_driver, project.unit, pages.CASE_LIST, project.app_id, menu_id)
+            assert saved.save and saved.save.status == 200 and not saved.refused
+            with project.released(formplayer_runner) as release:
+                run = Session(release, editor_driver).run([
+                    *steps.open_app("Client search"), *steps.choose("Clients"), *steps.choose("Followup Form"),
+                    *steps.arrive(any_screen=True), steps.SCREEN, {"eval": PROMPT_CHOICES},
+                ])
+        prompts = {row["label"]: row["choices"] for row in run.value(-1)}
+        observed[label] = {"choices": prompts, "errors": run.page_errors}
+        assert not run.page_errors and prompts["District"] == expected, observed[label]
+    evidence("lookup-number-order", observed)
+
+
 CHECKED_REGIONS = """() => [...document.querySelectorAll("fieldset.query-field input[type=checkbox]")].map(box =>
     [box.value, box.labels[0].textContent.trim(), box.checked])"""
 

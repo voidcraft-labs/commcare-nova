@@ -3060,7 +3060,7 @@
 		],
 		"valueClass": "filter-lifts-into-predicate",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `options.filter`",
+		"dispositionCell": "**HELD**: `options.filter`. A fixture text column compared with a plain text literal keeps the device’s numeric comparison.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
