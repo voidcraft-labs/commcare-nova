@@ -297,6 +297,20 @@ function whereVisible<QB>(
 		: ctx.restrictToRestoreScope(notHeld, casesAlias);
 }
 
+/** An uncorrelated population for the device list’s own case type. */
+export function restoredTypeRows(
+	ctx: RelationPathContextSource,
+	caseType: string,
+) {
+	const alias = "restored_type_case";
+	const rows = ctx.db
+		.selectFrom(`cases as ${alias}`)
+		.where(`${alias}.app_id`, "=", ctx.appId)
+		.where(`${alias}.project_id`, "=", ctx.projectId)
+		.where(`${alias}.case_type`, "=", caseType);
+	return whereVisible(ctx, rows, alias);
+}
+
 /** Unresolved kept values make the whole case invisible to the worker. */
 export function caseHasNoUndismissedParkedValues(caseId: RawBuilder<unknown>) {
 	return sql<boolean>`not exists (

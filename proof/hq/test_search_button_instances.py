@@ -251,6 +251,7 @@ def test_the_hq_search_button_orders_worker_text_only_with_a_declared_session(hq
 
 def test_first_case_list_row_already_witnesses_its_restored_case_type(hq, core_runner, tmp_path):
     from corehq.apps.app_manager.models import CaseSearch
+    from corehq.apps.app_manager.models.case_list import DetailColumn
     from corehq.apps.app_manager.tests.util import patch_get_xform_resource_overrides
 
     from proof.core.artifacts import SESSION_RESTORE
@@ -266,9 +267,15 @@ def test_first_case_list_row_already_witnesses_its_restored_case_type(hq, core_r
                 case.find(f"{case_ns}create/{case_ns}case_type").text = "client"
         return etree.tostring(restored)
 
-    def visible_ids(name, list_filter, restore):
+    def visible_rows(name, list_filter, restore, *, count_column=False):
         app = _search_app(state.domain, list_filter)
-        app.modules[0].search_config = CaseSearch()
+        module = app.modules[0]
+        module.search_config = CaseSearch()
+        if count_column:
+            module.case_details.short.columns.append(DetailColumn(
+                header={"en": "Restored clients"}, format="plain", model="case", useXpathExpression=True,
+                field=COUNT_CASES.removesuffix(" > 1"),
+            ))
         app._id = f"list-count-{name}"
         app.version = 1
         with patch_get_xform_resource_overrides():
@@ -281,11 +288,14 @@ def test_first_case_list_row_already_witnesses_its_restored_case_type(hq, core_r
         finally:
             core_runner.release(opened["app"])
         return {
-            row["caseId"]
+            row["caseId"]: row["fields"]
             for run in walk["runs"] for step in run["trace"]
             if step.get("screen") == "case-list"
             for row in step["rows"]
         }
+
+    def visible_ids(name, list_filter, restore):
+        return set(visible_rows(name, list_filter, restore))
 
     with hq_check(Configuration()) as (state, _):
         one = restore_of(("one",))
@@ -295,3 +305,8 @@ def test_first_case_list_row_already_witnesses_its_restored_case_type(hq, core_r
         assert visible_ids("another-case-required", COUNT_CASES, one) == set()
         two = restore_of(("one", "two"))
         assert visible_ids("another-case-witnesses-type", COUNT_CASES, two) == {"case_one", "case_two"}
+
+        one_with_neighbor = visible_rows("case-count-one", None, restore_of(("one",), "other"), count_column=True)
+        assert {key: fields[-1] for key, fields in one_with_neighbor.items()} == {"case_one": "1"}
+        two_clients = visible_rows("case-count-two", None, two, count_column=True)
+        assert {key: fields[-1] for key, fields in two_clients.items()} == {"case_one": "2", "case_two": "2"}

@@ -287,22 +287,32 @@ export function readsSearchRequiredCaseQuery(expression: Expression): boolean {
 	return reads;
 }
 
+/** Count the ordinary device list’s unfiltered restored cases of its own type. */
+export function countsOwnRestoredType(
+	expression: Expression,
+	caseType: string | undefined,
+): boolean {
+	return (
+		caseType !== undefined &&
+		expression.kind === "count" &&
+		expression.where === undefined &&
+		!isRelationPath(expression.via) &&
+		isRestoredCaseTypeQuery(expression.via) &&
+		restoredCaseType(expression.via) === caseType
+	);
+}
+
 /** The two bounded whole-list checks use only the restored candidates’ type. */
 export function sameTypeRestoredThreshold(
 	expression: Expression,
 	caseType: string | undefined,
 ): 0 | 1 | undefined {
 	if (
-		caseType === undefined ||
 		expression.kind !== "gt" ||
-		expression.left.kind !== "count" ||
-		expression.left.where !== undefined ||
-		isRelationPath(expression.left.via) ||
+		!countsOwnRestoredType(expression.left, caseType) ||
 		expression.right.kind !== "term" ||
 		expression.right.term.kind !== "literal" ||
-		expression.right.term.data_type !== undefined ||
-		!isRestoredCaseTypeQuery(expression.left.via) ||
-		restoredCaseType(expression.left.via) !== caseType
+		expression.right.term.data_type !== undefined
 	)
 		return undefined;
 	const threshold = expression.right.term.value;
