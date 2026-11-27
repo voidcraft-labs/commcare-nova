@@ -44,10 +44,10 @@ import {
 	buildCaseTypeMap,
 	CasePropertyHasSavedValuesError,
 	type MigrationReport,
+	removalRetiresCaseProperty,
 	withSchemaContext,
 } from "@/lib/case-store";
 import { unusedCasePropertyError } from "@/lib/doc/unusedCaseProperty";
-import { isStandardCaseListProperty } from "@/lib/domain";
 import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
@@ -1192,13 +1192,7 @@ export async function commitCanonicalBatch(
 			// Removing a catalog annotation can leave a writer-derived or
 			// built-in property effective. Its storage contract survives; whole-type
 			// retirement also has its own retained schema.
-			if (
-				!effectiveType ||
-				isStandardCaseListProperty(mutation.property) ||
-				effectiveType.properties.some(
-					(property) => property.name === mutation.property,
-				)
-			)
+			if (!removalRetiresCaseProperty(effectiveType, mutation.property))
 				continue;
 			// Inspect the freshly admitted result, so a concurrent writer or read
 			// cannot be erased using a stale tool snapshot.

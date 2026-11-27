@@ -11,6 +11,7 @@
 
 import type { HqMediaMapItem, HqMediaType } from "@/lib/commcare/hq/appSource";
 import type {
+	MediaRecipients,
 	ReaderMediaIndex,
 	ReaderMediaResolution,
 	ReadFacts,
@@ -70,7 +71,7 @@ export const HQ_MEDIA_SLOTS = [
 export type HqMediaSlot = (typeof HQ_MEDIA_SLOTS)[number];
 
 /** One reference in the app's source. */
-export interface HqMediaReference {
+export interface HqMediaReference extends MediaRecipients {
 	/** The stored app's source pointer when a JSON value names this file. A question's itext is located by its node. */
 	readonly pointer?: string;
 	/** The path as the source spells it. */
@@ -121,6 +122,11 @@ export function hqMediaReferencesOf(
 		}
 		return {
 			path: read.path,
+			...(read.itextRecipients && { itextRecipients: read.itextRecipients }),
+			...(read.inheritedItextRecipients && {
+				inheritedItextRecipients: read.inheritedItextRecipients,
+			}),
+			...(read.shownLanguages && { shownLanguages: read.shownLanguages }),
 			kind: read.mediaKind,
 			slot,
 			place: read.place,
@@ -940,8 +946,9 @@ export interface ReadingMediaPlan {
 		readonly multimediaId: string;
 		readonly kind: MediaKind;
 		readonly paths: readonly string[];
-		/** `provisionalReadingMediaId(appId, mediaType, multimediaId)`: the id the document names
-		 *  the file by until the file is published. It never reaches storage. */
+		/** The reading's proposed asset id. Initially derived from the native id; an
+		 * existing-app comparison resolves held bytes against known Project content.
+		 * Publication confirms the actual Project asset before a new reference is saved. */
 		readonly provisionalId: MediaAssetId;
 	})[];
 	readonly verdicts: Readonly<Record<string, HqMediaVerdict>>;
@@ -970,6 +977,10 @@ export function readingMediaIndex(input: {
 	const byPath = new Map(
 		(input.source.multimediaMap ?? []).map((item) => [item.path, item]),
 	);
+	const proposed = new Map(
+		plan?.files.map((file) => [file.key, file.provisionalId]),
+	);
+
 	return {
 		resolve(path: string): ReaderMediaResolution {
 			const item = byPath.get(path);
@@ -990,6 +1001,7 @@ export function readingMediaIndex(input: {
 				kind: "asset",
 				assetId:
 					published ??
+					proposed.get(key) ??
 					provisionalReadingMediaId(appId, item.mediaType, item.multimediaId),
 				mediaKind: KIND_OF_MEDIA_TYPE[item.mediaType],
 			};

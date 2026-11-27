@@ -38,7 +38,7 @@
 // over already-resolved inputs: no Postgres and no expand.
 
 import { type BlueprintDoc, declaresWebApps } from "@/lib/domain";
-import { carriesViaBulkUpload, walkAssetRefs } from "@/lib/domain/mediaRefs";
+import { bulkUploadAssetIds } from "@/lib/domain/mediaRefs";
 import { driftDate } from "@/lib/publish/driftReference";
 import {
 	MANUAL_IMPORT_LOOKUP_WORKBOOK,
@@ -95,10 +95,7 @@ export function bulkUploadAssets(
 	doc: BlueprintDoc,
 	assets: AssetManifest,
 ): AssetManifest {
-	const carried = new Set<string>();
-	for (const ref of walkAssetRefs(doc)) {
-		if (carriesViaBulkUpload(ref.location)) carried.add(ref.assetId);
-	}
+	const carried = bulkUploadAssetIds(doc);
 	return new Map([...assets].filter(([assetId]) => carried.has(assetId)));
 }
 

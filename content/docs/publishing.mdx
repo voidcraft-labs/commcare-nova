@@ -293,6 +293,11 @@ once the publish has finished. If another publish has already updated the app
 when Nova is ready to send the media, Nova keeps the later publish's files and
 shows a message on the earlier publish.
 
+If CommCare HQ accepts an earlier version while Nova updates the app, you can use **See what changed in CommCare HQ** to compare it with the current version before publishing again.
+
+If a file changes after CommCare HQ accepts the app, Nova checks what now occupies each destination before sending the files. If it can’t verify a destination, the app stays published and its files wait for your next review.
+You can review changes from CommCare HQ to see which pictures and sounds it holds.
+
 If the app arrives but its media upload cannot be confirmed, Nova keeps the
 published app and reports the media warning. Publishing again updates that app
 and retries its media upload. When CommCare HQ accepts the media but Nova cannot
@@ -343,6 +348,35 @@ goes to the app's page for you to work on. It is not the link workers use.
 
 ## Changes made in CommCare HQ
 
+If you publish the same app to two project spaces, each keeps its own
+comparison. You can refresh settings in one space while an edit in Nova is
+still waiting to be published. Your next review in either space shows the
+changes since the version that space received.
+
+If you've reviewed a picture getting a new name or two file paths becoming one, an unrelated edit in HQ keeps that choice. Nova asks again when the change affects a different question, choice or language. This includes workers who see the default picture because their language has no picture of its own.
+
+A publish can remove an unused file reference in CommCare HQ, including on an app Nova has published before. Nova shows the file's path in the app. If a later save puts a different file at that path, Nova asks again and says that CommCare HQ holds a different file there. To review these changes, open **See what changed in CommCare HQ** on this project space. The review names unused file references the publish would remove. Bring in the review to update the Publishing card, then publish when you're ready. If Nova can't verify the earlier reading, a Project admin or owner can choose **Stop publishing here** for this project space. Once any publish in progress finishes, you can bring the HQ app in as a new Nova app. You can also publish the current Nova app to a different project space. Stopping here affects only this project space. When there are too many changes to show every file in the publish dialog, you can open the full review and choose which version to keep after reading the complete list. Nova checks the file list even when the app sends no new files. If CommCare HQ saves the app while Nova is reading its files, Nova stops before uploading the app. Publishing again checks what changed. If CommCare HQ can’t show the list, you can try the publish again when it’s available.
+If HQ adds the same picture to two places under different filenames, the app can
+keep showing it in both places under one filename when you bring in the changes.
+Publishing the app as it stands in Nova can remove both references. Nova shows
+the filenames each choice would remove.
+
+
+Before your first publish to the space an app came from, its Publishing card
+shows which HQ settings that publish will change. Bringing in a later HQ save
+updates the card, even when the forms stay the same. If someone puts a
+setting back in HQ, bringing that save in removes its warning. This includes
+a picture or sound saved in HQ that the app no longer uses. **Refresh from
+CommCare HQ** can pick up settings such as fuzzy search directly. When a
+change affects the Publishing card, Nova offers to review it with you. A
+publish also pauses if it would remove a file reference someone added in HQ
+since that review. If
+publishing would change the Web Apps switch, Nova asks you to confirm it.
+
+If you restore a deleted app and it can publish to the same CommCare HQ app
+again, Nova remembers the version it last sent there. You can start a fresh
+review to see what changed while the app was away.
+
 Each publish remembers what CommCare HQ held just after it: the app, each
 lookup table and each place. An app you brought in from CommCare HQ starts from
 what it held when it came in. Before the next publish sends anything, Nova reads
@@ -365,8 +399,10 @@ list, **What changed in Nova since then**, and doesn't combine the two. **Use
 CommCare HQ's version** takes CommCare HQ's changes and removes the ones listed
 under Nova, and Nova can't put those back, so **Copy both lists** is there if
 you'd like a record first. If you renamed a case property in Nova since then,
-Nova asks you to rename it back before it offers CommCare HQ's version, so
-saved cases keep their values. **Publish over CommCare HQ's changes** sends
+you can rename it back if the name still identifies the same property, then
+check again. Its saved case values move with it. If a name was reused, Nova lists the
+recorded moves. You can check which values the properties hold before deciding
+which version to keep. **Publish over CommCare HQ's changes** sends
 this app's version and replaces what changed there. An admin or owner of the
 Project can also choose **Stop publishing here**, which leaves the app in
 CommCare HQ as it is; a later publish there makes a new app. You can also close
@@ -428,9 +464,10 @@ change.
 Some changes read a little differently:
 
 - **Nova couldn't confirm what its last publish left.** CommCare HQ may have
-  been unavailable when Nova read it back, or saved the app a second time while
-  removing an unused reference to a picture or sound. That extra save looks the
-  same to Nova as another person saving the app at the same time. Your publish
+  been unavailable when Nova read it back, or someone may have saved the app
+  while Nova published it. When CommCare HQ saves the app a second time only to
+  remove the unused picture or sound references Nova expected, Nova recognizes
+  that save as part of the publish and says nothing. Your publish
   landed. If Nova could read the settings at the version CommCare HQ reported,
   your download, Preview and the Publishing card still use those settings.
   Nova asks before writing over the app on the next publish.

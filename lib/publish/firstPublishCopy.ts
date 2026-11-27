@@ -191,14 +191,21 @@ export function firstPublishLines(
 	const nextPublish = view.of === "next-publish";
 	return {
 		heading: nextPublish ? NEXT_PUBLISH_HEADING : FIRST_PUBLISH_HEADING,
-		lead: nextPublish
-			? NEXT_PUBLISH_DIALOG_LEAD
-			: surface === "review"
-				? FIRST_PUBLISH_LEAD_REVIEW
-				: FIRST_PUBLISH_LEAD_PUBLISH,
+		lead: view.needsReview
+			? nextPublish
+				? "You can review changes from CommCare HQ to see what the next publish would change."
+				: "You can review changes from CommCare HQ to see what this first publish would change."
+			: nextPublish
+				? NEXT_PUBLISH_DIALOG_LEAD
+				: surface === "review"
+					? FIRST_PUBLISH_LEAD_REVIEW
+					: FIRST_PUBLISH_LEAD_PUBLISH,
 		workers: { label: FIRST_PUBLISH_WORKERS_LABEL, lines: workers },
 		hqOnly: { label: FIRST_PUBLISH_HQ_LABEL, lines: hqOnly },
-		reassurance: view.touchesWorkers ? null : FIRST_PUBLISH_NO_WORKER_CHANGE,
+		reassurance:
+			view.touchesWorkers || view.needsReview
+				? null
+				: FIRST_PUBLISH_NO_WORKER_CHANGE,
 		note: FIRST_PUBLISH_FORM_BUILDER_NOTE,
 	};
 }

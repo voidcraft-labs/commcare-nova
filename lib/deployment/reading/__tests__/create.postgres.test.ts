@@ -55,6 +55,7 @@ import { broughtInLookupTableId } from "../projectData/lookupIds";
 import { authorizeBringIn, readHqAppForReview } from "../read";
 import type { BringInInput, CreateAnswer, ReadingEvent } from "../types";
 import {
+	changedAnswer,
 	counterOf,
 	createInputFor,
 	FIXTURE_DOMAIN,
@@ -416,6 +417,8 @@ describe("createFromReview", () => {
 			),
 			webAppsOnInHq: review.review.webAppsOnInHq,
 			of: "first-publish",
+			/* The birth is the review the person completed. */
+			reviewed: 1,
 		});
 		expect(baseline.media_files).toEqual({
 			"commcare/image/menuicon.png": "menuicon",
@@ -508,6 +511,50 @@ describe("createFromReview", () => {
 		});
 	});
 
+	it("requires the current editor to review the actual file their adopted app would remove", async () => {
+		const earlier = "file-approved-before-birth";
+		const later = "file-put-there-later";
+		const path = "jr://file/commcare/orphan.png";
+		const source = (id: string) =>
+			changedAnswer(fixtureSource(), (body) => ({
+				...body,
+				multimedia_map: {
+					...(body.multimedia_map as object),
+					[path]: { media_type: "CommCareImage", multimedia_id: id },
+				},
+			}));
+		const other = "birth-second-editor";
+		await h.seedProjectMember(other, PROJECT, "editor");
+		await seedFixtureConnection(other);
+		const first = await withHttpPeer(async (peer) => {
+			serveFixtureApp(peer, { source: source(earlier) });
+			return read();
+		});
+		expect(
+			first.review.runsOn
+				.filter((choice) => choice.preselected)
+				.flatMap((choice) => choice.removesFiles ?? [])
+				.join(" "),
+		).toContain("“commcare/orphan.png”");
+		const createAt = (user: string, id: string, of: typeof first) =>
+			withHttpPeer(async (peer) => {
+				serveFixtureApp(peer, { source: source(id) });
+				return create(createInputFor(KEY, of), user);
+			});
+		expect((await createAt(other, earlier, first)).kind).toBe("changed");
+		const changed = await createAt(ACTOR, later, first);
+		if (changed.kind !== "changed" || changed.now.kind !== "review")
+			throw new Error(`Expected new file review, received ${changed.kind}.`);
+		const current = changed.now;
+		expect(
+			current.review.runsOn
+				.find((choice) => choice.preselected)
+				?.removesFiles?.join(" "),
+		).toContain("“commcare/orphan.png”");
+		/* The line names the path alike for both files; the review binds the file. */
+		expect(current.reviewDigest).not.toBe(first.reviewDigest);
+		expect((await createAt(ACTOR, later, current)).kind).toBe("created");
+	});
 	it("creates where CommCare HQ's save counter alone moved, and records the create's counter", async () => {
 		const resource = fixtureResource(fixtureSource(), { version: 7 });
 		const answer = await withHttpPeer(async (peer) => {
@@ -700,6 +747,12 @@ describe("createFromReview", () => {
 			servePng(peer, "menuicon", 2);
 			servePng(peer, "formicon", 2);
 			const review = await read();
+			const decision = review.review.runsOn.find(
+				(choice) => choice.preselected,
+			);
+			expect(decision?.removesFiles).toEqual([
+				"Publishing removes the file “commcare/image/menuicon.png” from the app in CommCare HQ. This app doesn't use it.",
+			]);
 			return create(createInputFor(KEY, review));
 		});
 		const receipt = receiptOf(answer);

@@ -251,7 +251,7 @@ export async function getEntryPointLink(input: {
 		);
 	const checkedAt = new Date().toISOString();
 	if (
-		!(await recordEntryPointObservation(scope, target, {
+		!(await recordEntryPointObservation(scope, target, remote.pushToken, {
 			generation: manifest.generation,
 			remoteAppId: remote.remoteId,
 			entryPointUuid: entry.uuid,

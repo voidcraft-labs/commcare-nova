@@ -258,6 +258,8 @@ describe("unreadPlacesFailure", () => {
 				foldedTranslationKeys: [],
 				forms: [],
 				sameStateRewrites: [],
+				detailColumnOwners: [],
+				formLinkOwners: [],
 				entryFactsRefused: [],
 				childCasesUnread: [],
 				rewrites: [],

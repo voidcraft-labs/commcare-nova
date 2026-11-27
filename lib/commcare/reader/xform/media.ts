@@ -30,6 +30,7 @@ import { builtScopes, sameElementWhole } from "../sameElement";
 import { ownText, type XmlCursor } from "../xmlCursor";
 import { X } from "./claims";
 import type { ReadXForm } from "./index";
+import { type ItextReading, itextRecipient } from "./itext";
 import { claimFormValue, formText, type SlotText, valueIsBlank } from "./prose";
 
 const MEDIA_KINDS: readonly MediaKind[] = ["image", "audio", "video"];
@@ -128,9 +129,10 @@ function readSlotMedia(
 	ctx: ReadContext,
 	cursor: XmlCursor,
 	slot: SlotText,
-	defaultLanguage: LanguageTag | undefined,
+	itext: Pick<ItextReading, "languages" | "defaultLanguage">,
 	scope: (element: Element) => NamespaceScope,
 ): void {
+	const { defaultLanguage, languages } = itext;
 	const place = slot.place;
 	const first = slot.first;
 	for (const kind of MEDIA_KINDS) {
@@ -140,6 +142,20 @@ function readSlotMedia(
 			if (value !== undefined) values.set(language, value);
 		}
 		if (values.size === 0) continue;
+		// Core overlays each translation on the default's keys. A file under
+		// a nondefault key supplies its own language only.
+		const defaultValue =
+			defaultLanguage === undefined ? undefined : values.get(defaultLanguage);
+		const inherited =
+			defaultValue === undefined
+				? []
+				: languages
+						.filter((language) => !values.has(language))
+						.map((language) => itextRecipient(slot.owner, language));
+		const inheritedAt = (isDefault: boolean) =>
+			isDefault && inherited.length
+				? { inheritedItextRecipients: inherited }
+				: {};
 		const key = `itext-form:core/${kind}`;
 		if (first)
 			for (const value of values.values())
@@ -152,7 +168,7 @@ function readSlotMedia(
 			continue;
 		}
 		if (slot.media === "unheld") {
-			for (const value of values.values()) {
+			for (const [language, value] of values) {
 				const path = ownText(value).trim();
 				const resolution = ctx.input.media.resolve(path);
 				if (resolution.kind === "asset") {
@@ -172,6 +188,8 @@ function readSlotMedia(
 						mediaKind: kind,
 						place,
 						slot: "unheld_itext",
+						itextRecipients: [itextRecipient(slot.owner, language)],
+						...inheritedAt(value === defaultValue),
 						languageCode: translation.attribs.lang,
 						role:
 							slot.owner.slot === "validate_msg"
@@ -189,6 +207,8 @@ function readSlotMedia(
 					resolution: resolution.kind,
 					place,
 					slot: "unheld_itext",
+					itextRecipients: [itextRecipient(slot.owner, language)],
+					...inheritedAt(value === defaultValue),
 				});
 			}
 			continue;
@@ -199,9 +219,15 @@ function readSlotMedia(
 			)
 		)
 			continue;
-		const paths = [
-			...new Set([...values.values()].map((value) => ownText(value).trim())),
-		];
+		const recipients = new Map<string, ReturnType<typeof itextRecipient>[]>();
+		for (const [language, value] of values) {
+			const path = ownText(value).trim();
+			const at = recipients.get(path) ?? [];
+			at.push(itextRecipient(slot.owner, language));
+			recipients.set(path, at);
+		}
+		const defaultPath = defaultValue && ownText(defaultValue).trim();
+		const paths = [...recipients.keys()];
 		const joined = paths.length === 1 ? undefined : oneAsset(ctx, paths);
 		// A language whose text holds no form of the kind, or no text, shows the form's default
 		// language's, since Core loads the default locale's keys under every locale
@@ -231,6 +257,8 @@ function readSlotMedia(
 			for (const one of paths)
 				ctx.facts.mediaReferences.push({
 					path: one,
+					itextRecipients: recipients.get(one),
+					...inheritedAt(one === defaultPath),
 					assetId: asset.assetId,
 					mediaKind: kind,
 					place,
@@ -254,6 +282,8 @@ function readSlotMedia(
 			path,
 			mediaKind: kind,
 			resolution: resolution.kind,
+			itextRecipients: recipients.get(path),
+			...inheritedAt(path === defaultPath),
 			place,
 			slot: slotString(slot.media),
 		});
@@ -282,13 +312,7 @@ export function readMediaForms(ctx: ReadContext, form: ReadXForm): void {
 	const text = formText(form);
 	if (text === undefined) return;
 	for (const slot of text.slots) {
-		readSlotMedia(
-			ctx,
-			text.cursor,
-			slot,
-			text.itext.defaultLanguage,
-			form.parsed.scope,
-		);
+		readSlotMedia(ctx, text.cursor, slot, text.itext, form.parsed.scope);
 		if (emptyChoice(slot))
 			ctx.accounting.finding(
 				slot.owner.field.control?.tag === "select"
@@ -321,16 +345,19 @@ export function readMediaMap(
 	// (`menus/navMedia.ts::shownNavMedia`) passes the path every language shows, which this
 	// rule reads as it is.
 	const codes = applicationReading(ctx)?.languages.codes ?? [];
-	const shown: string[] = [];
+	const languagesByPath = new Map<string, string[]>();
 	for (const code of codes) {
 		const one = shownText(byLanguage, code, codes);
 		if (!one.ok) return { kind: "differs" };
-		shown.push(one.text);
+		const languages = languagesByPath.get(one.text) ?? [];
+		languages.push(code);
+		languagesByPath.set(one.text, languages);
 	}
-	if (shown.every((path) => path === "")) return { kind: "none" };
+	const paths = [...languagesByPath.keys()];
+	if (paths.every((path) => path === "")) return { kind: "none" };
 	// A language that shows no file beside one that shows a file differs, as two files do.
-	if (shown.includes("")) return { kind: "differs" };
-	const paths = [...new Set(shown)];
+	if (languagesByPath.has("")) return { kind: "differs" };
+	for (const languages of languagesByPath.values()) languages.sort();
 	const pointer =
 		"json" in at.site
 			? `${at.site.json.pointer}/${pointerToken(at.site.key)}`
@@ -342,6 +369,7 @@ export function readMediaMap(
 		for (const path of paths)
 			ctx.facts.mediaReferences.push({
 				path,
+				shownLanguages: languagesByPath.get(path),
 				assetId: asset.assetId,
 				mediaKind: at.mediaKind,
 				place: at.place,
@@ -366,6 +394,7 @@ export function readMediaMap(
 		place: at.place,
 		...(pointer !== undefined && { pointer }),
 		slot: at.slot,
+		shownLanguages: languagesByPath.get(path),
 	});
 	return { kind: "handed-off" };
 }

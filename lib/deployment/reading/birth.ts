@@ -114,7 +114,10 @@ export function adoptedDeploymentWrite(input: {
 // The one transaction
 // ---------------------------------------------------------------------------
 
+export class BirthRoleChangedError extends Error {}
+
 export interface AdoptionBirth {
+	readonly reviewedRole: string;
 	readonly actorUserId: string;
 	/** Attribution only: an adoption holds no run. Minted outside the transaction. */
 	readonly runId: string;
@@ -188,6 +191,10 @@ export async function adoptHqAppInTransaction(
 			"Nova brought an app in for a person the same transaction had just found able to edit its Project, and then found no role for them. The membership gate is held from the genesis tail to the commit, so look at lib/db/projectMembership.ts.",
 		);
 	}
+	if (role !== birth.reviewedRole)
+		throw new BirthRoleChangedError(
+			"The Project role changed since this reading.",
+		);
 	return { kind: "born", role };
 }
 

@@ -489,6 +489,14 @@ function* walkFieldOptionMedia(
 	}
 }
 
+/** The files HQ's content import references, including a logo used in a form or menu. */
+export function bulkUploadAssetIds(doc: BlueprintDoc): Set<IconRef> {
+	const carried = new Set<IconRef>();
+	for (const ref of walkAssetRefs(doc))
+		if (carriesViaBulkUpload(ref.location)) carried.add(ref.assetId);
+	return carried;
+}
+
 /**
  * Collect the de-duplicated set of every media `MediaAssetId` referenced
  * anywhere in the blueprint — a thin wrapper over `walkAssetRefs` for

@@ -675,6 +675,7 @@ function readForm(
 				entry: DATETIME_SIBLING_ENTRY,
 				path: `/_attachments/${pointerToken(`${readId ?? form.xmlns}.xml`)}`,
 				register: "date-and-time-saved-as-hq-stores-it",
+				removedInputs: [["datetime-question", ownerPath.toXPath()]],
 			});
 		}
 	};

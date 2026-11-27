@@ -779,6 +779,11 @@ export function importRetryWaitMs(retryAfter: string | null): number | null {
 	return ms !== null && ms <= IMPORT_RETRY_MAX_WAIT_MS ? ms : null;
 }
 
+interface ImportStoppedBeforeView {
+	readonly kind: "save-not-confirmed";
+	readonly counter: number | CommCareApiError;
+}
+
 /**
  * Import an app into a CommCare HQ project space.
  *
@@ -809,13 +814,29 @@ export function importRetryWaitMs(retryAfter: string | null): number | null {
  * outlast it is not begun, and one the deadline cuts short sends nothing
  * more, so either way the answer is HQ's 429.
  */
+export function importApp(
+	creds: CommCareCredentials,
+	domain: string,
+	appName: string,
+	appJson: object,
+	updateAppId?: string,
+): Promise<ImportResponse>;
+export function importApp(
+	creds: CommCareCredentials,
+	domain: string,
+	appName: string,
+	appJson: object,
+	updateAppId: string,
+	expectedVersion: number,
+): Promise<ImportResponse | ImportStoppedBeforeView>;
 export async function importApp(
 	creds: CommCareCredentials,
 	domain: string,
 	appName: string,
 	appJson: object,
 	updateAppId?: string,
-): Promise<ImportResponse> {
+	expectedVersion?: number,
+): Promise<ImportResponse | ImportStoppedBeforeView> {
 	if (
 		!isValidDomainSlug(domain) ||
 		(updateAppId !== undefined && !/^[A-Za-z0-9_-]+$/.test(updateAppId))
@@ -847,6 +868,26 @@ export async function importApp(
 	return withHqRequestDeadline(async (signal, deadline) => {
 		let res: HqAnswer;
 		for (let sent = 1; ; sent++) {
+			// HQ checks its throttle before the view. A retry after its wait is a
+			// new opportunity to replace the app, so confirm the reviewed save
+			// immediately before each physical POST, within the same deadline.
+			if (updateAppId !== undefined && expectedVersion !== undefined) {
+				const version = await readAppVersions(creds, domain, updateAppId, {
+					cancel: signal,
+				});
+				if ("success" in version)
+					return { kind: "save-not-confirmed", counter: version };
+				if (signal.aborted)
+					return {
+						kind: "save-not-confirmed",
+						counter: { success: false, status: 503, cause: "timeout" },
+					};
+				if (version.currentVersion !== expectedVersion)
+					return {
+						kind: "save-not-confirmed",
+						counter: version.currentVersion,
+					};
+			}
 			try {
 				res = await sendHq(creds, url, {
 					method: "POST",

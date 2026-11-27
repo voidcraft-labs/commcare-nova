@@ -16,11 +16,16 @@ import {
 import { schemaPropertyDefault } from "@/lib/commcare/surface/schemaDefaults";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { adoptedAppBaselineWrite, adoptedIdentityRows } from "../adoption";
+import { appRemoteChange } from "../appRemoteChange";
 import {
 	type AppChangePart,
 	diffHqAppSource,
 	normalizeHqAppSource,
+	removedHqFileLine,
+	removedHqFileReplaced,
+	removedHqFiles,
 } from "../hqSourceBaseline";
+import { decideRemoteChanges } from "../remoteChanges";
 import type { AppOwnership } from "../types";
 
 const READS = path.join(process.cwd(), "proof/hq-reads");
@@ -412,6 +417,138 @@ describe("a baseline an app brought in from CommCare HQ is born with", () => {
 	});
 });
 
+describe("the removal decision shared by a real publish and capture", () => {
+	const names = Array.from(
+		{ length: 22 },
+		(_, i) => `commcare/image/kept-${i}.jpg`,
+	);
+	const source = {
+		...retainedRead(NAVIGATION_BASE),
+		multimedia_map: Object.fromEntries(
+			names.map((p, i) => [
+				`jr://file/${p}`,
+				{ media_type: "CommCareImage", multimedia_id: `saved-${i}` },
+			]),
+		),
+	};
+	const current = normalizeHqAppSource(source);
+	if ("malformed" in current) throw new Error(current.malformed);
+	const sourceRead = current;
+	const ownership = retainedOwnership(NAVIGATION_BASE_OWNERSHIP);
+	const authority = {
+		actor: "editor",
+		role: "editor",
+		project: "project",
+		app: "app",
+		server: "production" as const,
+		domain: "test",
+		remoteApp: "remote",
+		deployment: "deployment",
+		claim: "claim",
+		reviewGeneration: null as string | null,
+		headSeq: 1,
+		remoteRevision: 2,
+		baseline: null,
+	};
+	const decision = (
+		origin: "create" | "read" | "push",
+		keep: readonly string[],
+		approved: readonly string[] = [],
+		context = authority,
+	) =>
+		appRemoteChange({
+			authority: context,
+			novaAppId: "app",
+			appName: "Care",
+			remoteAppId: "remote",
+			current: sourceRead,
+			baseline: {
+				source: sourceRead.normalized,
+				origin,
+				ownership,
+				mediaFiles: null,
+				approvedFileRemovals: approved,
+			},
+			since: { kind: "published" },
+			languageNames: "target",
+			mediaChanged: 0,
+			published: keep.map((wirePath) => ({ wirePath })),
+			canBringIn: origin !== "create",
+		});
+	it("asks separately for the identical file on another target, HQ app, or claim", () => {
+		const first = decision("push", names.slice(1));
+		if (!first) throw new Error("Expected the foreign file to be listed.");
+		const receipt = {
+			kind: "app" as const,
+			novaResourceId: "app",
+			observedDigest: first.observedDigest,
+		};
+		for (const scope of [
+			{ domain: "another" },
+			{ remoteApp: "replacement" },
+			{ claim: "later" },
+			{ project: "moved" },
+			{ actor: "co-editor" },
+			{ role: "admin" },
+			{ headSeq: 4 },
+			{ remoteRevision: 5 },
+			{ reviewGeneration: "later review" },
+		]) {
+			const observed = decision("push", names.slice(1), [], {
+				...authority,
+				...scope,
+			});
+			if (!observed)
+				throw new Error("Each independent owner removes the recorded file.");
+			expect(observed.parts).toEqual(first.parts);
+			expect(
+				decideRemoteChanges({ observed: [observed], discards: [receipt] })
+					.proceed,
+				JSON.stringify(scope),
+			).toBe(false);
+		}
+	});
+	it.each(["create", "read", "push"] as const)(
+		"binds the outgoing paths and requires the entire list on a %s baseline",
+		(origin) => {
+			const first = decision(origin, names.slice(1));
+			const next = decision(origin, names.slice(2));
+			if (!first || !next)
+				throw new Error(
+					"The two imports must list the foreign references they remove.",
+				);
+			expect(first.parts.join(" ")).toContain(names[0]);
+			expect(first.observedDigest).not.toBe(next.observedDigest);
+			const discard = {
+				kind: "app" as const,
+				novaResourceId: "app",
+				observedDigest: first.observedDigest,
+			};
+			expect(
+				decideRemoteChanges({ observed: [first], discards: [discard] }).proceed,
+			).toBe(true);
+			expect(
+				decideRemoteChanges({ observed: [next], discards: [discard] }).proceed,
+			).toBe(false);
+			const overflow = decision(origin, []);
+			if (!overflow)
+				throw new Error("Expected every saved file to be considered.");
+			expect(overflow.requiresReview).toBe(true);
+			expect(
+				decideRemoteChanges({
+					observed: [overflow],
+					discards: [{ ...discard, observedDigest: overflow.observedDigest }],
+				}).proceed,
+			).toBe(false);
+			const accepted = removedHqFiles(sourceRead.normalized, {
+				published: [],
+				recorded: null,
+			}).map((file) => file.digest);
+			expect(decision(origin, [], accepted)).toBeNull();
+		},
+	);
+});
+
 describe("the schema-growth rule", () => {
 	const base = retainedRead(NAVIGATION_BASE);
 	const ownership = retainedOwnership(NAVIGATION_BASE_OWNERSHIP);
@@ -667,5 +804,39 @@ describe("HQ's reads after its own saves", () => {
 				},
 			),
 		).toEqual([{ kind: "menu-list" }]);
+	});
+});
+
+describe("a removed file's line", () => {
+	const PATH = "jr://file/commcare/image/visit.png";
+	const holding = (id: string) => ({
+		multimedia_map: {
+			[PATH]: { media_type: "CommCareImage", multimedia_id: id },
+		},
+	});
+	const removal = (id: string) => {
+		const [file] = removedHqFiles(holding(id), {
+			published: [],
+			recorded: null,
+		});
+		if (!file) throw new Error("Expected the file the import removes.");
+		return file;
+	};
+
+	it("says the file at a path changed since the reading it is compared with, and only then", () => {
+		const later = removal("later-file");
+		expect(removedHqFileReplaced(later, holding("earlier-file"))).toBe(true);
+		expect(removedHqFileReplaced(later, holding("later-file"))).toBe(false);
+		expect(removedHqFileReplaced(later, { multimedia_map: {} })).toBe(false);
+		expect(removedHqFileReplaced(later, null)).toBe(false);
+		const accepted = removedHqFileLine(removal("earlier-file"));
+		const asked = removedHqFileLine(later, true);
+		expect(accepted).toBe(
+			"Publishing removes the file “commcare/image/visit.png” from the app in CommCare HQ. This app doesn't use it.",
+		);
+		expect(asked).toBe(
+			`${accepted} CommCare HQ holds a different file at that path than when Nova last read it.`,
+		);
+		expect(asked).not.toMatch(/\u2014|\u2026|\.\.\./);
 	});
 });

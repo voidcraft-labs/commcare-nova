@@ -360,6 +360,10 @@ item's parts, its Publish over this and the stop block are drawn only under an
 account or a stop (`drawsItem`); a review with nothing to bring in but a read to
 record sends that bring-in at once, once, and then the dialog publishes by
 itself or returns to its review step where the next publish changes something.
+A published take held by a case-property rename shows the recorded moves in
+place of the bring-in action, including when the list of changes removed in
+Nova is empty. A reused name can have different recorded origins: the panel
+asks the person to check the current properties and saved values in that case.
 The card's publish over closes its dialog and opens the Publish dialog through
 `requestPublishDialog`'s `discard`, which the dialog sends and states under
 the plan line with **Publish over these changes** as its button. Under the

@@ -146,6 +146,58 @@ describe("the review", () => {
 		).toEqual({ id: 1, kind: "review" });
 	});
 
+	it("shows how to recover a claimed target whose required review is unavailable", () => {
+		const state = answered({
+			kind: "unavailable",
+			reason: "baseline-unread",
+			since: { kind: "published" },
+			requiresReview: true,
+		});
+		for (const context of [CARD, PUBLISH]) {
+			const body = panelView(state, context).body;
+			if (body.kind !== "line")
+				throw new Error("Expected recovery for the unread HQ target.");
+			for (const step of [
+				"Project admin or owner",
+				"Stop publishing here",
+				"publish in progress finishes",
+				"new Nova app",
+				"different project space",
+			])
+				expect(body.line).toContain(step);
+		}
+	});
+
+	it("waits for the member to accept an older target's first-publish review and shows no discard", () => {
+		const state = answered(
+			changes({
+				requiresReview: true,
+				hqChanges: ["Publishing removes the old picture reference."],
+			}),
+		);
+		expect(nextRequest(state)).toBeNull();
+		expect(publishOverDiscard(state, "app-1")).toBeNull();
+		for (const context of [CARD, PUBLISH])
+			expect(panelView(state, context).body).toMatchObject({
+				kind: "lists",
+				choices: { bringIn: { discard: false }, publishOver: null },
+			});
+		const pending = reduceHqChangesPanel(state, {
+			type: "bring-in-pressed",
+			discard: false,
+			at: AT,
+		});
+		expect(nextRequest(pending)?.kind).toBe("bring-in");
+		const done = reduceHqChangesPanel(pending, {
+			type: "bring-in-answered",
+			outcome: { kind: "recorded", deployment: VIEW },
+		});
+		expect(panelView(done, CARD).body).toEqual({
+			kind: "brought-in",
+			line: "Nova recorded your review for the next publish.",
+		});
+	});
+
 	it("draws the stage row with the stage the stream names, its file count moving every ten files for a screen reader", () => {
 		const states = statesBeforeAnswer();
 		expect(panelView(states[0], PUBLISH).stage).toEqual({
@@ -356,20 +408,27 @@ describe("changes, and changes in Nova that would be removed", () => {
 		expect(publishOverDiscard(running, "app-1")).toBeNull();
 	});
 
-	it("puts the renamed properties' line in place of Use CommCare HQ's version where a case property was renamed in Nova, and refuses the press", () => {
-		const renames = [{ caseType: "patient", from: "age", to: "years" }];
-		const state = answered({ ...s2, renamedInNova: renames });
-		expect(panelView(state, PUBLISH).body).toMatchObject({
-			choices: { bringIn: null, renamed: renamedInNovaLine(renames) },
-		});
-		expect(
-			reduceHqChangesPanel(state, {
-				type: "bring-in-pressed",
-				discard: true,
-				at: AT,
-			}),
-		).toBe(state);
-	});
+	it.each([true, false])(
+		"explains the saved-data hold and refuses the take with a Nova change list present: %s",
+		(removes) => {
+			const renames = [{ caseType: "patient", from: "age", to: "years" }];
+			const state = answered({
+				...s2,
+				novaChanges: removes ? s2.novaChanges : [],
+				renamedInNova: renames,
+			});
+			expect(panelView(state, PUBLISH).body).toMatchObject({
+				choices: { bringIn: null, renamed: renamedInNovaLine(renames) },
+			});
+			expect(
+				reduceHqChangesPanel(state, {
+					type: "bring-in-pressed",
+					discard: removes,
+					at: AT,
+				}),
+			).toBe(state);
+		},
+	);
 
 	it("copies every line of both lists, shown or not, under their two headings", () => {
 		const long = changes({
@@ -404,6 +463,30 @@ describe("changes, and changes in Nova that would be removed", () => {
 });
 
 describe("a list longer than ten lines", () => {
+	it("waits to offer either decision until every physical file it would remove is visible", () => {
+		const files = Array.from(
+			{ length: 20 },
+			(_, i) =>
+				`Publishing removes the reference to “visit-${i}” from the app in CommCare HQ. This app doesn't use it.`,
+		);
+		const state = answered(
+			changes({
+				hqChanges: [...files, "The app’s name"],
+				fileReviewLines: files.length,
+			}),
+		);
+		const take = { type: "bring-in-pressed", discard: false, at: 1 } as const;
+		expect(panelView(state, PUBLISH).body).toMatchObject({
+			choices: { bringIn: null, publishOver: null },
+		});
+		expect(reduceHqChangesPanel(state, take)).toBe(state);
+		expect(publishOverDiscard(state, "app")).toBeNull();
+		const all = reduceHqChangesPanel(state, { type: "show-all", list: "hq" });
+		expect(reduceHqChangesPanel(all, take).phase.kind).toBe("bringing-in");
+		expect(publishOverDiscard(all, "app")).toMatchObject({
+			novaResourceId: "app",
+		});
+	});
 	it("shows its first ten and Show all with the whole count, then every line", () => {
 		const lines = Array.from({ length: 13 }, (_, i) => `line ${i}`);
 		const state = answered(changes({ hqChanges: lines }));

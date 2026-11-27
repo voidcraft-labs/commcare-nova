@@ -25,6 +25,7 @@ import "server-only";
 import type { HqApplicationProfile } from "@/lib/commcare";
 import { NO_ENTRIES } from "@/lib/domain/records";
 import { log } from "@/lib/logger";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { HQ_APP_SOURCE_MAX_BYTES } from "./bounds";
 import {
 	baseUrl,
@@ -34,29 +35,22 @@ import {
 	INVALID_DOMAIN_SLUG,
 	isValidDomainSlug,
 } from "./http";
+import {
+	type HqMediaMapItem,
+	readMultimediaMap,
+	unreadableMediaIdentity,
+} from "./mediaMap";
 import { readHqJson } from "./readJson";
 
 export { HQ_APP_SOURCE_MAX_BYTES } from "./bounds";
-
-/** The four document kinds `hqmedia/models.py::CommCareMultimedia.get_doc_class` names. */
-export const HQ_MEDIA_TYPES = [
-	"CommCareImage",
-	"CommCareAudio",
-	"CommCareVideo",
-	"CommCareMultimedia",
-] as const;
-export type HqMediaType = (typeof HQ_MEDIA_TYPES)[number];
-
-/** One entry of `multimedia_map`. */
-export interface HqMediaMapItem {
-	/** The map's key: the path the app's content names, `jr://file/...`. */
-	readonly path: string;
-	/** HQ's id of the file, or null where the entry names none Nova can ask for. */
-	readonly multimediaId: string | null;
-	readonly mediaType: HqMediaType | null;
-	/** True where the entry names a file by an id or a type Nova cannot read. Both are then null. */
-	readonly unreadable: boolean;
-}
+export {
+	HQ_MEDIA_TYPES,
+	type HqMediaMapItem,
+	type HqMediaType,
+	readMultimediaMap,
+	UNREADABLE_MEDIA_ENTRY_POSITIONS,
+	unreadableMediaIdentity,
+} from "./mediaMap";
 
 export interface HqAppSourceForm {
 	/** `doc_type`: `Form`, `AdvancedForm` or `ShadowForm` (`models/forms.py::FormBase.wrap`). */
@@ -200,8 +194,6 @@ function isStringBagByLanguage(
 	);
 }
 
-const MEDIA_TYPES: ReadonlySet<string> = new Set(HQ_MEDIA_TYPES);
-
 /**
  * Read the app's source and say what CommCare HQ holds there.
  *
@@ -215,9 +207,7 @@ const MEDIA_TYPES: ReadonlySet<string> = new Set(HQ_MEDIA_TYPES);
  * Anything short of the expected shape is a refusal, never an empty
  * default: an empty profile, `translations`, `add_ons` or `build_profiles`
  * would make the next import erase configuration HQ owns or pass a state a
- * publish must stop on, and a menu with no id cannot be paired. `name`,
- * `last_modified` and `multimedia_map` are read where HQ sent them and null
- * where it did not, so none of them refuses a read.
+ * publish must stop on, and a menu with no id cannot be paired. Every live app source must carry its media map. Its name and save time may be absent.
  */
 export async function readHqAppSource(
 	creds: CommCareCredentials,
@@ -255,23 +245,24 @@ export async function readHqAppSource(
 	const parsed = parseHqAppSource(body, {
 		admit: options.admit,
 		onNote: (note) => {
-			if (note.kind === "media-map-malformed")
-				log.error("[commcare] media map is malformed", undefined, {
-					domain,
-					request: "app-source",
-					appId,
-				});
-			else
-				log.warn("[commcare] media map entries are unreadable", {
-					domain,
-					request: "app-source",
-					appId,
-					count: note.count,
-					firstIndexes: note.firstIndexes,
-				});
+			if (note.kind === "media-map-malformed") return; // The caller logs the malformed required key below.
+			log.warn("[commcare] media map entries are unreadable", {
+				domain,
+				request: "app-source",
+				appId,
+				count: note.count,
+				firstIndexes: note.firstIndexes,
+			});
 		},
 	});
-	if (parsed.kind === "source") return parsed;
+	if (parsed.kind === "source") {
+		// An update can prune mappings even when the app sends no files.
+		// A live reading must account for the map before it may be adopted,
+		// refreshed or used for an import. Older stored sources still decode.
+		return parsed.source.multimediaMap === null
+			? malformed(domain, appId, "multimedia_map")
+			: parsed;
+	}
 	if (parsed.key === "build_profiles") {
 		log.error("[commcare] build profiles are malformed", undefined, {
 			domain,
@@ -282,9 +273,6 @@ export async function readHqAppSource(
 	}
 	return malformed(domain, appId, parsed.key);
 }
-
-/** The most positions of unreadable media map entries one note names. */
-export const UNREADABLE_MEDIA_ENTRY_POSITIONS = 5;
 
 /** What a parse of a source met that its caller may log: a media map that is no object, or the
  *  entries of it Nova cannot ask for, as one note for the whole map with their count and the
@@ -482,65 +470,49 @@ function readBuildProfiles(value: unknown): readonly HqBuildProfile[] | null {
 }
 
 /**
- * `multimedia_map`, `hqmedia/models.py::ApplicationMediaMixin.multimedia_map`:
- * path to `HQMediaMapItem`. An entry with no id names no file
- * (`HQMediaMapItem.url` is empty for it); an entry whose id or type Nova
- * cannot ask for is kept as unreadable, so one entry never refuses the read.
+ * App-shell inputs the changes reader uses beyond the part Nova overwrites.
+ * HQ prunes map keys unreferenced by both content and the retained logos.
+ * A file outside the settled manifest may also be one the earlier reading
+ * left out, or one HQ now serves. Map item versions and upload metadata
+ * describe neither a path nor a file. Web Apps also affects how the reader
+ * interprets an absent Incomplete Forms setting.
+ *
+ * The maps compare entry by entry. A path that left the map is a move. A
+ * `settledPaths` path is Nova's own file there, so a new entry or another id
+ * at it is not one: HQ's bulk upload adds Nova's file to the map after the
+ * publish read the app back.
  */
-function readMultimediaMap(
-	value: unknown,
-	onNote: ((note: HqAppSourceParseNote) => void) | undefined,
-): readonly HqMediaMapItem[] | null {
-	if (value === undefined) return null;
-	if (!isRecord(value)) {
-		onNote?.({ kind: "media-map-malformed" });
-		return null;
-	}
-	const items: HqMediaMapItem[] = [];
-	/* One note for the map, after the loop: the map is an app author's, and
-	 * its length is bounded only by the source's. */
-	let unreadable = 0;
-	const firstIndexes: number[] = [];
-	for (const [index, [path, entry]] of Object.entries(value).entries()) {
-		if (isRecord(entry)) {
-			const id = entry.multimedia_id;
-			if (id === undefined || id === null || id === "") {
-				items.push({
-					path,
-					multimediaId: null,
-					mediaType: null,
-					unreadable: false,
-				});
-				continue;
-			}
-			const type = entry.media_type;
-			if (
-				typeof id === "string" &&
-				/^[\w-]+$/.test(id) &&
-				typeof type === "string" &&
-				MEDIA_TYPES.has(type)
-			) {
-				items.push({
-					path,
-					multimediaId: id,
-					mediaType: type as HqMediaType,
-					unreadable: false,
-				});
-				continue;
-			}
-		}
-		unreadable += 1;
-		if (firstIndexes.length < UNREADABLE_MEDIA_ENTRY_POSITIONS)
-			firstIndexes.push(index);
-		items.push({ path, multimediaId: null, mediaType: null, unreadable: true });
-	}
-	if (unreadable > 0)
-		onNote?.({
-			kind: "media-entries-unreadable",
-			count: unreadable,
-			firstIndexes,
-		});
-	return items;
+export function publishReadingFactsMoved(
+	previous: unknown,
+	current: HqAppSource,
+	settledPaths: ReadonlySet<string>,
+): boolean {
+	if (!isRecord(previous)) return true;
+	if ((previous.cloudcare_enabled === true) !== current.cloudcareEnabled)
+		return true;
+	if (
+		canonicalJsonText(previous.logo_refs ?? NO_ENTRIES) !==
+		canonicalJsonText(current.logoRefs)
+	)
+		return true;
+	const earlier = readMultimediaMap(previous.multimedia_map, undefined) ?? [];
+	const now = current.multimediaMap ?? [];
+	const nowPaths = new Set(now.map((item) => item.path));
+	if (earlier.some((item) => !nowPaths.has(item.path))) return true;
+	const byPath = new Map(earlier.map((item) => [item.path, item]));
+	return now.some((item) => {
+		const before = byPath.get(item.path);
+		if (before === undefined) return !settledPaths.has(item.path);
+		return (
+			before.mediaType !== item.mediaType ||
+			before.unreadable !== item.unreadable ||
+			(item.unreadable &&
+				unreadableMediaIdentity(previous, item.path) !==
+					unreadableMediaIdentity(current.raw, item.path)) ||
+			(before.multimediaId !== item.multimediaId &&
+				!settledPaths.has(item.path))
+		);
+	});
 }
 
 function malformed(

@@ -25,7 +25,7 @@ import {
 	AlertDialogTitle,
 } from "@/components/shadcn/alert-dialog";
 import { Spinner } from "@/components/shadcn/spinner";
-import { LOOKUP_DISCARD_NOTE } from "@/lib/deployment/remoteChanges";
+
 import type { LookupReferencingAppSummary } from "@/lib/lookup/types";
 import {
 	appsThatReadIt,
@@ -33,6 +33,7 @@ import {
 	KEEP_IN_HQ,
 	KEEP_MANAGING_IN_NOVA,
 	LET_HQ_MANAGE_CONFIRM,
+	LOOKUP_DISCARD_NOTE,
 	letHqManageBody,
 	letHqManageTitle,
 	MANAGE_IN_NOVA_CONFIRM,

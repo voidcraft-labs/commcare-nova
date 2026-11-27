@@ -437,6 +437,7 @@ describe("planHqChanges", { timeout: 30_000 }, () => {
 		const { ref, read } = await readings();
 		expect(
 			planHqChanges({
+				baseMediaFiles: [],
 				reference: reference(ref),
 				now: ref,
 				readings: read,
@@ -448,6 +449,7 @@ describe("planHqChanges", { timeout: 30_000 }, () => {
 	it("answers the change, and what the next publish changes beside it", async () => {
 		const { ref, read } = await readings(menuNamed("Clients"));
 		const plan = planHqChanges({
+			baseMediaFiles: [],
 			reference: reference(ref),
 			now: ref,
 			readings: read,
@@ -473,6 +475,7 @@ describe("planHqChanges", { timeout: 30_000 }, () => {
 		}));
 		expect(read.now.kind).toBe("account");
 		const plan = planHqChanges({
+			baseMediaFiles: [],
 			reference: reference(ref),
 			now: ref,
 			readings: read,
@@ -502,6 +505,7 @@ describe("planHqChanges", { timeout: 30_000 }, () => {
 		if (failed.ok) return;
 		expect(
 			planHqChanges({
+				baseMediaFiles: [],
 				reference: reference(ref),
 				now: ref,
 				readings: read,
@@ -520,6 +524,7 @@ describe("planHqChanges", { timeout: 30_000 }, () => {
 		const elsewhere = runs === "android" ? "web-apps" : "android";
 		expect(
 			planHqChanges({
+				baseMediaFiles: [],
 				reference: reference(ref),
 				now: ref,
 				readings: read,
@@ -532,6 +537,7 @@ describe("planHqChanges", { timeout: 30_000 }, () => {
 		const { ref, read } = await readings();
 		expect(() =>
 			planHqChanges({
+				baseMediaFiles: [],
 				reference: { kind: "nova-updated" } as unknown as ReturnType<
 					typeof reference
 				>,

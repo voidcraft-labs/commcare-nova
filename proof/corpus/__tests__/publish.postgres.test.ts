@@ -104,10 +104,16 @@ import {
 } from "@/__tests__/helpers/httpPeer";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { POST as compileCcz } from "@/app/api/compile/route";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
 import { appProfileProperties } from "@/lib/commcare/appProfileSettings";
 import { decrypt } from "@/lib/commcare/encryption";
+import * as hqReading from "@/lib/commcare/hq/appReading";
 import { parseHqAppSource } from "@/lib/commcare/hq/appSource";
+import {
+	jrFileRef,
+	wirePathFor,
+} from "@/lib/commcare/multimedia/assetWirePath";
 import { profileUniqueId } from "@/lib/commcare/runtimeTarget";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
@@ -132,12 +138,17 @@ import {
 	TARGET_PROFILE_WITH_DERIVED_KEY,
 } from "@/lib/deployment/__tests__/publishFixtures";
 import { adoptedAppBaselineWrite } from "@/lib/deployment/adoption";
+import { bringInHqChanges } from "@/lib/deployment/hqChanges/bringIn";
+import { reviewHqChanges } from "@/lib/deployment/hqChanges/review";
+import { summarizeServedHqApp } from "@/lib/deployment/reading/__tests__/servedHqApp";
 import { adoptionExportBoundary } from "@/lib/deployment/reading/adoptionBoundary";
 import { publishAppToHq } from "@/lib/deployment/service";
+import * as deploymentStore from "@/lib/deployment/store";
 import { recordAdoptedDeploymentInTransaction } from "@/lib/deployment/store";
 import { canonicalTargetIdentity } from "@/lib/deployment/targetIdentity";
 import type {
 	DeploymentConfirmationKey,
+	DeploymentRemoteChange,
 	RemoteChangeDiscard,
 } from "@/lib/deployment/types";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
@@ -234,7 +245,7 @@ async function seed(doc: BlueprintDoc): Promise<void> {
  * sequence-one fold baseline: the baseline a deployment's revision pairs
  * with, so a publish's stop offers to bring changes made in CommCare HQ in
  * (`hqChanges/reference.ts::usablePair`), as it does for the capture's app.
- * A document whose Project data the genesis gate reads is seeded by `seed`.
+ * Project data referenced by this document must be present before its birth.
  */
 async function seedBorn(doc: BlueprintDoc): Promise<void> {
 	await h.seedProjectMember(ACTOR, PROJECT, "editor");
@@ -699,11 +710,20 @@ async function seedSearchLookupMedia(): Promise<PublishDocument> {
 			{ [code.id]: "001", [name.id]: "École & Clinic" },
 		],
 	});
+	const { id, file } = await seedProjectImage();
+	await seed(searchLookupMediaDocument(table, id));
+	return storedDocument({
+		lookup: await getLookupFixtureData(scope, [table.id]),
+		media: new Map([[id, file]]),
+	});
+}
+
+/** One uploaded image with Project metadata and the same bytes in object storage. */
+async function seedProjectImage() {
 	const image = testMediaAssetId("proof-publish-image");
 	const png = readFileSync("public/nova-icons/household.png");
 	const hash = createHash("sha256").update(png).digest("hex");
 	const objectKey = `projects/${PROJECT}/${hash}.png`;
-	await seed(searchLookupMediaDocument(table, image));
 	await h
 		.db()
 		.insertInto("media_assets")
@@ -728,15 +748,15 @@ async function seedSearchLookupMedia(): Promise<PublishDocument> {
 		return png;
 	});
 
-	return storedDocument({
-		lookup: await getLookupFixtureData(scope, [table.id]),
-		media: new Map([
-			[
-				image,
-				{ kind: "image", mimeType: "image/png", extension: ".png", bytes: png },
-			],
-		]),
-	});
+	return {
+		id: image,
+		file: {
+			kind: "image" as const,
+			mimeType: "image/png",
+			extension: ".png" as const,
+			bytes: png,
+		},
+	};
 }
 
 it("captures the shell, the content and the profile-preserving update Nova sends for the shared survey app, in Nova's order, and every publish sends the same ids", async () => {
@@ -826,6 +846,193 @@ it("captures the shell, the content and the profile-preserving update Nova sends
 	expect(sentIds(sentUpdate)).toEqual(ids);
 	expect(sentIds(await appFile(again))).toEqual(ids);
 });
+
+it("keeps the file a member took between the app import and its media upload", async () => {
+	await h.seedProjectMember(ACTOR, PROJECT, "editor");
+	const { id, file: image } = await seedProjectImage();
+	await seedBorn(
+		buildDoc({
+			appName: "Household visit",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								{
+									id: "note",
+									kind: "text",
+									label: "Note",
+									label_media: { image: id },
+								},
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
+	const path = wirePathFor(
+		createHash("sha256").update(image.bytes).digest("hex"),
+		image.extension,
+	);
+	const model = projectSpace();
+	const target = { server: "production" as const, domain: DOMAIN };
+	const log: PeerRequest[] = [];
+	await withHttpPeer(async (peer) => {
+		const trace: { method: string; path: string; status: number | string }[] =
+			[];
+		const reads: unknown[] = [];
+		const report = () =>
+			JSON.stringify({
+				trace,
+				unexpected: model.unexpected.map(({ method, path }) => ({
+					method,
+					path,
+				})),
+				readings: reads,
+				transport: peer
+					.getCallHistory()
+					?.calls()
+					.map(({ method, fullUrl }) => ({
+						method,
+						path: new URL(fullUrl).pathname,
+					})),
+			});
+		const originalAnswer = model.answer.bind(model);
+		const transport = vi
+			.spyOn(model, "answer")
+			.mockImplementation(async (request) => {
+				try {
+					let result: Awaited<ReturnType<typeof model.answer>>;
+					if (
+						request.method === "GET" &&
+						request.path === `/a/${DOMAIN}/api/application/v1/${REMOTE_APP}/`
+					) {
+						// HQ's application API and source describe the same working app.
+						const source = await originalAnswer({
+							...request,
+							path: `/a/${DOMAIN}/apps/source/${REMOTE_APP}/`,
+						});
+						const body = JSON.parse(Buffer.from(source.body).toString());
+						const { resource } = summarizeServedHqApp(
+							{ ...body, version: model.saveCounter() },
+							REMOTE_APP,
+						);
+						result = {
+							status: resource.status,
+							contentType: "application/json",
+							body:
+								typeof resource.body === "string"
+									? resource.body
+									: JSON.stringify(resource.body),
+						};
+					} else result = await originalAnswer(request);
+					trace.push({
+						method: request.method,
+						path: request.path,
+						status: result.status,
+					});
+					return result;
+				} catch (error) {
+					trace.push({
+						method: request.method,
+						path: request.path,
+						status: String(error),
+					});
+					throw error;
+				}
+			});
+		const read = hqReading.readHqAppForReading;
+		const reading = vi
+			.spyOn(hqReading, "readHqAppForReading")
+			.mockImplementation(async (...args) => {
+				const value = await read(...args);
+				reads.push(value.kind === "failed" ? value : value.kind);
+				return value;
+			});
+		servedBy(peer, model, log);
+		const admit = deploymentStore.admitAppWrite;
+		let reviewedId: string | undefined;
+		const hook = vi
+			.spyOn(deploymentStore, "admitAppWrite")
+			.mockImplementation(async (...args) => {
+				if (args[2].writeKind === "media") {
+					expect(
+						(await deploymentStore.readAppBaseline(SCOPE, target))?.origin,
+					).toBe("push");
+					// HQ just accepted the app. Someone uploaded this Project image
+					// through HQ before Nova sent its own bundle to that same path.
+					const previousVersion = model.saveCounter();
+					if (previousVersion === null)
+						throw new Error("Expected the imported working app.");
+					model.applyHqSide({
+						republish: "proceeds",
+						mediaReplaced: {
+							path: jrFileRef(path),
+							mimeType: image.mimeType,
+							base64: Buffer.from(image.bytes).toString("base64"),
+						},
+					});
+					expect(model.saveCounter()).toBe(previousVersion + 1);
+					const remoteFile = model.mappedAt(jrFileRef(path));
+					if (!remoteFile)
+						throw new Error("Expected HQ to retain the member’s file.");
+					const review = await reviewHqChanges(SCOPE, target, {
+						onEvent: () => {},
+					});
+					if (
+						review.kind !== "nothing" ||
+						!review.readingId ||
+						!review.reviewDigest
+					)
+						throw new Error(
+							"Expected the verified matching file to be recordable: " +
+								JSON.stringify(review),
+						);
+					const taken = await bringInHqChanges(
+						SCOPE,
+						target,
+						{
+							readingId: review.readingId,
+							reviewDigest: review.reviewDigest,
+							tableChoices: {},
+						},
+						{ onEvent: () => {} },
+					);
+					expect(taken.kind, JSON.stringify(taken)).toBe("recorded");
+					reviewedId = (await deploymentStore.readAppBaseline(SCOPE, target))
+						?.mediaFiles?.[path];
+					expect(reviewedId).toBe(remoteFile.id);
+				}
+				return admit(...args);
+			});
+		try {
+			expect((await publish()).hqAppAction).toBe("created");
+		} catch (error) {
+			throw new Error(report(), { cause: error });
+		} finally {
+			hook.mockRestore();
+			transport.mockRestore();
+			reading.mockRestore();
+		}
+		expect(reviewedId).toEqual(expect.any(String));
+		expect(
+			log.filter(
+				(request) =>
+					request.method === "POST" && request.path.endsWith("/multimedia/"),
+			),
+		).toHaveLength(0);
+		expect(
+			(await deploymentStore.readAppBaseline(SCOPE, target))?.mediaFiles?.[
+				path
+			],
+		).toBe(reviewedId);
+		expect(model.unexpected).toEqual([]);
+	});
+}, 30_000);
 
 it("captures what Nova sends and downloads for Search, lookup data, media and an attachment link, with the verdict naming the flags Nova's check asks about", async () => {
 	const document = await seedSearchLookupMedia();
@@ -1368,13 +1575,21 @@ it("captures the stop Nova makes over a person's save of a value Nova owns, and 
 		}),
 	);
 
-	// The capture met the stop Nova makes: the same code, the same change with
-	// the same parts and the digest Nova binds a discard to. The translation
-	// the target owns is no part of it.
-	expect(confirmed.stops).toEqual([
+	// The capture met the stop Nova makes: the same code and the same change
+	// with the same parts. The translation the target owns is no part of it.
+	// A discard's digest binds its publisher's own deployment, claim and
+	// member, so the capture's differs from Nova's, and each confirms its own.
+	const unbound = (changes: readonly DeploymentRemoteChange[]) =>
+		changes.map(({ observedDigest: _, ...change }) => change);
+	expect(
+		confirmed.stops.map((stop) => ({
+			...stop,
+			remoteChanges: unbound(stop.remoteChanges),
+		})),
+	).toEqual([
 		{
 			code: "hq_changed",
-			remoteChanges: refused.refusal.remoteChanges,
+			remoteChanges: unbound(refused.refusal.remoteChanges),
 			conflicts: [],
 			webAppsChange: null,
 		},
@@ -1383,7 +1598,7 @@ it("captures the stop Nova makes over a person's save of a value Nova owns, and 
 		["A setting this app writes"],
 	]);
 	expect(confirmed.discards).toEqual(
-		refused.refusal.remoteChanges.map((change) => ({
+		(confirmed.stops[0]?.remoteChanges ?? []).map((change) => ({
 			kind: change.kind,
 			novaResourceId: change.novaResourceId,
 			observedDigest: change.observedDigest,

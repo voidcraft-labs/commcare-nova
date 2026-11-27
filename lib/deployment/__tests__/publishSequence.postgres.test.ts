@@ -2726,6 +2726,9 @@ describe("a publish over an app Nova brought in", () => {
 			serve(peer, SOURCE, "source-live");
 			accepted(peer, 200, HQ_APP, bodies);
 			serve(peer, SOURCE, "source-live");
+			/* The caller's document predates the placements the first publish
+			 * recorded, so preflight reads the app once more over the head. */
+			serve(peer, SOURCE, "source-live");
 			mediaTaken(peer);
 			expect((await publish(doc)).landed).toBe(true);
 		});
@@ -3201,13 +3204,110 @@ describe("the save counter a publish's reads are bound to", () => {
 		});
 	});
 
+	/* Nova's earlier publish uploaded a file the app no longer uses: HQ's
+	 * import saves the app, then prunes that map key and saves it again in
+	 * the same request (`hqmedia/models.py::remove_unused_mappings`). */
+	const OLD_FILE = "jr://file/commcare/image/old.png";
+	async function heldOldFile(peer: MockAgent, doc: BlueprintDoc) {
+		await publishFresh(peer, doc);
+		await h
+			.db()
+			.updateTable("app_deployment_baselines")
+			.set({
+				media_files: JSON.stringify({ "commcare/image/old.png": "old-file" }),
+			})
+			.execute();
+		serveEdited(peer, SOURCE, "source-live", (source) => {
+			source.multimedia_map = {
+				[OLD_FILE]: { media_type: "CommCareImage", multimedia_id: "old-file" },
+			};
+		});
+	}
+	/** An accepted update HQ saved twice before it answered. */
+	function acceptedTwice(peer: MockAgent) {
+		request(peer, IMPORT, "POST").reply(() => {
+			saves.save(HQ_APP);
+			return {
+				statusCode: 200,
+				data: JSON.stringify({
+					success: true,
+					app_id: HQ_APP,
+					version: saves.save(HQ_APP),
+				}),
+			};
+		});
+	}
+
+	it("records a push baseline where the second save is HQ pruning the map key the app stopped using", async () => {
+		const doc = await seed();
+		await withPeer(async (peer) => {
+			await heldOldFile(peer, doc);
+			acceptedTwice(peer);
+			serve(peer, SOURCE, "source-live");
+			const landed = await publish(doc);
+			expect(landed).toMatchObject({ landed: true });
+			expect(landed.warnings).not.toContain(APP_CHANGED_DURING_PUBLISH_WARNING);
+			expect((await baselineRow()).origin).toBe("push");
+			expect((await mapping()).pushed_remote_revision).toBe("4");
+		});
+	});
+
+	it.each([
+		["kept the map key", () => {}],
+		[
+			"pruned the map key and changed what the import leaves alone",
+			(source: Record<string, unknown>) => {
+				source.multimedia_map = {};
+				source.comment = "Saved in CommCare HQ";
+			},
+		],
+	] as const)(
+		"records no push baseline where the second save %s, and says so",
+		async (_, readBack) => {
+			const doc = await seed();
+			await withPeer(async (peer) => {
+				await heldOldFile(peer, doc);
+				acceptedTwice(peer);
+				serveEdited(peer, SOURCE, "source-live", (source) => {
+					source.multimedia_map = {
+						[OLD_FILE]: {
+							media_type: "CommCareImage",
+							multimedia_id: "old-file",
+						},
+					};
+					readBack(source);
+				});
+				const landed = await publish(doc);
+				expect(landed).toMatchObject({ landed: true });
+				expect(landed.warnings).toContain(APP_CHANGED_DURING_PUBLISH_WARNING);
+				expect((await baselineRow()).origin).toBe("unread");
+			});
+		},
+	);
+
+	it("stops before the import where HQ saved the app after its counter was read", async () => {
+		const doc = await seed();
+		await withPeer(async (peer) => {
+			await publishFresh(peer, doc);
+			const sent = allRequests(peer).length;
+			/* The save lands after the counter was read and before the import:
+			 * the counter read right before the POST no longer stands there. */
+			serveAfter(peer, "source-live", () => saves.save(HQ_APP));
+			const stopped = refusal(await publish(doc));
+			expect(stopped?.failure.code).toBe("hq_changed");
+			expect(allRequests(peer).slice(sent)).not.toContain(`POST ${IMPORT}`);
+			expect((await baselineRow()).origin).toBe("push");
+		});
+	});
+
 	it("keeps the target settings at the acknowledged version after an extra save and asks before publishing over it", async () => {
 		const doc = await seed();
 		await withPeer(async (peer) => {
 			await publishFresh(peer, doc);
-			/* The save lands after the counter was read and before the import. */
-			serveAfter(peer, "source-live", () => saves.save(HQ_APP));
-			accepted(peer, 200);
+			/* Another save lands while HQ takes the import, after the counter
+			 * read right before the POST, and prunes nothing. */
+			serve(peer, SOURCE, "source-live");
+			acceptedTwice(peer);
 			const heldSettings = (source: Record<string, unknown>) => {
 				source.secure_submissions = true;
 				const profile = source.profile as {

@@ -34,7 +34,7 @@ import {
 	refreshManagedLookupTable,
 	refreshManagedPlaces,
 } from "@/lib/deployment/managedData";
-import { LOOKUP_DISCARD_NOTE } from "@/lib/deployment/remoteChanges";
+
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import type {
@@ -45,6 +45,7 @@ import { REFRESH_MANAGED_DATA_TARGET_MESSAGE } from "@/lib/publish/bringInCopy";
 import {
 	appsThatReadIt,
 	columnsBecomeText,
+	LOOKUP_DISCARD_NOTE,
 	letHqManageBody,
 	letHqManageTitle,
 	MANAGEMENT_NEEDS_ADMIN,

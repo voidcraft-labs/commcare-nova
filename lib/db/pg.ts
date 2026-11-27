@@ -687,7 +687,22 @@ export interface AppDeploymentsTable {
  * space, kept precisely so the author can be told it is still there.
  */
 export interface AppDeploymentResourcesTable {
-	/** Database-generated on insert and every update of push fields. */
+	/** Changes when a take adopts different target facts on this claim. */
+	review_generation: ColumnType<string | null, never, string | null>;
+	reviewed_nova_revision: ColumnType<
+		string | number | null,
+		never,
+		number | null
+	>;
+	/** Last save a person took on this continuous HQ claim, until a confirmed newer publish. */
+	reviewed_remote_revision: ColumnType<
+		string | number | null,
+		number | null | undefined,
+		number | null
+	>;
+	/** Null on the original claim, where id itself identifies that claim. */
+	claim_generation: ColumnType<string | null, never, never>;
+	/** Database-generated on insert, every update of push fields, and every change of claim. */
 	push_token: ColumnType<string, never, never>;
 	id: DefaultedUuidV7Column<string>;
 	deployment_id: string;
@@ -850,6 +865,17 @@ export interface AppDeploymentKeyedCaseIdsTable {
  * settles, never deleted and never row-locked.
  */
 export interface HqRemoteWritesTable {
+	/** Current deployment generation when HQ was first known to be finished. */
+	settled_generation: ColumnType<string | null, never, string | null>;
+	/** The continuous mapping claim under which this app import was admitted. */
+	claim_generation: ColumnType<string | null, string | null | undefined, never>;
+	identity_digest: ColumnType<string | null, string | null | undefined, never>;
+	review_generation: ColumnType<
+		string | null,
+		string | null | undefined,
+		never
+	>;
+	accepted_remote_revision: ColumnType<string | number | null, never, number>;
 	id: DefaultedUuidV7Column<string>;
 	deployment_id: string;
 	server: string;
@@ -906,6 +932,35 @@ export interface AppDeploymentConfirmationsTable {
  * Upserted only, serialized by the deployment row's lock.
  */
 export interface AppDeploymentBaselinesTable {
+	/** The bracketed HQ save of these source bytes. A passive refresh has no counter. */
+	reviewed_remote_revision: ColumnType<
+		string | number | null,
+		number | null | undefined,
+		number | null
+	>;
+	/** The accepted publish and original digest of its read-back. Old rows
+	 * have neither. An older writer can replace source without updating this
+	 * pair, so acknowledge it only when both token and digest still match. */
+	readback_push_token: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
+	readback_source_digest: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
+	reference_fold_seq: ColumnType<
+		string | number | null,
+		number | null | undefined,
+		number | null
+	>;
+	reference_source_digest: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
 	deployment_id: string;
 	remote_app_id: string;
 	/** 'create' | 'push' | 'cutover' | 'read' | 'changes' | 'unread'. */
@@ -946,6 +1001,9 @@ export interface AppDeploymentBaselinesTable {
 	first_publish_changes: JSONColumnType<
 		{
 			readonly ids: readonly string[];
+			readonly reviewed?: 1;
+			readonly reviewedInputs?: 1;
+			readonly removedFiles?: readonly string[];
 			readonly webAppsOnInHq: boolean;
 			readonly of: "first-publish" | "next-publish";
 		} | null,
@@ -1903,6 +1961,15 @@ export interface AppDatabase {
 	hq_remote_writes: HqRemoteWritesTable;
 	app_deployment_confirmations: AppDeploymentConfirmationsTable;
 	app_deployment_baselines: AppDeploymentBaselinesTable;
+	app_deployment_fold_references: {
+		deployment_id: string;
+		fold_seq: ColumnType<string | number, number, never>;
+		app_id: string;
+		mapping_id: string;
+		published_revision: ColumnType<string | number, number, never>;
+		original_source_digest: string;
+		state: JSONColumnType<Record<string, unknown>, string, never>;
+	};
 	project_space_resource_baselines: ProjectSpaceResourceBaselinesTable;
 	app_migration_notices: AppMigrationNoticesTable;
 	app_migration_notice_key_readers: AppMigrationNoticeKeyReadersTable;

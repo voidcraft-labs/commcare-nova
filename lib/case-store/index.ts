@@ -106,6 +106,7 @@ export {
 	buildCaseTypeMap,
 	CASEDB_READING,
 	CasePropertyRenameStorageConflictError,
+	removalRetiresCaseProperty,
 	SEARCH_READING,
 } from "./store";
 export type {

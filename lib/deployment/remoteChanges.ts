@@ -17,6 +17,10 @@ import {
 	driftDate,
 } from "@/lib/publish/driftReference";
 import { hqChangedBringInMessage } from "@/lib/publish/hqChangesCopy";
+import { LOOKUP_DISCARD_NOTE } from "@/lib/publish/managedData";
+
+export { LOOKUP_DISCARD_NOTE } from "@/lib/publish/managedData";
+
 import type { LookupChangePart, PlaceChangePart } from "./hqResourceBaseline";
 import type { AppChangePart } from "./hqSourceBaseline";
 import type {
@@ -91,10 +95,12 @@ export function driftReferenceOf(
 export function hqChangedMessage(
 	changes: readonly Pick<
 		DeploymentRemoteChange,
-		"since" | "kind" | "canBringIn"
+		"since" | "kind" | "canBringIn" | "requiresReview"
 	>[],
 	options?: DriftDateOptions,
 ): string {
+	if (changes.some((change) => change.requiresReview))
+		return "Nova needs a current review of what publishing would change in CommCare HQ.";
 	const app = changes.find((change) => change.kind === "app");
 	const others = changes.some((change) => change.kind !== "app");
 	if (app === undefined) return HQ_CHANGED_MESSAGE;
@@ -133,17 +139,6 @@ export {
 	BASELINE_UNKNOWN_SENTENCE,
 	baselineUnknownSentence,
 } from "@/lib/publish/hqChangesCopy";
-
-/**
- * The note on a lookup table change whose discard replaces a table HQ still
- * holds under that tag and id: a change to its definition or rows, or one
- * whose baseline Nova could not read. HQ's table key holds a description
- * and each field's indexed flag (`fixtures/upload/run_upload.py::table_key`),
- * which no API-key read returns and no workbook carries a description of,
- * so the push makes such a table again without them.
- */
-export const LOOKUP_DISCARD_NOTE =
-	"If it has a description or indexed fields in CommCare HQ, publishing removes them: CommCare HQ doesn't show those to Nova, and a lookup upload can't carry a description.";
 
 /**
  * What taking over a lookup table means, said where a person confirms it:
@@ -269,6 +264,7 @@ export function decideRemoteChanges(input: {
 			readonly remoteChanges: readonly DeploymentRemoteChange[];
 	  } {
 	const confirmed = (change: DeploymentRemoteChange): boolean =>
+		!change.requiresReview &&
 		input.discards.some(
 			(discard) =>
 				discard.kind === change.kind &&
@@ -297,6 +293,10 @@ export function describeAppChange(part: AppChangePart): string {
 			return "A setting this app writes";
 		case "text":
 			return "Text this app writes";
+		case "unused-media":
+			return part.count === 1
+				? "A changed file reference that publishing would remove"
+				: `${part.count} changed file references that publishing would remove`;
 		case "media":
 			return part.count === 1
 				? "A picture or sound this app publishes"
@@ -337,6 +337,14 @@ export function describePlaceChange(part: PlaceChangePart): string {
 		case "missing":
 			return "CommCare HQ no longer lists this place. It was archived or deleted there. Publishing makes it again if it was deleted. If it was archived, CommCare HQ refuses the publish while the place stays archived there.";
 	}
+}
+
+/** File removals precede ordinary differences; the overflow line itself occupies a slot. */
+export function fileDisclosureTruncated(
+	files: number,
+	otherLines: number,
+): boolean {
+	return files >= MAX_PART_LINES && files + otherLines > MAX_PART_LINES;
 }
 
 /** At most 20 lines; past 20 the last line is "and N more". */

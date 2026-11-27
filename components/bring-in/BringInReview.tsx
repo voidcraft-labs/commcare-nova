@@ -400,6 +400,13 @@ export function BringInReview({
 				</ReviewSection>
 
 				<FirstPublishLines view={chosen.firstPublish} surface="review" />
+				{chosen.removesFiles && (
+					<ul className="list-disc space-y-1 pl-5 text-sm text-nova-text-secondary">
+						{chosen.removesFiles.map((line) => (
+							<li key={line}>{line}</li>
+						))}
+					</ul>
+				)}
 			</div>
 		</BringInScreenLayout>
 	);

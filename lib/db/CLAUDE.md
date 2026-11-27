@@ -98,7 +98,31 @@ under its app row while the app has one open
 (`apps.ts::refuseMoveWhilePublishing`); a hand-back reads it under the table
 row. `app_deployment_resources.pushed_remote_revision` is CommCare HQ's save
 counter as the import that wrote the push fields acknowledged it, which orders
-two publishes of one app.
+two publishes on one claim. A take of a person's HQ changes records the working app's
+bracketed save counter in the mapping's `reviewed_remote_revision` and the
+baseline's column of the same name. A passive refresh clears the baseline
+counter and retains the mapping counter. Release and reclaim reset both
+mapping counters. A confirmed later publish retires the take. A publish records its mapping token and original source
+digest together in `app_deployment_baselines.readback_push_token` and
+`readback_source_digest`. Releasing the claim rotates the mapping token even
+when it is later reclaimed. Older rows acquire a read-back receipt only from
+a publish. An app import or media admission records the live uninterrupted
+claim in `hq_remote_writes.claim_generation`. An admission also records its compiled target identity digest, verified
+under the deployment lock when the write records. The first claim uses the mapping
+row id. The release trigger assigns a new `app_deployment_resources.claim_generation`
+on each release or reclaim, including updates from older binaries. The same
+transition retires the completed or pending entry-point manifest and observation. All existing
+rows remain untouched during schema installation. An old admission with no
+recorded claim cannot certify an import or its manifest on the new writer.
+The cutover drains live old writers, and restores code and database together.
+The mapping's `review_generation` identifies the target facts the last
+semantic take accepted. App and media admissions save that generation;
+an unchanged review retains it. A take of app content also records its
+`reviewed_nova_revision`. The claim trigger resets both when a claim changes.
+An import's `accepted_remote_revision` is written when HQ returns the
+working-app save that accepted it. Its hold continues through read-back and
+recording. During the hold, an earlier or unordered review cannot accept a
+conflicting change. Legacy rows start with no such acknowledgement.
 `app_deployment_resources.remote_missing_at` is the "CommCare HQ reports this
 app gone" fact, outside the push-token trigger's column list, so writing it
 rotates no push token.
@@ -339,7 +363,10 @@ written through `appendSyntheticBatchInTransaction` like any synthetic batch.
 A deployment's reference document
 (`lib/deployment/hqChanges/reference.ts::loadReferenceDocument`, what a
 review of changes made in CommCare HQ measures changes in Nova against) is a
-fold at the revision the deployment's baseline describes, so a fold horizon
+fold at the revision the deployment's baseline describes. An incompatible cutover
+can certify that deployment’s prior comparison in `app_deployment_fold_references`.
+The operator scopes the prior root, baseline snapshot, certificate and bounded change rows in SQL. Its selected source-release decoder receives their original JSON text and applies the old mutation grammar before conversion. The candidate validates only the converted documents and the new fold. The certificate holds the source review’s displayed rename list and its independently reconstructed live property moves. Both are required, and each live move names a distinct destination within its case type. The serving role can read that table. Its baseline’s digest and fold bind the
+certificate to the published revision and active mapping. Release and reclaim each rotate the mapping token, so an HQ read that crossed either transition cannot update the source or side records. A released claim keeps its certificate for a later reclaim. Without a certificate, a fold horizon
 above that revision hides it: `usablePair` answers false and the review is
 unavailable until the deployment's next publish writes a revision at or after
 the horizon. A `blueprint-migration` batch is granular mutations, not a

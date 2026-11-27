@@ -688,7 +688,7 @@ execute` command after a production scan.
    simultaneously, preserves every non-name column, and persists the
    Blueprint plus accepted event in the same transaction. An own
    destination key is occupied even when null or blank; dismissed
-   parked values participate. Step 2 reports on its own
+   parked values participate. A removal retires a storage key only when its type remains materialized and no writer, catalog declaration or built-in still supplies the property. The canonical writer and the HQ comparison use the same predicate, `removalRetiresCaseProperty`. Step 2 reports on its own
    `reshaped` / `retyped` axes so one row rewritten by both steps
    is never double-counted, and every park lands in the report's
    `parkedIds` + `failureReasons`.

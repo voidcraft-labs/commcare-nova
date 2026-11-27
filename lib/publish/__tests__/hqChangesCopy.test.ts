@@ -52,6 +52,7 @@ import {
 	PUBLISH_OVER_HQ_HELPER,
 	PUBLISH_OVER_INSTEAD_LINE,
 	renamedInNovaLine,
+	renameRecoveryLine,
 	SEE_WHAT_CHANGED_ACTION,
 	SEE_WHAT_CHANGED_IN_HQ_ACTION,
 	showAllAction,
@@ -169,7 +170,7 @@ describe("the lists", () => {
 		expect(
 			renamedInNovaLine([{ caseType: "mother", from: "edd", to: "due_date" }]),
 		).toBe(
-			"Since then, the case property “edd” of the case type “mother” was renamed to “due_date” in Nova, which moved saved case data to the new name. To use CommCare HQ's version, you can rename it back in Nova, so the data moves back with it, and then check again.",
+			"Since then, the case property “edd” of the case type “mother” was renamed to “due_date” in Nova. If “due_date” still names the same property, you can rename it back in Nova and check again. Its saved values move with it.",
 		);
 		expect(
 			renamedInNovaLine([
@@ -177,7 +178,7 @@ describe("the lists", () => {
 				{ caseType: "mother", from: "lmp", to: "last_period" },
 			]),
 		).toBe(
-			"Since then, these case properties of the case type “mother” were renamed in Nova: “edd” to “due_date”, and “lmp” to “last_period”, which moved saved case data to the new names. To use CommCare HQ's version, you can rename them back in Nova, so the data moves back with them, and then check again.",
+			"Since then, Nova recorded “edd” to “due_date”, and “lmp” to “last_period” on the case type “mother”. If these names still identify the same case properties, you can rename them back in Nova and check again. Their saved values move with them.",
 		);
 		expect(
 			renamedInNovaLine([
@@ -186,7 +187,7 @@ describe("the lists", () => {
 				{ caseType: "child", from: "e", to: "f" },
 			]),
 		).toContain(
-			"these case properties were renamed in Nova: “a” to “b” on “mother”, “c” to “d” on “mother”, and “e” to “f” on “child”, which moved",
+			"Nova recorded “a” to “b” on “mother”, “c” to “d” on “mother”, and “e” to “f” on “child”.",
 		);
 		expect(
 			renamedInNovaLine([
@@ -194,9 +195,57 @@ describe("the lists", () => {
 				{ caseType: "child", from: "edd", to: "due_date" },
 			]),
 		).toContain(
-			"“edd” to “due_date” on “mother”, and “edd” to “due_date” on “child”, which moved",
+			"“edd” to “due_date” on “mother”, and “edd” to “due_date” on “child”.",
 		);
 	});
+});
+
+it("keeps case data with its current property when the recorded moves reuse a name", () => {
+	for (const last of [
+		{ caseType: "patient", from: "later", to: "new" },
+		{ caseType: "patient", from: "old", to: "elsewhere" },
+	]) {
+		const line = renamedInNovaLine([
+			{ caseType: "patient", from: "old", to: "new" },
+			last,
+		]);
+		expect(line).toContain(
+			"reversing the listed changes could move the wrong case values",
+		);
+		expect(line).toContain("on “patient”");
+	}
+});
+
+it("offers each rename recovery, and the rename line ends with the one its moves call for", () => {
+	const reused =
+		"A name was reused, so reversing the listed changes could move the wrong case values. You can check your case properties and saved values in Nova before deciding which app to keep.";
+	const distinct =
+		"If these names still identify the same case properties, you can rename them back in Nova and check again. Their saved values move with them.";
+	expect(renameRecoveryLine(true)).toBe(reused);
+	expect(renameRecoveryLine(false)).toBe(distinct);
+	const moves = [
+		{ caseType: "patient", from: "old", to: "new" },
+		{ caseType: "patient", from: "later", to: "new" },
+	];
+	expect(renamedInNovaLine(moves)).toBe(
+		`Nova’s published comparison records “old” to “new” on “patient”, “later” to “new” on “patient”. ${reused}`,
+	);
+	expect(
+		renamedInNovaLine([
+			{ caseType: "patient", from: "a", to: "b" },
+			{ caseType: "household", from: "c", to: "d" },
+		]),
+	).toBe(
+		`Since then, Nova recorded “a” to “b” on “patient”, and “c” to “d” on “household”. ${distinct}`,
+	);
+	// A whole review's reuse, passed in by a pager that shows only some of its
+	// moves, still selects the reused recovery for a page whose moves alone
+	// reuse nothing.
+	expect(
+		renamedInNovaLine([{ caseType: "patient", from: "a", to: "b" }], true),
+	).toBe(
+		`Nova’s published comparison records “a” to “b” on “patient”. ${reused}`,
+	);
 });
 
 describe("the case data lines", () => {
@@ -500,11 +549,19 @@ const SAMPLED: Readonly<Record<string, () => readonly string[]>> = {
 		novaLimitLead("too-large"),
 		novaLimitLead("too-intricate"),
 	],
+	renameRecoveryLine: () => [
+		renameRecoveryLine(true),
+		renameRecoveryLine(false),
+	],
 	renamedInNovaLine: () => [
 		renamedInNovaLine([{ caseType: "a", from: "b", to: "c" }]),
 		renamedInNovaLine([
 			{ caseType: "a", from: "b", to: "c" },
 			{ caseType: "a", from: "d", to: "e" },
+		]),
+		renamedInNovaLine([
+			{ caseType: "a", from: "b", to: "c" },
+			{ caseType: "a", from: "d", to: "c" },
 		]),
 	],
 	caseDataLine: () => [

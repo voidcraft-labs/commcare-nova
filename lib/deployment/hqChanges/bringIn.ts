@@ -58,10 +58,10 @@ import {
 } from "../errors";
 import {
 	hqMediaRecordFromSource,
-	hqMediaRecordMoves,
 	nextHqMediaRecord,
 	publishedMediaFiles,
 } from "../hqMedia";
+import { removalLedgerPaths } from "../hqSourceBaseline";
 import { hqImportApplicationSteps } from "../importApplication";
 import { movedBindingCount } from "../reading/create";
 import { firstPublishListToStore } from "../reading/firstPublishChanges";
@@ -92,6 +92,7 @@ import {
 	type DeploymentTargetKey,
 	HqChangesBaselineMovedError,
 	type HqChangesTaken,
+	HqReviewWriteInFlightError,
 	readDeployment,
 	readFirstPublishStates,
 	readMemberNames,
@@ -99,7 +100,7 @@ import {
 	recordRefreshedAppBaseline,
 	withDeploymentReadSnapshot,
 } from "../store";
-import { exportIdentityOf, sameTargetIdentity } from "../targetIdentity";
+import { exportIdentityOf } from "../targetIdentity";
 import { hqChangesBatchId } from "./batchId";
 import { hqChangesGateRefusal } from "./gate";
 import {
@@ -269,6 +270,7 @@ async function bringInInRoom(
 	)
 		return answered(changedOutcome(review));
 
+	scope = basis.scope;
 	/* The caller's statement about Nova's own changes, where it sent one. */
 	const removes = review.kind === "changes" && review.novaChanges.length > 0;
 	if (
@@ -282,13 +284,21 @@ async function bringInInRoom(
 	/* Each arm writes; the room stops nothing from here on. */
 	room.beginWrites();
 	try {
-		if (review.kind === "nothing" && review.reason === "reads-the-same")
+		if (
+			(review.kind === "nothing" && review.reason === "reads-the-same") ||
+			checked?.plan.kind === "nothing"
+		)
 			return answered(await recordReadsTheSame(scope, target, basis, checked));
 		if (checked === null)
 			throw new Error(
 				"A review that lists changes or finds them already here came back with no check. computeHqChanges answers both only after the readings.",
 			);
-		if (review.kind === "nothing")
+		if (
+			review.kind === "nothing" ||
+			(checked.plan.kind === "changes" &&
+				checked.plan.batch.length === 0 &&
+				checked.plan.renamedInNova.length === 0)
+		)
 			return answered(
 				await recordAlreadyHere(
 					scope,
@@ -312,6 +322,8 @@ async function bringInInRoom(
 			),
 		);
 	} catch (error) {
+		if (error instanceof HqReviewWriteInFlightError)
+			return answered({ kind: "refused", message: error.message });
 		if (error instanceof DeploymentEndedError)
 			return answered({
 				kind: "refused",
@@ -370,6 +382,11 @@ async function recordReadsTheSame(
 		expectedEndings: basis.deployment.endings,
 		remoteAppId: basis.live.remoteId,
 		comparedDigest: basis.baseline.sourceDigest,
+		comparedPushToken: basis.live.pushToken,
+		comparedRevision: basis.baseline.novaRevision,
+		comparedFold: basis.baseline.foldBinding?.foldSeq,
+		comparedHead: basis.head.seq,
+		reviewedVersion: basis.remoteRevision,
 		read: await storedSource(basis),
 		/* A review that answered before the readings read nothing that moves
 		 * the list, which then stays. */
@@ -380,18 +397,27 @@ async function recordReadsTheSame(
 					checked.draft.facts,
 				),
 				publishChanges: checked.plan.publishChanges,
+				removedFiles: {
+					compared: basis.baseline.approvedFileRemovals ?? [],
+					accepted: checked.removedFiles,
+				},
 				webAppsOnInHq: basis.source.cloudcareEnabled,
 			},
 		}),
-		/* An id learned by content, or one whose file is gone, forgotten. */
-		...(hqMediaRecordMoves(basis.baseline.mediaFiles, mediaFiles) && {
-			mediaFiles,
-		}),
-		...(checked !== null &&
-			!sameTargetIdentity(
-				checked.targetIdentity.read,
-				checked.targetIdentity.next,
-			) && { targetIdentity: checked.targetIdentity }),
+		// Even when no id moved, the recorded standings decided that these
+		// were the same files. The transaction verifies that prior evidence.
+		mediaFiles: {
+			read: basis.baseline.mediaFiles,
+			next: mediaFiles,
+			judgedPaths: [
+				...basis.published.map((file) => file.wirePath),
+				...removalLedgerPaths(basis.normalized.normalized, basis.published),
+			],
+		},
+		targetIdentity: checked?.targetIdentity ?? {
+			read: basis.targetIdentity,
+			next: basis.targetIdentity,
+		},
 	});
 	if (written.outcome === "superseded") {
 		const again = await computeHqChanges(
@@ -791,10 +817,11 @@ async function takenFor(
 		keptPaths,
 		basis.source.multimediaMap ?? [],
 	);
+	const published = publishedMediaFiles(
+		bulkUploadAssets(doc, boundary.prepared.assets),
+	);
 	const mediaFiles = nextHqMediaRecord({
-		published: publishedMediaFiles(
-			bulkUploadAssets(doc, boundary.prepared.assets),
-		),
+		published,
 		previous: basis.baseline.mediaFiles,
 		learned: { ...basis.learned, ...fetchedBy },
 		reported: NO_ENTRIES,
@@ -808,13 +835,24 @@ async function takenFor(
 			target,
 			expectedEndings: basis.deployment.endings,
 			remoteAppId: basis.live.remoteId,
+			comparedPushToken: basis.live.pushToken,
+			reviewedVersion: basis.remoteRevision,
 			read: {
 				sourceDigest: basis.baseline.sourceDigest,
 				novaRevision: basis.baseline.novaRevision,
 			},
 			source: await storedSource(basis),
 			ownership,
-			mediaFiles,
+			mediaFiles: {
+				read: basis.baseline.mediaFiles,
+				next: mediaFiles,
+				judgedPaths: [...basis.published, ...published]
+					.map((file) => file.wirePath)
+					.concat(
+						keptPaths,
+						removalLedgerPaths(basis.normalized.normalized, published),
+					),
+			},
 			targetIdentity: checked.targetIdentity,
 			firstPublish: {
 				accepted: firstPublishListToStore(
@@ -822,6 +860,10 @@ async function takenFor(
 					checked.draft.facts,
 				),
 				publishChanges: plan.publishChanges,
+				removedFiles: {
+					compared: basis.baseline.approvedFileRemovals ?? [],
+					accepted: checked.removedFiles,
+				},
 				webAppsOnInHq: basis.source.cloudcareEnabled,
 			},
 		},

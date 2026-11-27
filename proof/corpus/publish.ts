@@ -187,10 +187,10 @@ import {
 	assignMediaPaths,
 	keyedCaseIdPrefixesFor,
 } from "@/lib/deployment/adoption";
+import { appRemoteChange } from "@/lib/deployment/appRemoteChange";
 import { attachmentUrlTarget } from "@/lib/deployment/attachmentTarget";
 import { requiredConfirmations } from "@/lib/deployment/confirmations";
 import { sourceFromBaseline } from "@/lib/deployment/hqChanges/baselineSource";
-import { hqChangesReviewDigest } from "@/lib/deployment/hqChanges/digest";
 import {
 	makeHqChangeReadings,
 	ownPathsBase,
@@ -206,6 +206,7 @@ import {
 	type PairedBaseline,
 	projectDataFindingsNow,
 	publishChangeSentences,
+	reviewMatchingSource,
 	unionPlan,
 	withJudged,
 } from "@/lib/deployment/hqChanges/review";
@@ -215,13 +216,15 @@ import {
 	type HqMediaRecord,
 	hqMediaStandings,
 	isHoldableWirePath,
-	mediaMovedBetween,
 	nextHqMediaRecord,
 	publishedMediaFiles,
 } from "@/lib/deployment/hqMedia";
 import {
+	filesMovedSinceSource,
+	freshShellHasAffectedFiles,
 	type SettledHqMediaRead,
 	settleHqMedia,
+	verifyHqMediaBatch,
 } from "@/lib/deployment/hqMediaSettle";
 import {
 	ABSENT_RESOURCE_DIGEST,
@@ -233,7 +236,10 @@ import {
 	lookupRowsChange,
 } from "@/lib/deployment/hqResourceBaseline";
 import {
+	appConfirmationScope,
+	confirmedAppSourceMoved,
 	diffHqAppSource,
+	hqFilePathName,
 	normalizeHqAppSource,
 } from "@/lib/deployment/hqSourceBaseline";
 import { hqImportApplication } from "@/lib/deployment/importApplication";
@@ -257,9 +263,7 @@ import {
 	readReadingProjectData,
 } from "@/lib/deployment/reading/projectData/read";
 import {
-	boundedParts,
 	decideRemoteChanges,
-	describeAppChange,
 	describeLookupChange,
 	driftReferenceOf,
 } from "@/lib/deployment/remoteChanges";
@@ -1295,6 +1299,8 @@ interface HeldRead {
 	 * write that left the read gives it, or null where Nova holds none.
 	 */
 	readonly mediaFiles: HqMediaRecord | null;
+	readonly approvedFileRemovals?: readonly string[];
+	readonly firstPublishReview?: "required" | "current";
 }
 
 /**
@@ -1350,9 +1356,9 @@ async function settledMediaOf(
 		bulkUploadAssets(prepared.export.doc, prepared.export.assets),
 	);
 	const map = read.multimediaMap;
-	if (map === null && published.length > 0) {
+	if (map === null) {
 		throw new Error(
-			`The capture peer served the app of ${prepared.source.id} with no multimedia_map, which HQ serializes on every app, and Nova blocks a publish that sends a file over such a read.`,
+			`The capture peer served the app of ${prepared.source.id} with no multimedia_map, which HQ serializes on every app. An import can remove files even when it uploads none.`,
 		);
 	}
 	const standings = hqMediaStandings({ published, record, now: map ?? [] });
@@ -1978,6 +1984,8 @@ function sinceOf(origin: HeldRead["origin"]): DriftReference {
  * whole normalized read's digest.
  */
 function appEdge(
+	peer: TargetPeer,
+	discards: readonly RemoteChangeDiscard[],
 	prepared: PreparedDocument,
 	appName: string,
 	ledger: CaptureLedger,
@@ -1985,33 +1993,44 @@ function appEdge(
 	media: SettledMedia | null,
 	languageNames: LanguageNames,
 ): DeploymentRemoteChange | null {
-	const parts = diffHqAppSource({
-		baseline: ledger.app.normalized,
-		current: current.normalized,
-		ownership: ledger.app.ownership,
-		shell: ledger.app.origin === "create",
+	const remoteRevision = peer.saveCounter();
+	if (remoteRevision === null)
+		throw new Error("The published app has no working save counter.");
+	const appId = prepared.export.doc.appId;
+	const headSeq = prepared.source.compiledAtSeq;
+	return appRemoteChange({
+		authority: appConfirmationScope(
+			{
+				appId,
+				projectId: projectOf(prepared.source),
+				actorUserId: PROOF_PROJECT,
+				role: "editor",
+			},
+			{ server: PROOF_SERVER, domain: peer.state.domain },
+			captureMapping(appId, headSeq),
+			headSeq,
+			remoteRevision,
+			{
+				origin: ledger.app.origin,
+				sourceDigest: ledger.app.digest,
+				novaRevision: headSeq,
+			},
+		),
+		discards,
+		appName,
+		novaAppId: prepared.source.id,
+		remoteAppId: PLACEHOLDER_APP_ID,
+		current,
+		baseline: { ...ledger.app, source: ledger.app.normalized },
+		since: sinceOf(ledger.app.origin),
 		languageNames,
 		mediaChanged:
 			media?.paths.filter((path) => path.standing === "replaced").length ?? 0,
+		published: publishedMediaFiles(
+			bulkUploadAssets(prepared.export.doc, prepared.export.assets),
+		),
+		canBringIn: ledger.app.origin !== "create",
 	});
-	if (parts.length === 0) return null;
-	return {
-		kind: "app",
-		novaResourceId: prepared.source.id,
-		name: appName,
-		identity: PLACEHOLDER_APP_ID,
-		parts: boundedParts(parts.map(describeAppChange)),
-		note: null,
-		observedDigest: current.digest,
-		baselineKnown: true,
-		/* The capture's app is one Nova's own publish made, its baseline that
-		 * publish's read or the read a review of changes recorded, or one
-		 * CommCare HQ's own pages made, its baseline the bring-in's read. */
-		since: sinceOf(ledger.app.origin),
-		/* Its baseline names the revision it describes and no fold baseline
-		 * follows it, so the pair is usable (`hqChanges/reference.ts::usablePair`). */
-		canBringIn: true,
-	};
 }
 
 /**
@@ -2035,7 +2054,13 @@ async function sendContent(
 	report: ProjectSpaceCompatibilityReport,
 	appId: string,
 	read: HqAppSource,
-	held: Pick<HeldRead, "normalized" | "ownership" | "origin" | "mediaFiles">,
+	held: Pick<HeldRead, "normalized" | "ownership" | "origin" | "mediaFiles"> & {
+		readonly saveCounter: number | null;
+		readonly confirmedSource?: {
+			readonly saveCounter: number | null;
+			readonly sourceDigest: string;
+		};
+	},
 	media: SettledMedia | null,
 	assumedResources: AssumedResources | undefined,
 	identity: WireIdentity = DERIVED_WIRE_IDENTITY,
@@ -2049,6 +2074,7 @@ async function sendContent(
 	const target = { server: PROOF_SERVER, domain };
 	const mark = peer.requests.length;
 	let source = read;
+	let comparedCounter = held.saveCounter;
 	const tables = new Map<LookupTableId, LedgerTable>();
 	const workbook = prepared.export.lookupWorkbook;
 	if (workbook !== undefined) {
@@ -2078,12 +2104,26 @@ async function sendContent(
 				canonical: canonicalLookupTable(landed, rows.rows),
 			});
 		}
+		comparedCounter = peer.saveCounter();
 		source = await readSource(peer, prepared, appId);
+		const reread = normalizedRead(prepared, source);
+		if (
+			confirmedAppSourceMoved(
+				held.confirmedSource ?? null,
+				peer.saveCounter(),
+				reread.digest,
+			)
+		) {
+			throw new Error(
+				`The working save or source that was confirmed for ${prepared.source.id} changed before the capture could import the app.`,
+			);
+		}
 		const moved = diffHqAppSource({
 			baseline: held.normalized,
-			current: normalizedRead(prepared, source).normalized,
+			current: reread.normalized,
 			ownership: held.ownership,
 			shell: held.origin === "create",
+			importFiles: { published: media?.paths ?? [], recorded: held.mediaFiles },
 			languageNames,
 		});
 		if (moved.length > 0) {
@@ -2098,9 +2138,9 @@ async function sendContent(
 		}
 		/* A file at a path this publish sends whose entry moved between the
 		 * two reads (`mediaMovedBetween`), which nothing in the peer moves. */
-		const between = mediaMovedBetween(
-			read.multimediaMap ?? [],
-			source.multimediaMap ?? [],
+		const between = filesMovedSinceSource(
+			read,
+			source,
 			publishedMediaFiles(
 				bulkUploadAssets(prepared.export.doc, prepared.export.assets),
 			),
@@ -2141,11 +2181,28 @@ async function sendContent(
 			keyedCaseIds,
 		),
 	});
+	const checkedVersion = comparedCounter;
+	if (checkedVersion === null)
+		throw new Error(
+			`No working save was read for ${prepared.source.id} before import.`,
+		);
 	const { result: imported, counter: saveCounter } = await counted(
 		peer,
 		`the import of ${prepared.source.id}`,
-		() => importApp(CREDENTIALS, domain, appName, application, appId),
+		() =>
+			importApp(
+				CREDENTIALS,
+				domain,
+				appName,
+				application,
+				appId,
+				checkedVersion,
+			),
 	);
+	if ("kind" in imported)
+		throw new Error(
+			`The capture could not confirm the same working save for ${prepared.source.id} immediately before import.`,
+		);
 	if (!imported.success) {
 		throw new Error(
 			`The capture peer refused the import of ${prepared.source.id} (status ${imported.status}), which it accepts from every publish.`,
@@ -2164,6 +2221,7 @@ async function sendContent(
 		afterImport !== null &&
 		!("success" in afterImport) &&
 		afterImport.kind === "source-at" &&
+		imported.appId === appId &&
 		saveCounter.before !== null &&
 		afterImport.version > saveCounter.before
 			? normalizedRead(prepared, afterImport.source)
@@ -2174,7 +2232,20 @@ async function sendContent(
 	);
 	let reported: HqMediaRecord = {};
 	let mediaSaveCounter: SaveCounterMove | undefined;
+	let checkedFiles: Awaited<ReturnType<typeof verifyHqMediaBatch>> = null;
 	if (bulkAssets.size > 0) {
+		checkedFiles = await verifyHqMediaBatch(
+			CREDENTIALS,
+			domain,
+			imported.appId,
+			source,
+			readBack === null ? null : afterImport,
+			publishedMediaFiles(bulkAssets),
+		);
+		if (!checkedFiles)
+			throw new Error(
+				`The capture peer did not verify the destinations for ${prepared.source.id}'s files after importing its content.`,
+			);
 		const { result: uploaded, counter } = await counted(
 			peer,
 			`the media upload of ${prepared.source.id}`,
@@ -2201,9 +2272,9 @@ async function sendContent(
 	const mediaFiles = nextHqMediaRecord({
 		published: publishedMediaFiles(bulkAssets),
 		previous: held.mediaFiles,
-		learned: media?.learned ?? {},
+		learned: { ...media?.learned, ...checkedFiles?.learned },
 		reported,
-		settled: media?.paths ?? [],
+		settled: [...(media?.paths ?? []), ...(checkedFiles?.paths ?? [])],
 	});
 	const sent = peer.since(mark);
 	return {
@@ -2329,6 +2400,18 @@ async function firstPublish(
 	);
 	const read = await readSource(peer, prepared, created.appId);
 	if (
+		freshShellHasAffectedFiles(
+			read,
+			publishedMediaFiles(
+				bulkUploadAssets(prepared.export.doc, prepared.export.assets),
+			),
+		)
+	) {
+		throw new Error(
+			`Nova parked the new shell for ${prepared.source.id} to review the files its first content import would change.`,
+		);
+	}
+	if (
 		createdWithoutWebApps({
 			declaresWebApps: declaresWebApps(prepared.export.doc),
 			shell: read,
@@ -2346,6 +2429,7 @@ async function firstPublish(
 		created.appId,
 		read,
 		{
+			saveCounter: peer.saveCounter(),
 			normalized: normalizedRead(prepared, read).normalized,
 			ownership: shell.ownership,
 			origin: "create",
@@ -2434,11 +2518,18 @@ async function updateStep(
 	}
 	const read = await readSource(peer, prepared, PLACEHOLDER_APP_ID);
 	const current = normalizedRead(prepared, read);
-	const media =
-		ledger.app.origin === "create"
-			? null
-			: await settledMediaOf(prepared, read, ledger.app.mediaFiles);
-	const app = appEdge(prepared, appName, ledger, current, media, languageNames);
+	const comparedCounter = peer.saveCounter();
+	const media = await settledMediaOf(prepared, read, ledger.app.mediaFiles);
+	const app = appEdge(
+		peer,
+		confirm?.discards ?? [],
+		prepared,
+		appName,
+		ledger,
+		current,
+		media,
+		languageNames,
+	);
 	const verdict = decideRemoteChanges({
 		observed: [...(app === null ? [] : [app]), ...(edge?.observed ?? [])],
 		discards: confirm?.discards ?? [],
@@ -2493,7 +2584,17 @@ async function updateStep(
 		report,
 		PLACEHOLDER_APP_ID,
 		read,
-		{ ...ledger.app, normalized: current.normalized },
+		{
+			...ledger.app,
+			saveCounter: comparedCounter,
+			normalized: current.normalized,
+			...(verdict.confirmed.some((change) => change.kind === "app") && {
+				confirmedSource: {
+					saveCounter: peer.saveCounter(),
+					sourceDigest: current.digest,
+				},
+			}),
+		},
 		media,
 		assumedOf(managed?.assumed, edge?.assumed),
 		identity,
@@ -2743,6 +2844,8 @@ async function reviewOverPeer(input: {
 	const live = captureMapping(appId, input.pushedRevision);
 	const baseline = {
 		origin: ledger.app.origin === "changes" ? "changes" : "push",
+		approvedFileRemovals: ledger.app.approvedFileRemovals,
+		firstPublishReview: ledger.app.firstPublishReview,
 		remoteAppId: PLACEHOLDER_APP_ID,
 		source: ledger.app.normalized,
 		sourceDigest: ledger.app.digest,
@@ -2765,6 +2868,11 @@ async function reviewOverPeer(input: {
 		);
 	}
 	const source = read.source;
+	const remoteRevision = peer.saveCounter();
+	if (remoteRevision === null)
+		throw new Error(
+			"The capture peer returned an app without its working save counter.",
+		);
 	const summary = hqApplicationModules(source);
 	const alignment = alignHqForms(source, summary);
 	if (alignment.kind === "misaligned") {
@@ -2834,6 +2942,7 @@ async function reviewOverPeer(input: {
 		reference,
 		targetIdentity: input.targetIdentity,
 		observedAt,
+		remoteRevision,
 		source,
 		modules: alignment.modules,
 		normalized,
@@ -2842,48 +2951,15 @@ async function reviewOverPeer(input: {
 		ownRows,
 	} satisfies HqChangesBasis;
 	if (parts.length === 0) {
-		if (Object.keys(learned).length === 0) {
+		const review = reviewMatchingSource(basis);
+		if (review)
 			return {
-				review: {
-					kind: "nothing",
-					reason: "unchanged",
-					since,
-					hqChanges: [],
-					publishChanges: [],
-					readingId: null,
-					reviewDigest: null,
-				},
-				basis: null,
+				review,
+				basis: review.readingId === null ? null : basis,
 				fetched: null,
 				checked: null,
 				summary,
 			};
-		}
-		/* Two documents of one content at a path: the id is recorded, and
-		 * nothing Nova publishes moved. */
-		return {
-			review: {
-				kind: "nothing",
-				reason: "reads-the-same",
-				since,
-				hqChanges: [],
-				publishChanges: [],
-				readingId: CAPTURE_READING_ID,
-				reviewDigest: hqChangesReviewDigest({
-					v: 1,
-					baselineDigest: baseline.sourceDigest,
-					sourceDigest: normalized.digest,
-					headSeq: head.seq,
-					media: published,
-					target: null,
-					tables: [],
-				}),
-			},
-			basis,
-			fetched: null,
-			checked: null,
-			summary,
-		};
 	}
 
 	/* The flag a write saved only if changed needs. */
@@ -2921,6 +2997,20 @@ async function reviewOverPeer(input: {
 	}
 	const fetched: FetchedHqChanges = {
 		...basis,
+		projectMedia: {
+			byIds: (ids) =>
+				mediaRows(
+					prepared.source,
+					ids.filter((id) => prepared.source.media?.has(id)),
+				),
+			byContent: async (hashes) => {
+				const files = captureAssetsByContent(prepared.source);
+				return hashes.flatMap((contentHash) => {
+					const id = files.get(contentHash);
+					return id === undefined ? [] : [{ contentHash, id }];
+				});
+			},
+		},
 		...(saveOnlyEditedApplied !== undefined && { saveOnlyEditedApplied }),
 		data: projectData.data,
 	};
@@ -3090,6 +3180,20 @@ function valueAt(value: unknown, path: string): unknown {
 	return at;
 }
 
+/** Capture rows share a creation time. Resolve ties by asset ID, as the real Project library does. */
+function captureAssetsByContent(
+	source: PublishDocument,
+): Map<string, MediaAssetId> {
+	const files = new Map<string, MediaAssetId>();
+	for (const [key, asset] of source.media ?? []) {
+		const id = asMediaAssetId(key);
+		const hash = sha256(asset.bytes);
+		const previous = files.get(hash);
+		if (previous === undefined || id < previous) files.set(hash, id);
+	}
+	return files;
+}
+
 /**
  * The asset of the Project's library that holds the bytes of SHA-256
  * `contentHash`, which a bring-in's publication of a file of those bytes
@@ -3101,11 +3205,11 @@ function valueAt(value: unknown, path: string): unknown {
  */
 function projectAssetOf(
 	source: PublishDocument,
+	files: ReadonlyMap<string, MediaAssetId>,
 	contentHash: string,
 ): MediaAssetId {
-	for (const [assetId, asset] of source.media ?? []) {
-		if (sha256(asset.bytes) === contentHash) return asMediaAssetId(assetId);
-	}
+	const id = files.get(contentHash);
+	if (id !== undefined) return id;
 	throw new Error(
 		`Nova's bring-in of ${source.id} takes a file CommCare HQ holds whose bytes the document's Project does not hold, and the capture has no library to publish it to. Give the document that file among its media.`,
 	);
@@ -3137,6 +3241,7 @@ async function bringInOverPeer(input: {
 	readonly recorded: HqSideRecorded | undefined;
 	/** The changes of the next publish a `brings-in` statement says its review lists. */
 	readonly publishChanges: readonly FirstPublishChangeId[] | undefined;
+	readonly removedFileReferences: readonly string[] | undefined;
 	readonly attachmentTarget: AttachmentUrlTarget;
 	readonly lookupTarget: LookupTarget;
 }): Promise<{
@@ -3159,7 +3264,10 @@ async function bringInOverPeer(input: {
 	});
 	const { review, basis, fetched } = reviewed;
 	let { checked } = reviewed;
-	const expected = statement === "brings-in" ? "changes" : "nothing";
+	const recordsAfterChoice =
+		statement === "records" && input.recorded?.reason === "publish-changes";
+	const expected =
+		statement === "brings-in" || recordsAfterChoice ? "changes" : "nothing";
 	if (
 		review.kind !== expected ||
 		basis === null ||
@@ -3186,10 +3294,36 @@ async function bringInOverPeer(input: {
 		}
 	}
 	if (review.kind === "changes") {
+		const changes = recordsAfterChoice
+			? input.recorded?.publishChanges
+			: input.publishChanges;
+		const removed = input.removedFileReferences ?? [];
 		const listed =
-			input.publishChanges === undefined
+			changes === undefined
 				? undefined
-				: publishChangeSentences(input.publishChanges);
+				: [
+						...publishChangeSentences(changes),
+						...(removed.length
+							? [
+									`This publish removes ${removed.length} unused file ${removed.length === 1 ? "reference" : "references"}.`,
+								]
+							: []),
+					];
+		if (
+			removed.some(
+				(path) =>
+					!review.hqChanges.some((line) =>
+						line.includes(`“${hqFilePathName(path)}”`),
+					),
+			)
+		)
+			throw new Error(
+				`The review of ${id} did not disclose the stated file removals.`,
+			);
+		if (recordsAfterChoice && checked?.plan.kind !== "nothing")
+			throw new Error(
+				`The stated choice over ${id} changes its Nova document.`,
+			);
 		if (!isDeepStrictEqual(review.publishChanges, listed)) {
 			throw new Error(
 				`hq-side.json states that Nova's review of ${id} lists ${JSON.stringify(listed)} for the next publish, and it listed ${JSON.stringify(review.publishChanges)}. Look at what the review reads of the saves, or at the statement.`,
@@ -3203,6 +3337,7 @@ async function bringInOverPeer(input: {
 	if (checked !== null && fetched !== null && checked.plan.kind === "changes") {
 		const shown = collectAssetRefs(checked.plan.target);
 		const nowPlan = checked.media.now;
+		const files = captureAssetsByContent(prepared.source);
 		const published: Record<string, MediaAssetId> = { ...nowPlan.published };
 		for (const file of nowPlan.files) {
 			const verdict = Object.hasOwn(nowPlan.verdicts, file.key)
@@ -3211,6 +3346,7 @@ async function bringInOverPeer(input: {
 			if (!shown.has(file.provisionalId) || verdict?.kind !== "held") continue;
 			published[file.key] = projectAssetOf(
 				prepared.source,
+				files,
 				verdict.file.contentHash,
 			);
 		}
@@ -3267,7 +3403,8 @@ async function bringInOverPeer(input: {
 	 * app records too where it moved (`bringIn.ts::recordReadsTheSame`), and
 	 * the record as it stood where the review read nothing. */
 	const readsTheSame =
-		review.kind === "nothing" && review.reason === "reads-the-same";
+		(review.kind === "nothing" && review.reason === "reads-the-same") ||
+		checked?.plan.kind === "nothing";
 	if (!readsTheSame && checked === null) {
 		throw new Error(
 			`Nova's review of ${id} answered ${JSON.stringify(review)} with no readings to take ids from.`,
@@ -3348,6 +3485,8 @@ async function bringInOverPeer(input: {
 			normalized: basis.normalized.normalized,
 			ownership,
 			origin: readsTheSame ? ledger.app.origin : "changes",
+			approvedFileRemovals:
+				checked?.removedFiles ?? ledger.app.approvedFileRemovals,
 			digest: basis.normalized.digest,
 			bytes: basis.normalized.bytes,
 			mediaFiles,
@@ -3871,6 +4010,12 @@ async function adoptedA(
 			bytes: sourceBytes,
 			mediaFiles:
 				write.mediaFiles.kind === "set" ? write.mediaFiles.files : null,
+			/* The birth accepted each file its first publish removes, as the
+			 * store reads them back (`store.ts::verifiedAppBaseline`). */
+			...(write.firstPublish.kind === "set" &&
+				write.firstPublish.list?.removedFiles?.length && {
+					approvedFileRemovals: write.firstPublish.list.removedFiles,
+				}),
 		},
 		tables: new Map(),
 	};
@@ -4112,6 +4257,7 @@ export async function capturePublish(
 								bringsIn: input.hqSide?.bringsIn,
 								recorded: input.hqSide?.recorded,
 								publishChanges: input.hqSide?.publishChanges,
+								removedFileReferences: input.hqSide?.removedFileReferences,
 								attachmentTarget,
 								lookupTarget,
 							});

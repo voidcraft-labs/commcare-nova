@@ -57,6 +57,7 @@ import {
 	PUBLISH_OVER_HQ_ACTION,
 	PUBLISH_OVER_HQ_HELPER,
 	PUBLISH_OVER_INSTEAD_LINE,
+	REQUIRED_FIRST_PUBLISH_RECOVERY,
 	renamedInNovaLine,
 	sincePhrase,
 	USE_HQ_VERSION_ACTION,
@@ -370,6 +371,13 @@ function withProgress(
 	return state;
 }
 
+function fileListIsShown(
+	state: HqChangesPanelState,
+	review: ChangesReview,
+): boolean {
+	return state.shownAll.hq || (review.fileReviewLines ?? 0) <= LIST_LINES_SHOWN;
+}
+
 /** Whether the person can press a choice now: a review that offers one, with no request in flight. */
 function choicesOpen(state: HqChangesPanelState): ChangesReview | null {
 	const { phase } = state;
@@ -424,13 +432,13 @@ export function reduceHqChangesPanel(
 			};
 		case "bring-in-pressed": {
 			const review = choicesOpen(state);
-			if (review === null) return state;
+			if (review === null || !fileListIsShown(state, review)) return state;
 			/* Use CommCare HQ's version is offered only where something in Nova
 			 * would be removed and no rename holds it back; Bring in these
 			 * changes only where nothing would be. */
 			const removes = review.novaChanges.length > 0;
 			if (event.discard !== removes) return state;
-			if (removes && review.renamedInNova.length > 0) return state;
+			if (review.renamedInNova.length > 0) return state;
 			if (unansweredTables(review, state.tableChoices)) {
 				return {
 					...state,
@@ -788,7 +796,10 @@ function since(reference: DriftReference, context: PanelViewContext): string {
 	return sincePhrase(reference, context.domain, context.dateOptions);
 }
 
-function noticeLines(notice: BringInNotice): {
+function noticeLines(
+	notice: BringInNotice,
+	requiresReview = false,
+): {
 	readonly lines: readonly string[];
 	readonly role: "alert" | "status";
 	readonly checkAgain: boolean;
@@ -796,7 +807,13 @@ function noticeLines(notice: BringInNotice): {
 	switch (notice.kind) {
 		case "gate":
 			return {
-				lines: [HQ_CHANGES_GATE_LEAD, ...notice.findings, HQ_CHANGES_GATE_NEXT],
+				lines: [
+					HQ_CHANGES_GATE_LEAD,
+					...notice.findings,
+					requiresReview
+						? "You can change that in Nova and check again."
+						: HQ_CHANGES_GATE_NEXT,
+				],
 				role: "alert",
 				checkAgain: true,
 			};
@@ -831,7 +848,7 @@ function listsView(
 ): ListsView {
 	const removes = review.novaChanges.length > 0;
 	const renamed =
-		removes && review.renamedInNova.length > 0
+		review.renamedInNova.length > 0
 			? renamedInNovaLine(review.renamedInNova)
 			: null;
 	return {
@@ -856,7 +873,7 @@ function listsView(
 			notice === null
 				? null
 				: (() => {
-						const lines = noticeLines(notice);
+						const lines = noticeLines(notice, review.requiresReview);
 						return {
 							...lines,
 							checkAgain: lines.checkAgain && renamed === null,
@@ -866,7 +883,7 @@ function listsView(
 			? null
 			: {
 					bringIn:
-						renamed !== null
+						renamed !== null || !fileListIsShown(state, review)
 							? null
 							: removes
 								? {
@@ -884,19 +901,21 @@ function listsView(
 					 * publish over of its own, except under the gate's refusal,
 					 * whose sentence names it as the other way on. */
 					publishOver:
-						removes || (context.home === "card" && notice?.kind === "gate")
-							? {
-									label: PUBLISH_OVER_HQ_ACTION,
-									helper: PUBLISH_OVER_HQ_HELPER,
-									lead: null,
-								}
-							: context.home === "publish"
+						review.requiresReview || !fileListIsShown(state, review)
+							? null
+							: removes || (context.home === "card" && notice?.kind === "gate")
 								? {
 										label: PUBLISH_OVER_HQ_ACTION,
-										helper: null,
-										lead: PUBLISH_OVER_INSTEAD_LINE,
+										helper: PUBLISH_OVER_HQ_HELPER,
+										lead: null,
 									}
-								: null,
+								: context.home === "publish"
+									? {
+											label: PUBLISH_OVER_HQ_ACTION,
+											helper: null,
+											lead: PUBLISH_OVER_INSTEAD_LINE,
+										}
+									: null,
 					stop: removes,
 				},
 	};
@@ -959,13 +978,19 @@ function answeredBody(
 						: cannotBringInLead(review.findings.length + review.more),
 				account: review,
 				tooLarge,
-				otherWays: CANNOT_BRING_IN_OTHER_WAYS,
+				otherWays: review.requiresReview
+					? REQUIRED_FIRST_PUBLISH_RECOVERY
+					: CANNOT_BRING_IN_OTHER_WAYS,
 			};
 		}
 		case "held":
 			return {
 				kind: "line",
-				line: hqChangesHeldLine(review.reason, review.runs),
+				line: hqChangesHeldLine(
+					review.reason,
+					review.runs,
+					review.requiresReview,
+				),
 				role: "status",
 				checkAgain: true,
 			};
@@ -973,6 +998,7 @@ function answeredBody(
 			return {
 				kind: "line",
 				line: hqChangesUnavailableLine(review.reason, {
+					requiresReview: review.requiresReview,
 					domain: context.domain,
 					since: review.since ?? context.since,
 					options: context.dateOptions,
@@ -999,6 +1025,7 @@ function bodyNamesWaysOn(state: HqChangesPanelState): boolean {
 	const { phase } = state;
 	if (phase.kind !== "answered") return false;
 	const { review } = phase;
+	if ("requiresReview" in review && review.requiresReview) return false;
 	switch (review.kind) {
 		case "account":
 		case "held":
@@ -1063,7 +1090,10 @@ export function panelView(
 					? { kind: "brought-in", line: broughtInLine(phase.outcome.discarded) }
 					: phase.review.kind === "nothing"
 						? nothingView(phase.review, true, context)
-						: { kind: "brought-in", line: broughtInLine(false) };
+						: {
+								kind: "brought-in",
+								line: "Nova recorded your review for the next publish.",
+							};
 			break;
 		default: {
 			const unplaced: never = phase;
@@ -1101,7 +1131,12 @@ export function publishOverDiscard(
 	appId: string,
 ): RemoteChangeDiscard | null {
 	const review = choicesOpen(state);
-	if (review === null) return null;
+	if (
+		review === null ||
+		review.requiresReview ||
+		!fileListIsShown(state, review)
+	)
+		return null;
 	return {
 		kind: "app",
 		novaResourceId: appId,

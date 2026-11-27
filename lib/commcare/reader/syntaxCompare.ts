@@ -33,7 +33,9 @@
  * This file reads no reader state: the form, case, menu and list readers call
  * it before any expression is bound.
  */
+
 import type { RuleSet } from "@/lib/domain/expression/profiles";
+import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { chargeWork, rethrowWorkStop } from "../workMeter";
 import type { FormSyntax } from "../xpath/formSyntax";
 import { readFormSyntax } from "./syntaxRead";
@@ -78,6 +80,25 @@ export function firstDifference(
 	// The work meter's `compare` door: one unit a node of either tree normalized.
 	chargeWork("compare", normalized - before);
 	return found;
+}
+
+/** A held form expression whose original worker behavior an import changes,
+ * normalized by the same Core spelling rules the reader already applied.
+ * Token positions are diagnostics, not program identity. */
+export function sourceFormExpression(text: string): string {
+	const syntax = readFormSyntax(text);
+	if (!syntax.ok || !syntax.node)
+		throw new Error("A held form expression has no readable source.");
+	const before = normalized;
+	const node = comparable(syntax.node, { ruleSet: "form" }, "source");
+	chargeWork("compare", normalized - before);
+	return canonicalJsonText(
+		JSON.parse(
+			JSON.stringify(node, (key, value) =>
+				key === "from" || key === "to" ? undefined : value,
+			),
+		),
+	);
 }
 
 /** Nodes `comparable` has normalized, which a comparison charges the work meter by. */

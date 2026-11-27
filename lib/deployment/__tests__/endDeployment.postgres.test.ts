@@ -40,8 +40,8 @@ import {
 } from "../resources";
 import { publishAppToHq, refreshDeployment } from "../service";
 import {
+	admitAppCreate,
 	applyDeploymentObservation,
-	beginDeploymentContentWrite,
 	type DeploymentScope,
 	endDeployment,
 	finishDeploymentContentWrite,
@@ -57,7 +57,12 @@ import {
 	settleReleasedClaims,
 } from "../store";
 import type { AppBaselineWrite } from "../types";
-import { type AdoptedBirth, birthAdoptedApp } from "./adoptedBirth";
+import {
+	type AdoptedBirth,
+	appMappingToken,
+	birthAdoptedApp,
+} from "./adoptedBirth";
+import { admitEntryPointImport } from "./entryPointWrite";
 import { readable } from "./readableRecord";
 
 vi.mock("@/lib/auth-utils", () => ({ getSession: vi.fn() }));
@@ -316,7 +321,7 @@ describe("endDeployment", () => {
 		const stored = await readAppBaseline(scope, TARGET);
 		if (stored === null || stored.origin === "unread")
 			throw new Error("Expected a read baseline");
-		const generation = await beginDeploymentContentWrite(scope, TARGET, {
+		const { generation } = await admitEntryPointImport(scope, TARGET, {
 			expectedEndings: 0,
 		});
 		await endDeployment(scope, TARGET, HQ_APP);
@@ -343,8 +348,12 @@ describe("endDeployment", () => {
 					),
 			],
 			[
-				"beginDeploymentContentWrite",
-				() => beginDeploymentContentWrite(scope, TARGET, fence),
+				"admitAppCreate",
+				() =>
+					admitAppCreate(scope, TARGET, {
+						...fence,
+						firstContentGeneration: crypto.randomUUID(),
+					}),
 			],
 			[
 				"recordCreatedRemoteApp",
@@ -409,6 +418,7 @@ describe("endDeployment", () => {
 						...fence,
 						remoteAppId: HQ_APP,
 						comparedDigest: stored.sourceDigest,
+						comparedPushToken: appMappingToken(birth.deployment),
 						read: {
 							sourceGzip: gzipSync(Buffer.from(text)),
 							sourceBytes: Buffer.byteLength(text),
@@ -819,7 +829,10 @@ describe("stopPublishingAction", () => {
 		const birth = await born();
 		const faulting: KyselyPlugin = {
 			transformQuery(args: PluginTransformQueryArgs): RootOperationNode {
-				if (JSON.stringify(args.node).includes('"app_deployment_baselines"')) {
+				if (
+					args.node.kind === "SelectQueryNode" &&
+					JSON.stringify(args.node).includes('"app_deployment_baselines"')
+				) {
 					throw Object.assign(new Error("terminating connection"), {
 						code: "57P01",
 					});

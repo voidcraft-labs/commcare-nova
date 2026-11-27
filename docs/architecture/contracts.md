@@ -48,6 +48,29 @@ This is accepted downtime, not a staged rollout: there are no dual readers,
 dual writes, temporary schemas, aliases, feature flags, version gates, or
 traffic-split controllers.
 
+At an incompatible app fold, each live HQ target keeps the comparison for the
+revision it received. In the conversion transaction Nova checks its original
+revision, bound baseline digest, mapping and pending changes under lock. The
+conversion verifies the resulting conflict, renamed case properties and
+identity projection against that target’s original comparison, including the
+reason one was already unavailable. An editor’s intervening change stays
+unpublished. Recoverable apps in the trash take the same conversion. The
+read-only scan on the previous schema and the scan after the candidate DDL
+produce the same receipt for unchanged targets. That receipt pins the deployed decoder’s source commit, Git tree, dependency lock, executable bytes and the exact converter and settings. The old release reads old snapshots, certificates and mutations. Serving reads the converted snapshot from its new horizon. The converter verifies targets
+one at a time in the app transaction. A released HQ claim keeps its comparison
+for a possible reclaim. Only a request made under the current claim can use it.
+A review that would associate an HQ change with an existing Nova head checks that
+head under lock. Active HQ app imports hold the fold. A publish prepared below
+the current horizon asks for a new publish before sending app content. A saved
+case-property rename has the same effect on the take decision across every fold,
+including when an old property name is reused. The certificate records the old
+release’s review at the cut and, separately, the origins of surviving case
+properties from its admitted commands and effective storage schema. An
+immediate second fold preserves both. The published take honors every displayed
+rename and every move of surviving data, including a move the released review
+missed. A later edit composes with the surviving
+origins so moving data under a newly reused name still holds the take.
+
 **Valid by construction.** An invalid app cannot exist. Every mutation batch is
 gated before it commits, identically on the chat SA, the visual builder, and the
 MCP API. Private agent work may be incomplete; only valid checkpoints become saved

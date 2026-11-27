@@ -3084,7 +3084,9 @@ function confirmsRemoteChange(
 	discard: RemoteChangeDiscard,
 	change: DeploymentRemoteChange,
 ): boolean {
-	if (sameRemoteChange(discard, change)) return true;
+	if (sameRemoteChange(discard, change)) return !change.requiresReview;
+	// Only a completed review offers its own receipt here. The short
+	// preview and the receipt for all disclosed files have distinct digests.
 	return (
 		change.kind === "app" &&
 		change.canBringIn &&
@@ -3160,19 +3162,22 @@ function RemoteChangeChoice({
 				const id = `discard-${change.kind}-${change.novaResourceId}`;
 				const item = (
 					<>
-						{change.baselineKnown ? (
+						{change.parts.length > 0 && (
 							<ul className="mt-1.5 flex list-disc flex-col gap-1 pl-4 text-xs leading-relaxed text-nova-text-secondary">
 								{change.parts.map((part, index) => (
 									// biome-ignore lint/suspicious/noArrayIndexKey: two parts can name forms of the same name, so the text is no key.
 									<li key={index}>{part}</li>
 								))}
 							</ul>
-						) : (
+						)}
+						{!change.baselineKnown && (
 							<p className="mt-1.5 text-xs leading-relaxed text-nova-text-secondary">
 								{baselineUnknownSentence(change.since, viewerDriftDate())}
 							</p>
 						)}
-						{change.kind === "app" && !change.canBringIn ? (
+						{change.kind === "app" &&
+						!change.canBringIn &&
+						!change.requiresReview ? (
 							<p className="mt-1.5 text-xs leading-relaxed text-nova-text-secondary">
 								{hqChangesUnavailableLine("no-reference", {
 									domain,
@@ -3186,24 +3191,26 @@ function RemoteChangeChoice({
 								{change.note}
 							</p>
 						) : null}
-						<label
-							htmlFor={id}
-							className="mt-1 flex min-h-11 cursor-pointer items-center gap-2.5 text-[13px] text-nova-text"
-						>
-							<Checkbox
-								id={id}
-								checked={discarded.some((entry) =>
-									sameRemoteChange(entry, change),
-								)}
-								onCheckedChange={(next) =>
-									onDiscardChange(change, next === true)
-								}
-							/>
-							<span>
-								Publish over this
-								<span className="sr-only"> {change.name}</span>
-							</span>
-						</label>
+						{!change.requiresReview && (
+							<label
+								htmlFor={id}
+								className="mt-1 flex min-h-11 cursor-pointer items-center gap-2.5 text-[13px] text-nova-text"
+							>
+								<Checkbox
+									id={id}
+									checked={discarded.some((entry) =>
+										sameRemoteChange(entry, change),
+									)}
+									onCheckedChange={(next) =>
+										onDiscardChange(change, next === true)
+									}
+								/>
+								<span>
+									Publish over this
+									<span className="sr-only"> {change.name}</span>
+								</span>
+							</label>
+						)}
 						{change.kind === "app" && stop !== null ? (
 							<DriftStop
 								canStop={stop.canStop}

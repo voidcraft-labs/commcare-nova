@@ -9,21 +9,26 @@
  * between the two requests: the document and the target-identity record come
  * keyed by each file's content (`mediaIds.ts::reviewMediaId`).
  *
- * It leaves out two things the birth writes, each because the review shows
- * nothing they change and the birth records CommCare HQ's state as it stands:
- * the baseline's stored source (a save that changes nothing Nova reads must
- * not send the person back) and its media-file record, the CommCare HQ
- * document at each held path (a file replaced in CommCare HQ under the same
- * path with the same bytes changes only that id, which the birth records as
- * it is).
+ * When a declaration would remove physical HQ file references, the receipt
+ * includes their paths and file IDs, the normalized source and its working
+ * save counter. Otherwise a save that changes none of the reviewed values
+ * can proceed. Birth records the current file IDs at retained paths.
  */
 
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { TargetIdentity } from "../targetIdentity";
-import type { ReadingReview } from "./types";
+import type { ReadingKey, ReadingReview } from "./types";
 
 export interface ReviewDigestInput {
-	readonly v: 2;
+	readonly v: 3;
+	readonly authority: ReadingKey & {
+		readonly appId: string;
+		readonly user: string | null;
+		readonly role: string | null;
+	};
+	readonly source?: { readonly revision: number; readonly digest: string };
+	/** Each declaration’s source inputs to the registered publish changes, when present. */
+	readonly publishInputs?: string;
 	/** The review without `readAt`. */
 	readonly review: Omit<ReadingReview, "readAt">;
 	/** `canonicalJsonDigest` of the persistable document with every media asset id replaced. */
@@ -46,6 +51,9 @@ export function reviewDigestOf(input: ReviewDigestInput): string {
 	const { readAt: _readAt, ...review } = input.review as ReadingReview;
 	return canonicalJsonDigest({
 		v: input.v,
+		authority: input.authority,
+		...(input.source && { source: input.source }),
+		...(input.publishInputs && { publishInputs: input.publishInputs }),
 		review,
 		document: input.document,
 		targetIdentity: input.targetIdentity,

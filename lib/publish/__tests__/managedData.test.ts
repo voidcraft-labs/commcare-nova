@@ -52,6 +52,10 @@ const READINGS: Record<
 		kind: "sentence",
 		texts: [copy.managedTableBannerRefreshed("November 3, 2026")],
 	},
+	LOOKUP_DISCARD_NOTE: {
+		kind: "sentence",
+		texts: [copy.LOOKUP_DISCARD_NOTE],
+	},
 	REFRESH_FROM_HQ: { kind: "label", texts: [copy.REFRESH_FROM_HQ] },
 	OPEN_IN_HQ: { kind: "label", texts: [copy.OPEN_IN_HQ] },
 	MANAGE_IN_NOVA: { kind: "label", texts: [copy.MANAGE_IN_NOVA] },

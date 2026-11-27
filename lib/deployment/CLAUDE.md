@@ -925,12 +925,32 @@ where the publish's own comparison finds no change, so it moves no later
 drift verdict. That comparison (`compareWithHq`) reads the baseline only once
 the live mapping is one it compares, so a released or missing mapping unzips
 none. Its write (`store.ts::recordRefreshedAppBaseline`) lands only
-while the stored baseline is still the one compared, and its date is taken
+while the stored baseline and the live mapping token are still the ones compared. Its date is taken
 before CommCare HQ is asked, so a read that predates a publish never replaces
-that publish's. A stored baseline that already holds the read's digest is
-current, whoever wrote it, so two refreshes of an unchanged project space both
-answer `refreshed`; `superseded` is a newer read that differs, a publish's or
-another refresh's, and its sentence names neither. Whether a refresh changed
+that publish's. Two refreshes of an unchanged project space both answer
+`refreshed`. If a publish lands during a kept-values refresh, Nova may
+acknowledge the newer read without writing anything. The live claim must show
+the exact token the winning publish saved with its original read-back digest.
+The stored bytes must independently verify against that digest. Releasing
+and reclaiming the HQ app retires that token, including after an intervening
+publish. A legacy row
+has no read-back token until a publish supplies one. Every kept-values
+refresh compares the response to the media record under the deployment lock,
+including a refresh that would only acknowledge the source or move its date.
+A refresh of the same source under the same claim retains its publish receipt.
+Reviews that carry identity, media or next-publish decisions still require
+their original claim and fold. When an accepted import records after a more
+recent observation, the source, observer, time and learned files of that
+observation stay. Agreement with the owned content of the import and its
+Web App setting establishes its new Nova revision and retires the previous
+certificate. A different owned source keeps its observed settings and has
+no attributed revision. The member can inspect HQ and explicitly publish
+again. The exact pushed digest stays the push receipt. Each HQ change take and same-source review also
+compares the locked file ids at every path its decision judged, including a path
+that had no file id. A replacement, removal or newly resolved id there returns
+a fresh review before the document, identity, or source advances. File ids
+learned at unrelated paths survive in the deployment record. A differing newer read answers
+`superseded`. Whether a refresh changed
 anything is `keptChanged` over the kept lists before and after, which compares
 the labels and a digest of every kept value (`targetFacts.ts::deploymentKeptOf`),
 so a value that moved under a label listed on both sides reads as an update.
@@ -947,6 +967,10 @@ published path (`placements-kept-unread`); a query repeat whose rule gives the
 count placement is the one exception, and takes it. A deployment whose live
 app mapping is marked remote-missing counts as published, since CommCare HQ's
 submissions keep their `xmlns`.
+
+The receipt to take a reviewed app and the receipt to publish over it bind the editor and their current Project role, the Project, both app identities, the server and project space, the continuous mapping claim, the Nova head and the working HQ save. An earlier reading cannot approve a replacement holder. A publish preview reserves its twentieth line for the count when the list overflows. If that hides any file removal, only a completed review that disclosed every such reference can supply the keep-Nova choice. A preview, a held reading and a completed reading that lists a different set of removals do not issue that receipt. A second source read after sending Project resources rechecks the confirmed app before importing its content.
+
+A paged MCP review issues its write receipt on the final page. Each continuation is specific to the operation, exact review and offset. First-adoption review continuations also retain the original reading ID so another call over the same source uses the same future app and table identities. Each page authorizes the member afresh. Initial-adoption file removals travel in full, associated with the declaration that would remove the file. Long lines are split at Unicode code points and the page names each part in order.
 
 One refusal, `hq_changed`, lists every change of every kind, and a discard
 names each resource back with the digest of HQ's state as the refusal showed
@@ -984,11 +1008,31 @@ removing that mapping (`hqmedia/models.py::remove_unused_mappings`). A save
 in an HQ editor also increments the counter. The proof lane exercises these
 cases against HQ's views (`proof/hq/test_publish.py`).
 
-- An acknowledgement more than one past the counter before the final source
-  read can come from HQ's own media cleanup or from a concurrent edit. The
-  counter cannot distinguish them. Nova records an `unread` baseline, warns
-  that the publish landed, and asks before writing over the app on the next
-  publish. When the post-import source verifies at the acknowledged version,
+- An acknowledgement two past the counter before the final source read is
+  this import's own when HQ pruned media map keys in the same request
+  (`overwrite_app_from_source` saves through `save_attachments`, then
+  `_update_valid_domains_for_media` reaches `remove_unused_mappings`, which
+  saves again only when it deleted a key; `proof/hq/test_publish.py` holds
+  the `before + 2`). The counter alone cannot tell that save from a
+  concurrent edit, so the read back decides
+  (`hqSourceBaseline.ts::importPruneSave`): the import predicted at least one
+  pruned key, the read back verifies at the acknowledged version, its map is
+  the earlier read's less exactly the predicted keys, and every key the
+  import does not write (a key the body leaves out, or one the update keeps
+  from HQ's app) reads as it did before. Then the baseline is a `push`.
+  One case stays indistinguishable, and Nova accepts it: a single save in an
+  HQ editor, inside the window between the counter read right before the
+  POST and HQ loading the app, that removes exactly the predicted keys. An
+  editor clearing a menu or form icon pops its map key in that save
+  (`app_manager/models/mixins.py::set_media`); the import then finds nothing
+  to prune and saves once, so the counter moves by two. The read back shows
+  the same map, every key the import leaves alone unchanged, and the icon
+  slot as the body wrote it, since the body carries menu and form media. No
+  field the read back holds tells the editor's save from HQ's own.
+- Any other acknowledgement more than one past the counter before the final
+  source read can be a concurrent edit. Nova records an `unread` baseline,
+  warns that the publish landed, and asks before writing over the app on the
+  next publish. When the post-import source verifies at the acknowledged version,
   its kept settings still reach the download, Preview and the Publishing card.
   A concurrent edit to a key in the body can already have been
   replaced by this import.
@@ -1021,6 +1065,15 @@ replaces in CommCare HQ between the publish's last source read and its media
 upload is written over, and the record then names Nova's file: HQ's upload
 takes no expected id, so this window too stays one round trip wide.
 
+A publish and a review may finish reading the same HQ files in either order.
+Each writer compares each changed path with the file id it observed before the
+request. Independent paths accumulate. A take or refresh encountering a newer
+replacement or removal asks for a fresh review before writing any source, target
+identities or next-publish facts. The late report of an admitted media upload
+can still confirm independent files; it keeps each conflicting current fact and
+reports the need for a new review. A new app claim or published revision also
+invalidates an earlier report.
+
 ## Bringing in what changed in CommCare HQ
 
 `hqChanges/` brings a change a person made in CommCare HQ to an app Nova
@@ -1043,8 +1096,9 @@ saved case rows). Nothing is ever rebuilt from CommCare HQ's app.
 It is offered only over a usable pair (`hqChanges/reference.ts::usablePair`):
 a baseline that holds a source that verifies (origin `push`, `read` or
 `changes`) and names a `nova_revision`, a `push` baseline's revision equal to
-the live mapping's `pushed_revision`, at or after the app's greatest fold
-baseline. The `target-app` edge sets that answer as the app change's
+the live mapping's `pushed_revision`. A revision before the app’s current fold
+requires the certificate for that same app, deployment, mapping, published
+revision and fold, bound to the current verified source digest. The `target-app` edge sets that answer as the app change's
 `canBringIn`; a table's and a place's change carry false. Changes in Nova
 are measured against the reference document
 (`reference.ts::loadReferenceDocument`): the document at that revision, with
@@ -1053,6 +1107,73 @@ what a server wrote after it (a publish's holds, a deploy's
 preceded) and with what a publish never sends taken from the head (the kinds
 no reading holds, the worker setup under the slugs the published document
 gave it, where the app runs, the logo).
+
+An incompatible app fold retains each target’s comparison independently.
+Prepare its private decoder with `node scripts/build-deployment-fold-reader.mjs --source <checkout> --revision <deployed-commit> --output <private-reader.mjs>`.
+The builder archives that Git tree, installs its exact dependency lock and bundles
+the release’s parser, reducers and projections. For the pre-certificate release
+it takes the deployed reference functions from that archive. The retained
+PostgreSQL witness rebuilds the pre-certificate decoder in a temporary
+directory and checks its SHA-256. A shallow checkout running it locally needs
+the exact deployed Git object. A focused replay can use the same verified
+file through `NOVA_DEPLOYMENT_FOLD_TEST_READER`. Record the printed
+source commit, tree, lock hash and reader SHA-256 with the standalone converter’s
+SHA-256 and its JSON settings. Open these via `openDeploymentFoldMigration` in
+the scan and the writer. Both artifacts load from verified bytes. The receipt
+binds their identities, conversion settings, the scoped root and each target’s
+exact history. Keep the source projection available until the old roots are read.
+An incompatible root SQL change must preserve a way to read those exact roots
+until the candidate writes its own rows and snapshot. A same-representation
+repair uses the identity converter. Production serving only uses the candidate
+decoder after the new horizon is written.
+`scripts/lib/deploymentFold.ts` scans the current source, target identities,
+pending-publish facts, mapping and prior reference. The writer repeats the
+scan under the app and deployment locks. It converts the server-folded
+published document, ordered actors and net property renames to the new
+representation, then checks the head projection and slug resolution against
+their converted results. A prior move or migration refusal keeps its reason.
+The read-only scan recognizes the complete prior schema and the complete
+candidate schema. A partial install refuses. The same logical inventory
+produces the same digest on both. Scan and writer visit one target at a time in
+deployment ID order. The writer binds each converted certificate and compares
+the aggregate receipt before it moves the horizon. It then reads each bound
+certificate back and compares their ordered digest before committing. Failure
+rolls back the entire app transaction. A released mapping counts as unavailable
+and keeps its comparison privately through later folds, for a possible reclaim.
+
+The current binding lives on the deployment’s own baseline. Refreshing kept
+settings or recording an equivalent HQ save verifies the observed revision,
+source digest, mapping token, fold and time before writing a new digest and any reviewed
+identity, media or next-publish changes together. A new publish, an ended
+deployment or a replacement HQ app retires the binding. A later fold advances
+from the saved published document and the server writes since its fold.
+An editor turn stays unpublished throughout either operation.
+An empty take of a change already in Nova checks the actual app head under
+the same lock as its baseline write. A moved head returns a new review and
+keeps the certificate. A mutating take checks the head in the canonical
+commit. App import admission also checks that the compiled revision still
+falls within the current fold. An open import holds the fold until the import
+settles. An acknowledgement delivered after the hold expires and the fold
+advances leaves the certified mapping, source and side records intact and
+asks the publisher to review the remote app again.
+
+The review composes each case-property rename command simultaneously and
+cancels a round trip at that command. Retiring an empty property ends that
+name’s history. Removing a catalog annotation while a writer still supplies
+the property keeps it, as does whole-type retirement. To distinguish those
+cases the fold reads the actual editor document at the command, starting a
+certified suffix from the app’s immutable head snapshot at the same fold.
+Only the server-folded document represents what the deployment received.
+The source decoder records both the renames its review displayed at the old
+head and the still-live property moves that another edit can continue.
+For the release before certificates, its review could continue displaying a
+retired property. Its admitted editor rows, its own reducer and the same
+effective-storage test its commit kernel used establish which moves survive.
+A fold with no intervening rows retains that release’s displayed facts. A
+published take also checks all surviving moves at this boundary, including a
+new occupant’s move the old release treated as a round trip. The review and
+the apply request use this same list of case types and name pairs. A subsequent
+edit follows only surviving moves, including after repeated folds.
 
 **Nova holds nothing unpublished exactly where what it would publish reads
 the same as what it published**, `documentDifferences(canonK(reference),
@@ -1070,19 +1191,28 @@ to the reference, the review lists by place every change in Nova that taking
 them removes (`lib/doc/documentChanges.ts`), and the person chooses one side
 whole: use CommCare HQ's version, publish over it, or stop publishing there. A
 case property renamed in Nova since the reference holds the first choice back
-until it is renamed back, since that rename moved saved case data.
+until it is renamed back, since that rename moved saved case data. When a
+source or destination name occurs in several moves, the review names them
+all and asks the person to check the current properties and saved values.
+Every page of the MCP review uses that same recovery, even if the second
+move appears on another page.
 
 **Two requests, and nothing stored between them**, as bringing an app in is.
 `review.ts::reviewHqChanges` (`POST /api/commcare/changes/review`) authorizes
 `edit`, reads CommCare HQ with the member's own key, writes nothing, and
 answers a review with a digest (`digest.ts::hqChangesReviewDigest`: the
-baseline's digest, CommCare HQ's source now, the head, the settled media
+baseline's digest, the continuous claim’s mapping token, the stored and resolved target identities, CommCare HQ's source now, the head, the settled media
 standings, the target with each file CommCare HQ holds named by its content,
 and the tables the change newly reads). `bringIn.ts::bringInHqChanges`
 (`POST /api/commcare/changes/bring-in`) computes all of it again and acts only
 where its digest is the one sent. Any other answer takes nothing and answers
 `changed` with the review as it now stands, and so do the kernel's
 `AppHeadMovedError` and the record's `store.ts::HqChangesBaselineMovedError`.
+Each form, menu, keyed prefix, column word and held file path participates in
+the canonical identity records. Incoming files and Project files of the same
+bytes share a content identity before paths are resolved, so recording a file
+already in the library keeps the reviewed result. A review left open from
+before this receipt version gets the current review. A registered consequence follows its rematched menu, form, question and after-submit destination across a reorder. A choice’s worker answer and an enum entry’s key identify their labels, including every recipient of a shared itext value. Duplicate case-list rows include their joined list and detail behavior, tile and sort placement, and exact physical inputs. Repeated links include their conditions and carried case values. An otherwise indistinguishable peer stays bound to its occurrence. Search admits one validation per prompt and its message belongs to that rule. Proof and review still name the source location where it applies. A recordable same-document MCP reading uses the same bounded, lossless line pages as a document change and releases its receipt on the final page. A page fits both the text budget and the host’s serialized result budget. The upload tool withholds an app overwrite receipt when its list would exceed them.
 Both routes answer 200 with a stage stream for every outcome. A bring-in
 commits under `batchId.ts::hqChangesBatchId` (the deployment, the digest and
 the member), so a double press converges on the kernel's batch latch and
@@ -1146,8 +1276,51 @@ sent:
   prefix, a form's id, a file's path or a column's word changed in CommCare HQ
   and nothing else), which the review named: the source
   is replaced, origin, `nova_revision`, ownership and any discard stay, the
-  next publish's list is kept by the same rule where the review ran its
-  readings, and the media record is written wherever it moves
+  complete last accepted reading determines every remaining first-publish
+  change for that project space. After the first push, the review carries
+  applicable pending changes and adds its own. Restoring a setting in HQ
+  removes its warning in either case. Kept settings refresh independently. On an adopted target or one with a
+  pending list, Refresh preserves the accepted source when a media-map key,
+  an unsettled file, the logo references HQ keeps, or the Web Apps switch
+  changed. Review then reads both complete sources, even when a different
+  ID at a published path settled as the same file. HQ prunes map keys
+  outside the app’s and logos’ paths on import. Ordinary target-kept profile
+  values and runtime strings can still refresh directly. Recording the Web
+  Apps reading updates the card; changing the switch on publish still needs
+  its own confirmation. A repeated response
+  succeeds only when its projected card still matches. The first time a publish would rewrite a saved input, the full review waits
+  for the member’s choice even when the app reads to the same Nova document.
+  A repeated warning compares the specific place and its inputs. A form title uses
+  the text Core reads, a dropped default uses the form grammar, and a saved map
+  compares its keys and values. A warning that went away can clear directly.
+  The two birth requests bind the same non-file consequences. A generic earlier first- or next-publish warning can outlive the source that established it. A full choice establishes its concrete inputs and records `reviewedInputs: 1`; subsequent reads can carry that source again. The stored first-publish
+  card carries `reviewed: 1` when the adoption or a full accepted reading
+  established its consequences. Earlier releases could refresh their stored
+  source while retaining an older card. A live unmarked card needs a complete
+  signed review before publishing, including on an otherwise identical HQ
+  source. An unverifiable source or reference holds this target. A Project admin or owner can stop publishing here after outstanding writes settle and bring HQ’s app in as a new Nova app. Passive refresh and a discard cannot
+  establish this provenance. Every target compares HQ's current media map against the exact paths the
+  outgoing app and the retained logos use. An intact, readable HQ media reference with the recorded file ID accounts for Nova's own file at its recorded path. Any other reference that this import prunes
+  requires the member's approval for its path and HQ file. The target's pending
+  card keeps hashes of these approved bindings. A missing card or a generic
+  warning approves no physical removal, even if a passive Refresh on an older
+  release already recorded the identical HQ source. A new adoption's birth
+  review lists kinds of change. Its first destructive publish names the actual
+  file references. The reading and its second request cover both accepted and
+  prospective removals. Both historical and current readings bind held files by
+  their bytes to the same ready Project asset the uploader would use. Several
+  HQ ids may therefore name one file. The take and the keep-Nova choice each
+  project their own actual outgoing paths before signing the physical losses.
+  An explicit discard covers the source and that publish's
+  exact removals. A bounded list that cannot show them all opens the full
+  paged review. A late source read after Project data went checks the map again.
+  A passive Refresh can't advance a pending review. A successful import
+  supersedes this card only on its own target. No migration gives a legacy
+  warning authority over individual file identities. The remaining register entries compare their own places when the same warning still applies. An app setting can change value at one place. An unread fixture declaration or a hidden starting value can change within the same form. The reading preserves those discarded inputs for its comparison. Blank translations and form media share the same identity for the receiving question, its label, hint, message or saved choice value, and its language. Shared text includes every recipient. Each form value retains its explicit languages and every installed app language that receives the default translation's file. A rename or join compares the file paths actually used in each source. A Project asset held by the reference has its immutable content hash. The remaining paths use the native file type and id in that source's own map; HQ associates its file document with one content hash and serves its saved attachment. A replacement with another id is a new file even when the bytes coincide. Before and after adoption deduplicates Project assets, the chosen declaration assigns its outgoing paths by content and records each accepted physical removal at birth. Menu and list images retain their rematched slot, the languages it shows the file in, its path and its HQ file. Changing which worker-facing slot loses the file requires a new review. A new subject of a prior warning goes back to the member, while an unrelated save that leaves its subjects alone carries the warning forward. To replace a claimed
+  target that cannot be reviewed, a Project admin or owner stops publishing
+  there and waits for any outstanding publish before bringing the HQ app in
+  as a new Nova app. Other project spaces keep their own claims. The media record is
+  written wherever it moves
   (`hqMedia.ts::hqMediaRecordMoves`): an id the review learned by content is
   recorded, and an id whose file CommCare HQ no longer serves is forgotten
   (`nextHqMediaRecord`'s `settled`), so Refresh counts neither again. A take
@@ -1325,7 +1498,7 @@ content, else what the record held: an upload that failed, timed out or
 reported errors earns no entry, and an app that publishes no file records
 none. When a later publish already holds the app mapping by the time this
 import records its response, the older publish skips its media upload and
-reports that to the caller. The second read, where Project data went, also compares the file ids at
+reports that to the caller. After the last source and file reads, assembling the app and admitting the write, the publisher reads HQ's working save counter immediately before each physical import POST. HQ may throttle before running its view. Every resend checks the same reviewed counter again after the requested wait, within the original deadline. A different or unavailable counter settles the unsent hold and asks for a new comparison. A first admission can restore a suspended released entry only under an uninterrupted claim without a competing write. The first claim uses its resource row ID until a later acquisition mints an explicit claim generation. HQ's import has no conditional update against that counter. An extra save after the final observation still leaves the accepted import's baseline unconfirmed. The second read, where Project data went, also compares the file ids at
 the published paths (`hqMedia.ts::mediaMovedBetween`) and settles each one that
 moved by its content, since Nova's own earlier upload may still be mapping its
 file: a file that is not this app's stops at `upload` as a moved form does.
@@ -1478,7 +1651,7 @@ because each fold states its precondition against that fresh row:
   produce.
 - `applyDeploymentObservation` folds only while the active mapping still
   carries the remote id AND the `push_token` the observation read before
-  asking, and is not released. Postgres assigns a fresh UUID on insertion and every update of
+  asking, and is not released. An import, its media bundle, and a checked entry-point link also prove their observed token at admission. Postgres assigns a fresh UUID on a change of claim, on insertion and on every update of
   push fields, even when the timestamp, source revision, and remote id stay
   equal. Observation-only updates and supersession retain that identity.
   Thus a refresh that spent five seconds asking
@@ -1548,6 +1721,23 @@ hold ends. A bring-in, and a publish before it reads the save counter, poll
 each open media job of the HQ app by its id and settle one HQ reports done
 (`remoteWrites.ts::settleFinishedMediaJobs`).
 
+**A take and a publish share the same target facts.** A publish captures the
+claim and its review generation before contacting HQ, the source it compares,
+the menu and form bindings it compiles, and the recorded IDs of files it will
+send. The final app and media admissions recheck those facts under the
+deployment lock. A semantic take advances the review generation, including a
+changed next-publish setting on an otherwise identical app. A take that adopts
+document changes also records the revision those changes require. An independent
+Nova edit can still follow a compilation. Another project space has its own
+admissions and review generation.
+
+An open import holds a conflicting take until HQ positively acknowledges the
+working-app save that accepted it. A review of that save or a later save can
+land while Nova awaits the import's read-back. An open media job keeps a
+conflicting take waiting until it settles. A review that changes none of these
+facts can complete while an import is open. An expired or returning publisher
+cannot certify an earlier review or send its remaining files over a later one.
+
 **What a write made is recorded on its admission.** Every record of a write
 Nova let out (`recordCreatedRemoteApp`, `recordOrphanedRemoteApp`,
 `recordPushedResources`, `markResourceBaselinesUnread`,
@@ -1560,6 +1750,35 @@ still be in that Project, which a move cannot change while one is open.
 Neither the app's deletion nor the caller's role since is asked, so an app
 deleted, or a publisher who lost edit, between the admission and the record
 still has what the write made recorded, and a restored app holds it. A record
+of an app import or its final entry-point manifest also compares its durable
+admission's claim generation with the mapping. The mapping id identifies its
+first claim. Release and reclaim each assign a fresh generation, including
+when the same HQ app returns to the same Nova app. An expired process may
+record an acknowledgement only on its original uninterrupted claim. If HQ
+accepted it after the transfer, the publish reports what was sent and offers
+a new check, retaining the existing baseline and sending no more media.
+Other imports on the same claim still record in HQ save order. The changes
+reader brackets the source between the working app's application resource
+and `currentVersion`. A take keeps that save counter on the mapping and the
+baseline. An import whose counter is missing, equal or lower keeps the
+accepted take, as does an import with an unconfirmed read-back. The next
+preview, comparison, and publish retain the take's ownership and list.
+A confirmed higher counter supersedes the exact bracketed source even when
+the recorder transactions or clocks were ordered differently. A passive
+refresh retains the mapping counter and writes its source without a counter,
+so its newer observation is still compared before the publish records.
+Release and reclaim start a fresh counter order. HQ's `current_app_version`
+reports the working-app counter separately from both build counters.
+`app_import_api._handle_import_app` updates by app ID and returns that
+working app's `version`; `overwrite_app_from_source` saves its attachments
+through `ApplicationBase.save`, which advances the working app's counter.
+The admission also retains a digest of the target bindings used for
+compilation, including the file paths used at preflight. App and media
+admissions compare the complete record under the deployment lock. A take
+that changes bindings during an open write returns a retryable explanation.
+An acknowledgement after expiry can establish a baseline or entry points
+only while the actual target bindings still match. A change of bindings
+retires link evidence attached to the previous names. A record
 with no admission behind it (an app that stopped carrying a kind, a seed)
 needs a live app and `edit`, as every other deployment write does. The
 deletion held off would not close it: the write's answer comes before its
@@ -1743,7 +1962,7 @@ records a new app.
 **The fence.** No lock spans a publish's round trips, so an ending can land
 in the middle of one. `publishAppToHq` reads `endings` once, from its first
 read, and every store write of that publish carries it (`DeploymentFence`):
-`foldDeploymentAttempt`, `beginDeploymentContentWrite`,
+`foldDeploymentAttempt`, the first outbound write’s admission,
 `recordCreatedRemoteApp`, `recordRemoteResource` and
 `recordRefreshedAppBaseline` throw `DeploymentEndedError` and write nothing
 where the row's count differs, `finishDeploymentContentWrite` answers false
@@ -2255,9 +2474,14 @@ that the move merely succeeded.
 `entryPointManifest.ts` compiles the exact prepared upload snapshot and records
 its entry-point UUID, destination UUIDs, external ID, required selections and
 suite navigation signature. `content_generation` is invalidated before the
-first remote dependency/app write. Completion binds a manifest only to the
-same generation and active remote app; an obsolete completion invalidates
-newer evidence because remote write order is then uncertain. These remain
+first remote dependency/app write, in the transaction admitting it. An
+attempt that received no write admission leaves existing evidence intact at
+both start and completion. Completion binds a manifest only to the
+same generation and active remote app. Each admission records the deployment's
+current generation when HQ first reports it finished. When all of an earlier
+attempt's writes settled before the current generation, a delayed completion
+leaves its released link and observation intact. An overlapping or unknown
+settlement invalidates the newer manifest because HQ's order is uncertain. These remain
 short transactions, without locks across HQ requests.
 
 `getEntryPointLink` is the shared Builder/MCP service. It authorizes a selected
@@ -2315,3 +2539,12 @@ emitter defaults to the worker's username. HQ requires the USERCASE privilege,
 which the person confirms, and a restored record, which Nova cannot verify.
 Read-only forms can silently get blank values; writers have a native entry
 assertion. Record-scope session expressions are not worker-record reads.
+
+
+A parked empty app remains editable in CommCare HQ. Each resumed publish checks its file destinations before it writes the content. After HQ accepts the content, `hqMediaSettle.ts::verifyHqMediaBatch` uses the source compared for that import and its counter-bound read-back to authorize the next bundle. A subsequent save requires a stable fresh source. A path that now holds another ID or file type is checked against the outgoing bytes. If the evidence is unavailable or different, the accepted app stays published, the batch stays unsent, and the prior file record stays available for the next review. The capture uses the same check.
+
+Every live source read for bring-in, passive refresh or publishing must include HQ’s multimedia map. A content import can remove references even when it sends zero files. A newly created shell with an affected mapping is recorded and left for target preflight. The capture and preflight share the same removal decision, including the exact reviewed file identities, outgoing paths and limit on a discard list. An outstanding import can precede a concurrent take only when HQ acknowledged the same app at a save counter strictly greater than the one compared before sending.
+
+The MCP tools page HQ birth and change reviews against 80,000 characters of the complete serialized SDK result, including the outer write response around a fresh reading. Size the opaque continuation and every escaped piece before adding it. Move a large case catalog, a lookup choice with many column consequences, or a contributor list onto those same pages. Preserve their complete identities and offer the review digest only when every decision-bearing item has been returned. An oversized upload refusal sends the user to this review before it offers any discard receipt.
+
+A continuation commits to the display inputs as well as the underlying approval. The birth approval includes the complete review except its read timestamp; add the Project display name and target domain to its page identity. The later approval includes every table, while change sentences and contributor names are resolved separately; bind those rendered inputs to its continuation. If a Project name, contributor, or displayed change moves, restart the pages without changing the underlying write decision. The prior cursor also restarts after the page layout changes version. Paged rename evidence is lossless, with one bounded recovery sentence based on name reuse across the entire review.

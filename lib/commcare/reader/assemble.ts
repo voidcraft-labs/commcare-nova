@@ -1882,7 +1882,7 @@ function formFacts(ctx: ReadContext): ReadFacts["forms"] {
 							generated: [...form.xform.generated],
 							inertAppearances: [...form.xform.inertAppearances],
 							caseRegionPaths: [...form.xform.caseRegionPaths],
-							blankTranslations: formBlankTranslations(form.xform),
+							...formBlankTranslations(form.xform),
 						},
 					],
 		),
@@ -1946,6 +1946,7 @@ function recordTitleRewrites(ctx: ReadContext, doc: BlueprintDoc): void {
 				entry: TITLE_ENTRY,
 				path: `/_attachments/${pointerToken(`${readId ?? form.xmlns}.xml`)}`,
 				register: "form-titles-written",
+				removedInputs: [["title", coreTitle(form.xform.parsed.title) ?? ""]],
 			});
 		}
 	}
@@ -2015,6 +2016,8 @@ export function* assembleDocumentSteps(
 		unreadTables: [...ctx.facts.unreadTables],
 		forms: [...ctx.facts.forms],
 		sameStateRewrites: [...ctx.facts.sameStateRewrites],
+		formLinkOwners: ctx.facts.formLinkOwners,
+		detailColumnOwners: ctx.facts.detailColumnOwners,
 		entryFactsRefused: [...ctx.facts.entryFactsRefused],
 		childCasesUnread: [...ctx.facts.childCasesUnread],
 		rewrites: [...ctx.facts.rewrites],

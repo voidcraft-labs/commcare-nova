@@ -23,7 +23,10 @@ runMain(async () => {
 		for (const finding of await scanAuthoringBaselines(options.app)) {
 			const result =
 				options.execute && finding.status === "ready"
-					? await repairAuthoringBaseline(finding.appId)
+					? await repairAuthoringBaseline(
+							finding.appId,
+							finding.deploymentComparisons,
+						)
 					: finding;
 			console.log(JSON.stringify(result));
 			if (result && result.status !== "repaired" && result.status !== "current")

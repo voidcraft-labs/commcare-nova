@@ -171,6 +171,29 @@ function entriesByWirePath(
 }
 
 /**
+ * The map paths in `now` that hold, readably, the file id `record` keeps for
+ * them: a file Nova's own upload put there and recorded. HQ's bulk upload
+ * adds such a path to the map after the publish read the app back, so a
+ * comparison against that read settles it rather than reading HQ's change.
+ */
+export function recordedHqFilePaths(
+	record: HqMediaRecord | null,
+	now: readonly HqMediaMapItem[],
+): ReadonlySet<string> {
+	const settled = new Set<string>();
+	if (record === null) return settled;
+	for (const [wirePath, item] of entriesByWirePath(now)) {
+		if (
+			!item.unreadable &&
+			item.multimediaId !== null &&
+			record[wirePath] === item.multimediaId
+		)
+			settled.add(item.path);
+	}
+	return settled;
+}
+
+/**
  * How many paths of `record` hold another id in `now`: an entry that names
  * another file, or one Nova cannot read, which its own upload never writes.
  * A path whose entry is gone or names no file is none: a publish puts the
@@ -211,6 +234,7 @@ export function mediaMovedBetween(
 	first: readonly HqMediaMapItem[],
 	second: readonly HqMediaMapItem[],
 	published: readonly PublishedMediaFile[],
+	unreadableMoved?: (path: string) => boolean,
 ): readonly HqMediaPath[] {
 	const before = entriesByWirePath(first);
 	const after = entriesByWirePath(second);
@@ -219,7 +243,11 @@ export function mediaMovedBetween(
 		const later = after.get(file.wirePath);
 		if (earlier === undefined || later === undefined) return earlier !== later;
 		return (
+			(earlier.unreadable &&
+				later.unreadable &&
+				(unreadableMoved?.(later.path) ?? true)) ||
 			earlier.unreadable !== later.unreadable ||
+			earlier.mediaType !== later.mediaType ||
 			earlier.multimediaId !== later.multimediaId
 		);
 	});
@@ -293,6 +321,54 @@ export function nextHqMediaRecord(input: {
 		if (id !== undefined) record[wirePath] = id;
 	}
 	return record;
+}
+
+/** The path evidence the remote request saw and the evidence it can now
+ * establish. A removed key is a deliberate change just like a new file id. */
+export interface HqMediaObservation {
+	readonly read: HqMediaRecord | null;
+	readonly next: HqMediaRecord;
+	/** Files whose prior standing the review used to decide what to take.
+	 * An upload reports its results without committing any review decision. */
+	readonly judgedPaths?: readonly string[];
+}
+
+/** Apply only this observation's changes. A new or corrected fact learned
+ * since the read survives. Conflicting paths keep their current fact, allowing
+ * the caller to retry a review or report a partial publish observation. */
+export function mergeHqMediaObservation(
+	current: HqMediaRecord | null,
+	observation: HqMediaObservation,
+) {
+	const read = observation.read ?? NO_ENTRIES;
+	const next = observation.next;
+	const merged = recordFromEntries(Object.entries(current ?? NO_ENTRIES));
+	const judged = new Set(observation.judgedPaths);
+	let conflict = false;
+	for (const path of new Set([
+		...Object.keys(read),
+		...Object.keys(next),
+		...judged,
+	])) {
+		const previous = ownRecordValue(read, path);
+		const observed = ownRecordValue(next, path);
+		const stored = ownRecordValue(merged, path);
+		// A new id can change a replacement into an already-owned file,
+		// even when it is the id the proposed take would store.
+		if (judged.has(path) && previous !== stored) {
+			conflict = true;
+			continue;
+		}
+		if (previous === observed || stored === observed) continue;
+		if (stored !== previous) {
+			conflict = true;
+		} else if (observed === undefined) {
+			delete merged[path];
+		} else {
+			merged[path] = observed;
+		}
+	}
+	return { files: merged, conflict };
 }
 
 /**

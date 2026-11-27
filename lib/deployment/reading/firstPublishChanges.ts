@@ -19,10 +19,13 @@
 
 import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import type { HqAppSource } from "@/lib/commcare/hq/appSource";
+import { unreadableMediaIdentity } from "@/lib/commcare/hq/mediaMap";
 import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
 import { pythonStrip } from "@/lib/commcare/localeFile";
 import { identityLookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { readsTrimmedSibling } from "@/lib/commcare/placement";
 import type {
+	MediaRecipients,
 	ReadFacts,
 	ReadFormFacts,
 	ReadGeneratedNode,
@@ -38,9 +41,11 @@ import {
 	generatedNodePaths,
 } from "@/lib/commcare/xform/generatedNodes";
 import { type BlueprintDoc, declaresWebApps, type Uuid } from "@/lib/domain";
+import { isCaseScalarTextProperty } from "@/lib/domain/caseScalarTextGuard";
+import { formCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { datetimeSplitFieldUuid } from "@/lib/domain/datetimeSplitIdentity";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
-import { operationCaseType } from "@/lib/domain/forms";
+import { formLinkEntries, operationCaseType } from "@/lib/domain/forms";
 import { projectedModulePreorder } from "@/lib/domain/moduleHierarchy";
 import { effectiveCaseSearchConfig } from "@/lib/domain/modules";
 import type { Platform } from "@/lib/domain/platforms";
@@ -52,11 +57,9 @@ import {
 	type FirstPublishChangeId,
 	type FirstPublishView,
 } from "@/lib/publish/firstPublishChangeIds";
-import {
-	type AdoptedMediaFile,
-	assignMediaPaths,
-	type MediaPathAssignment,
-} from "../adoption";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import type { AdoptedMediaFile, MediaPathAssignment } from "../adoption";
+import { readingMediaPaths } from "./adoptionBoundary";
 import {
 	FIRST_PUBLISH_PLACE_KINDS,
 	type FirstPublishPlaceKind,
@@ -65,6 +68,7 @@ import {
 	type FormPositions,
 	firstPublishPlaceKind,
 	formPositionsOf,
+	type MediaReferenceAt,
 	mapPath,
 	nodePlace,
 	partPlace,
@@ -76,7 +80,6 @@ import {
 	placesOfSlot,
 	sortedPlaces,
 } from "./firstPublishPlaces";
-import { reviewMediaId } from "./mediaIds";
 import type { HqMediaClaim } from "./projectData/media";
 
 // ── The generated difference ────────────────────────────────────────────
@@ -1044,19 +1047,17 @@ function leftOutMediaPlaces(
 }
 
 /** A source map entry is in use even when the slot or logo that names it has no available file. */
-function unusedMediaPaths(facts: FirstPublishFacts): string[] {
+export function unusedMediaEntries(source: HqAppSource, facts: ReadFacts) {
 	// HQ's logo_paths takes the stored value verbatim. ApplicationMediaReference strips surrounding
 	// whitespace from other slots, and remove_unused_mappings compares the actual map keys to those paths.
-	const named = logoPaths(facts.source);
+	const named = logoPaths(source);
 	for (const reference of [
-		...facts.facts.unheldMedia,
-		...facts.facts.mediaReferences,
-		...facts.facts.pendingMedia,
+		...facts.unheldMedia,
+		...facts.mediaReferences,
+		...facts.pendingMedia,
 	])
 		if (reference.slot !== "app_logo") named.add(pythonStrip(reference.path));
-	return (facts.source.multimediaMap ?? [])
-		.map((item) => item.path)
-		.filter((path) => !named.has(path));
+	return (source.multimediaMap ?? []).filter((item) => !named.has(item.path));
 }
 
 /** The menus whose search the shell's `auto_launch` respells (`inactiveAutoLaunchRespelled`). */
@@ -1688,11 +1689,12 @@ export const FIRST_PUBLISH_CHANGES: Readonly<
 	"unused-media-entries-removed": {
 		touchesWorkers: false,
 		scope: "reading",
-		applies: (facts) => unusedMediaPaths(facts).length > 0,
+		applies: (facts) =>
+			unusedMediaEntries(facts.source, facts.facts).length > 0,
 		at: {
 			kinds: ["app"],
 			places: (facts) =>
-				unusedMediaPaths(facts).map((path) =>
+				unusedMediaEntries(facts.source, facts.facts).map(({ path }) =>
 					placeOf("app", "multimedia_map", path),
 				),
 		},
@@ -1953,12 +1955,7 @@ export function firstPublishFactsOf(input: {
 		// Keyed by content: a reading names each of HQ's media documents by a
 		// provisional id and a create by its published one, so two documents of
 		// one content are one asset only under an id their bytes give.
-		media: assignMediaPaths(
-			input.mediaFiles.map((file) => ({
-				...file,
-				assetId: reviewMediaId(file.contentHash),
-			})),
-		),
+		media: readingMediaPaths(input.mediaFiles),
 		mediaClaims: input.mediaClaims,
 		choice: input.choice,
 	};
@@ -2047,6 +2044,543 @@ export function firstPublishChangePlaces(
 		}
 		return { id, places };
 	});
+}
+
+/** The proof register also names results in the emitted XML, stored cases and
+ * generated HQ rows. Only a concrete source operand can authorize replacing
+ * its value. A menu, form, attachment or the whole app is never such a slot. */
+function storedSubjectValue(facts: FirstPublishFacts, place: string): unknown {
+	const [root, at, ...rest] = placeSteps(place);
+	if (root === "app" && at && at !== "modules" && at !== "_attachments")
+		return storedAt(facts.source.raw, placeOf(at, ...rest));
+	if (root === "menu" && rest.length && rest[0] !== "forms")
+		return storedAt(facts.source.raw, placeOf("modules", at, ...rest));
+	if (root === "form" && rest.length && rest[0] !== "xform") {
+		const [menu, form] = at.split(".");
+		return storedAt(
+			facts.source.raw,
+			placeOf("modules", menu, "forms", form, ...rest),
+		);
+	}
+	return undefined;
+}
+
+/** Proof locations follow HQ's document order. Review compares the owner the two readings
+ * rematched, so changing a menu or form's position changes only its displayed location. */
+function reviewPlaceOf(facts: FirstPublishFacts) {
+	const forms = new Map(
+		[...facts.formPositions].map(([uuid, position]) => [position, uuid]),
+	);
+	const menus = projectedModulePreorder(facts.doc);
+	const links = new Map(
+		facts.facts.formLinkOwners.map(({ pointer, uuid }) => [pointer, uuid]),
+	);
+	const columnAt = new Map(
+		facts.facts.detailColumnOwners.flatMap((owner) =>
+			[owner.short, owner.long].flatMap((path) =>
+				path ? [[path, owner] as const] : [],
+			),
+		),
+	);
+	const columns = new Map(
+		Object.values(facts.doc.modules).flatMap((menu) =>
+			(menu.caseListConfig?.columns ?? []).map(
+				(column) => [column.uuid, column] as const,
+			),
+		),
+	);
+	const formLinks = new Map(
+		Object.values(facts.doc.forms).flatMap((form) =>
+			formLinkEntries(form).map((entry) => [entry.link.uuid, entry] as const),
+		),
+	);
+	const searchInputs = new Map(
+		Object.values(facts.doc.modules).flatMap((menu) =>
+			(menu.caseListConfig?.searchInputs ?? []).map(
+				(input) => [placeOf(menu.uuid, input.name), input] as const,
+			),
+		),
+	);
+	const slots = new Map<string, readonly string[]>();
+	function rowKeys(
+		menu: string,
+		path: string[],
+		index: string,
+		source: readonly unknown[],
+		key: (value: unknown, index: number) => unknown,
+		distinguish?: (
+			value: unknown,
+			index: number,
+		) => { meaning: unknown; source: unknown },
+		alwaysBind = false,
+	): string {
+		const list = placeOf(menu, ...path);
+		let keys = slots.get(list);
+		if (!keys) {
+			const groups = source.map((item, i) => JSON.stringify(key(item, i)));
+			const repeated = new Set<string>();
+			const seenGroups = new Set<string>();
+			for (const group of groups) {
+				if (seenGroups.has(group)) repeated.add(group);
+				seenGroups.add(group);
+			}
+			const seen = new Map<string, number>();
+			keys = source.map((item, i) => {
+				const group = groups[i];
+				// Identical normalized recipients have no independent identity on
+				// HQ. Keep their occurrence AND exact physical source. Only peers
+				// with distinguishable behavior can carry a receipt across a reorder.
+				const peer =
+					alwaysBind || repeated.has(group)
+						? (distinguish?.(item, i) ?? { meaning: null, source: item })
+						: null;
+				const semantic = peer
+					? canonicalJsonDigest([group, peer.meaning])
+					: group;
+				const ord = seen.get(semantic) ?? 0;
+				seen.set(semantic, ord + 1);
+				return canonicalJsonDigest([semantic, ord, peer?.source ?? null]);
+			});
+			slots.set(list, keys);
+		}
+		return keys[Number(index)] ?? index;
+	}
+	return (place: string): string => {
+		const [root, position, ...rest] = placeSteps(place);
+		if (root === "form") {
+			if (rest[0] === "form_links" && /^\d+$/.test(rest[1] ?? "")) {
+				const [menu, form] = position.split(".");
+				const pointer = placeOf(
+					"modules",
+					menu,
+					"forms",
+					form,
+					rest[0],
+					rest[1],
+				);
+				const owner = links.get(pointer);
+				if (owner) {
+					if (rest[2] === "datums" && /^\d+$/.test(rest[3] ?? "")) {
+						const rows = asList(
+							storedAt(facts.source.raw, `${pointer}/datums`),
+						);
+						rest[3] = rowKeys(
+							pointer,
+							["datums"],
+							rest[3],
+							rows,
+							(row) => at(row, "name") ?? null,
+						);
+					}
+					const list = placeOf("modules", menu, "forms", form, "form_links");
+					const rows = asList(storedAt(facts.source.raw, list));
+					const linkAt = (index: number) => {
+						const id = links.get(`${list}/${index}`);
+						return id ? formLinks.get(id) : undefined;
+					};
+					rest[1] = rowKeys(
+						list,
+						[],
+						rest[1],
+						rows,
+						(_, i) => linkAt(i)?.link.target ?? null,
+						(row, i) => {
+							const entry = linkAt(i);
+							if (!entry) return { meaning: null, source: row };
+							const { uuid: _uuid, ...meaning } = entry.link;
+							// HQ rekeys form references in every export. The reader has
+							// already resolved them against this reading's target ledger.
+							const {
+								form_id: _form,
+								form_module_id: _menu,
+								module_unique_id: _target,
+								...physical
+							} = asRecord(row);
+							return { meaning: [entry.role, meaning], source: physical };
+						},
+						true,
+					);
+				}
+			}
+			return placeOf(root, forms.get(position) ?? position, ...rest);
+		}
+		if (root !== "menu") return place;
+		const menu =
+			menus[Number(position)] ??
+			facts.source.modules[Number(position)]?.uniqueId ??
+			position;
+		if (
+			rest[0] === "case_details" &&
+			(rest[2] === "columns" || rest[2] === "sort_elements") &&
+			/^\d+$/.test(rest[3] ?? "")
+		) {
+			const path = rest.slice(0, 3);
+			let rows = asList(
+				storedAt(facts.source.raw, placeOf("modules", position, ...path)),
+			);
+			if (
+				!rows[Number(rest[3])] &&
+				rest[1] === "short" &&
+				rest[2] === "columns"
+			) {
+				const mod = facts.doc.modules[menus[Number(position)]];
+				if (mod)
+					rows = [
+						...projectCaseListForHq(mod, facts.doc).caseDetails.short.columns,
+					];
+			}
+			const columnIndex = rest[3];
+			if (rest[4] === "enum" && /^\d+$/.test(rest[5] ?? "")) {
+				const entries = asList(at(rows[Number(columnIndex)], "enum"));
+				rest[5] = rowKeys(
+					menu,
+					[...path, columnIndex, "enum"],
+					rest[5],
+					entries,
+					(entry) => at(entry, "key") ?? null,
+				);
+			}
+			rest[3] = rowKeys(
+				menu,
+				path,
+				columnIndex,
+				rows,
+				(row) => [at(row, "field") ?? null, at(row, "format") ?? null],
+				(row, i) => {
+					const pointer = placeOf("modules", position, ...path, i);
+					const owner = columnAt.get(pointer);
+					const column = owner && columns.get(owner.uuid);
+					if (!owner || !column) return { meaning: null, source: row };
+					const { uuid: _uuid, ...meaning } = column;
+					const other = owner.short === pointer ? owner.long : owner.short;
+					return {
+						meaning,
+						source: [row, other ? storedAt(facts.source.raw, other) : null],
+					};
+				},
+			);
+		} else if (
+			rest[0] === "search_config" &&
+			rest[1] === "properties" &&
+			/^\d+$/.test(rest[2] ?? "")
+		) {
+			const path = rest.slice(0, 2);
+			const rows = asList(
+				storedAt(facts.source.raw, placeOf("modules", position, ...path)),
+			);
+			const name = at(rows[Number(rest[2])], "name");
+			if (
+				rest[3] === "validations" &&
+				rest[4] === "0" &&
+				typeof name === "string"
+			) {
+				// HQ's reader admits one validation per prompt. Its message belongs
+				// to the normalized rule, even if another rule uses the same text.
+				const input = searchInputs.get(placeOf(menu, name));
+				if (input && input.kind !== "hidden")
+					rest[4] = canonicalJsonDigest([
+						"validation",
+						input.validation?.rule ?? null,
+					]);
+			}
+			rest[2] = rowKeys(
+				menu,
+				path,
+				rest[2],
+				rows,
+				(row) => at(row, "name") ?? null,
+			);
+		}
+		return placeOf(root, menu, ...rest);
+	};
+}
+
+/** Resolve the actual source question to every affected case-write slot.
+ * Both the guard and case-value emitter use this view. Other actions of the
+ * form, other cases, and current datetime writers retain their own meaning. */
+function caseWriterSubjects(
+	facts: FirstPublishFacts,
+	result: Map<FirstPublishChangeId, Map<string, string>>,
+	reviewPlace: (place: string) => string,
+) {
+	const names = result.get("case-names-checked");
+	const dates = result.get("date-and-time-saved-as-hq-stores-it");
+	if (!names && !dates) return;
+	const earlierDates = new Map<string, Set<string>>();
+	if (dates)
+		for (const row of facts.facts.sameStateRewrites) {
+			if (row.register !== "date-and-time-saved-as-hq-stores-it") continue;
+			const place = placeOfStoredPointer(facts.positions, row.path);
+			if (!place) continue;
+			const position = placeSteps(place)[1];
+			const fields = earlierDates.get(position) ?? new Set<string>();
+			for (const [kind, field] of row.removedInputs ?? [])
+				if (kind === "datetime-question") fields.add(field);
+			if (fields.size) earlierDates.set(position, fields);
+		}
+	const byPosition = new Map(
+		[...facts.formPositions].map(([id, position]) => [position, id]),
+	);
+	for (const { position, difference } of facts.generatedByForm) {
+		if (position === null) continue;
+		const trimmed = new Set(
+			names
+				? difference.added
+						.filter((node) => node.purpose === "trimmed")
+						.map((node) => node.owner)
+				: [],
+		);
+		const datetime = earlierDates.get(position);
+		const form = byPosition.get(position);
+		if ((!trimmed.size && !datetime) || !form) continue;
+		const locations = collectFieldLocations(facts.doc, form);
+		const operations = new Map(
+			(facts.doc.forms[form]?.caseOperations ?? []).map((op) => [op.uuid, op]),
+		);
+		const reads = readsTrimmedSibling(facts.doc, form);
+		for (const [uuid, views] of formCaseWriteViews(facts.doc, form)) {
+			const field = locations.get(uuid)?.path.toXPath();
+			if (!field || (!trimmed.has(field) && !datetime?.has(field))) continue;
+			const place = nodePlace(position, field);
+			for (const view of views) {
+				const op = operations.get(view.operationUuid);
+				if (!op) continue;
+				const key = canonicalJsonDigest([
+					reviewPlace(place),
+					op.id,
+					op.action,
+					view.slot,
+					view.caseType,
+					view.property,
+					view.via ?? null,
+					view.destination,
+					view.onlyIfChanged,
+				]);
+				if (datetime?.has(field)) dates?.set(key, place);
+				if (
+					trimmed.has(field) &&
+					!view.link &&
+					view.destination !== "worker-record" &&
+					isCaseScalarTextProperty(view.property) &&
+					reads(op.uuid)
+				)
+					names?.set(key, place);
+			}
+		}
+	}
+}
+
+/** The physical recipient of a media loss, independent of proof locations
+ * such as the app's media directory. Keep every shared XForm recipient,
+ * and the concrete native value of a JSON-backed media slot. */
+function mediaSubjects(
+	facts: FirstPublishFacts,
+	result: Map<FirstPublishChangeId, Map<string, string>>,
+	reviewPlace: (place: string) => string,
+) {
+	const mediaChanges = [
+		"media-paths-joined",
+		"media-files-renamed",
+		"unshown-form-media-removed",
+		"broken-pictures-removed",
+		"media-references-with-no-file-removed",
+	] as const;
+	if (!mediaChanges.some((id) => result.has(id))) return;
+	const files = new Map(
+		facts.source.multimediaMap?.map((file) => [file.path, file]),
+	);
+	const storedSlots = new Map<string, string>();
+	const add = (
+		id: FirstPublishChangeId,
+		ref: MediaReferenceAt & MediaRecipients & { readonly slot: string },
+		kind: string,
+		move?: unknown,
+	) => {
+		const subjects = result.get(id);
+		if (!subjects) return;
+		const source =
+			ref.pointer === undefined
+				? null
+				: placeOfStoredPointer(facts.positions, ref.pointer);
+		const place =
+			source ??
+			(ref.place.kind === "question"
+				? nodePlace(
+						`${ref.place.menu}.${ref.place.form}`,
+						`/data/${ref.place.path}`,
+					)
+				: null);
+		if (!place || (!source && !ref.itextRecipients?.length))
+			throw new Error(
+				"A media change has no physical recipient in this reading.",
+			);
+		const file = files.get(ref.path);
+		let storedSlot: string | undefined;
+		if (ref.pointer !== undefined) {
+			storedSlot = storedSlots.get(ref.pointer);
+			if (storedSlot === undefined) {
+				storedSlot = canonicalJsonDigest(
+					storedAt(facts.source.raw, ref.pointer) ?? null,
+				);
+				storedSlots.set(ref.pointer, storedSlot);
+			}
+		}
+		const base = canonicalJsonDigest([
+			reviewPlace(place),
+			ref.slot,
+			kind,
+			ref.path,
+			file?.multimediaId ?? null,
+			file?.mediaType ?? null,
+			move ?? null,
+			ref.shownLanguages ?? null,
+			file?.unreadable
+				? unreadableMediaIdentity(facts.source.raw, ref.path)
+				: null,
+			storedSlot ?? null,
+		]);
+		if (ref.itextRecipients?.length) {
+			for (const recipient of ref.itextRecipients) {
+				subjects.set(canonicalJsonDigest([base, "stored", recipient]), place);
+				subjects.set(
+					canonicalJsonDigest([base, "effective", recipient]),
+					place,
+				);
+			}
+			for (const recipient of ref.inheritedItextRecipients ?? [])
+				subjects.set(
+					canonicalJsonDigest([base, "effective", recipient]),
+					place,
+				);
+		} else subjects.set(base, place);
+	};
+	for (const ref of facts.facts.unheldMedia)
+		add("unshown-form-media-removed", ref, ref.mediaKind);
+	for (const claim of facts.mediaClaims)
+		add(
+			claim.brokenPicture
+				? "broken-pictures-removed"
+				: "media-references-with-no-file-removed",
+			claim.reference,
+			claim.reference.kind,
+		);
+	const renamed = new Map(
+		facts.media.rederived.map((move) => [mapPath(move.from), move]),
+	);
+	const joined = new Map(
+		facts.media.collapsed.flatMap((move) =>
+			move.dropped.map(
+				(path) =>
+					[mapPath(path), { kept: move.kept, assetId: move.assetId }] as const,
+			),
+		),
+	);
+	for (const ref of [
+		...facts.facts.mediaReferences,
+		...facts.facts.pendingMedia,
+	]) {
+		const path = mapPath(ref.path);
+		const replacement = renamed.get(path);
+		if (replacement)
+			add("media-files-renamed", ref, ref.mediaKind, replacement);
+		const kept = joined.get(path);
+		if (kept) add("media-paths-joined", ref, ref.mediaKind, kept);
+	}
+}
+
+export function publishChangeSubjects(
+	facts: FirstPublishFacts,
+	ids: readonly FirstPublishChangeId[],
+): ReadonlyMap<FirstPublishChangeId, ReadonlyMap<string, string>> {
+	const result = new Map(ids.map((id) => [id, new Map<string, string>()]));
+	const reviewPlace = reviewPlaceOf(facts);
+	caseWriterSubjects(facts, result, reviewPlace);
+	// These changes have owning reader facts, not proof locations. In
+	// particular /case/... has no corresponding node in the JSON source.
+	const ordinary = ids.filter(
+		(id) =>
+			id !== "case-names-checked" &&
+			id !== "date-and-time-saved-as-hq-stores-it" &&
+			id !== "case-settings-respelled",
+	);
+	for (const { id, places } of firstPublishChangePlaces(facts, ordinary)) {
+		const subjects = new Map<string, string>();
+		result.set(id, subjects);
+		for (const place of places) {
+			const value = storedSubjectValue(facts, place);
+			// Maps and lists at output locations may hold unrelated settings.
+			// The reader records its actual object/list operand below.
+			subjects.set(
+				canonicalJsonDigest([
+					reviewPlace(place),
+					typeof value === "object" ? null : (value ?? null),
+				]),
+				place,
+			);
+		}
+	}
+	const storedOperands = new Map<string, string>();
+	for (const record of facts.facts.sameStateRewrites) {
+		const subjects = result.get(record.register);
+		if (!subjects) continue;
+		const place = placeOfStoredPointer(facts.positions, record.path);
+		if (!place) continue;
+		if (record.removedInputs?.length) {
+			for (const item of record.removedInputs)
+				subjects.set(canonicalJsonDigest([reviewPlace(place), ...item]), place);
+		} else if (!record.path.startsWith("/_attachments/")) {
+			let key = storedOperands.get(place);
+			if (key === undefined) {
+				key = canonicalJsonDigest([
+					reviewPlace(place),
+					storedSubjectValue(facts, place) ?? null,
+				]);
+				storedOperands.set(place, key);
+			}
+			subjects.set(key, place);
+		}
+	}
+	for (const { position, form } of facts.generatedByForm) {
+		const blanks = result.get("blank-translations-filled");
+		if (!blanks || position === null) continue;
+		const place = partPlace(position, ":itext");
+		for (const slot of form.blankTranslationSlots ?? [])
+			blanks.set(canonicalJsonDigest([reviewPlace(place), slot]), place);
+	}
+	for (const rewrite of facts.facts.rewrites) {
+		const id = FIRST_PUBLISH_CHANGE_IDS.find((item) => item === rewrite.id);
+		const set = id && result.get(id);
+		if (!set || !rewrite.formExpression) continue;
+		for (const place of placesOfSlot(facts.positions, rewrite))
+			set.set(
+				canonicalJsonDigest([
+					reviewPlace(place),
+					rewrite.key,
+					rewrite.formExpression,
+				]),
+				place,
+			);
+	}
+	mediaSubjects(facts, result, reviewPlace);
+	return result;
+}
+
+/** The input to each registered consequence in one birth review. Generated
+ * spelling alone and the file list a first content import must inspect at its
+ * actual target have no approval at the birth. */
+export function birthPublishSubjects(
+	facts: FirstPublishFacts,
+	view: FirstPublishView,
+) {
+	const ids = firstPublishListToStore(view, facts.facts).ids.filter(
+		(id) =>
+			id !== "forms-and-settings-rewritten" &&
+			id !== "unused-media-entries-removed",
+	);
+	return [...publishChangeSubjects(facts, ids)].map(([id, subjects]) => [
+		id,
+		[...subjects.keys()].sort(),
+	]);
 }
 
 /**

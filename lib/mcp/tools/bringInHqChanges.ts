@@ -56,7 +56,8 @@ import {
 	arrayItemChars,
 	cutPage,
 	fitPiece,
-	PAGE_LIMIT_CHARS,
+	fitsReviewResult,
+	toolResultChars,
 	toolText,
 } from "../paging";
 import { LARGE_RESULT_META } from "../resultSize";
@@ -207,6 +208,8 @@ async function landedDeployment(
 /** The cursor that reads the rest of a projected review, where it is a first page. */
 function nextPageOf(now: HqChangesReviewProjection): string | null {
 	switch (now.kind) {
+		case "nothing":
+			return now.next_page ?? null;
 		case "changes":
 			return now.next_page;
 		case "account":
@@ -237,7 +240,7 @@ export async function describeHqChangesOutcome(
 				...receipt,
 				deployment: await landedDeployment(call, outcome.deployment),
 			};
-			if (JSON.stringify(answer).length <= PAGE_LIMIT_CHARS) return answer;
+			if (fitsReviewResult(answer)) return answer;
 			return {
 				...receipt,
 				deployment: null,
@@ -245,9 +248,13 @@ export async function describeHqChangesOutcome(
 			};
 		}
 		case "changed": {
+			const editor =
+				"editedBy" in outcome && outcome.editedBy
+					? fitPiece(outcome.editedBy, 4096)
+					: null;
 			const changedMessage =
 				"editedBy" in outcome
-					? hqChangesMovedLine(outcome.editedBy)
+					? hqChangesMovedLine(editor)
 					: HQ_CHANGES_NOTHING_TAKEN_LINE;
 			const now = describeHqChangesReview(outcome.now, reviewHead(call), {
 				projectId: call.scope.projectId,
@@ -258,7 +265,7 @@ export async function describeHqChangesOutcome(
 				envelope: (projected) => ({
 					kind: "changed",
 					message: changedMessage,
-					...("editedBy" in outcome && { edited_by: outcome.editedBy }),
+					...("editedBy" in outcome && { edited_by: editor }),
 					now: projected,
 					next: CHANGED_NOW_PAGED_NEXT,
 				}),
@@ -270,7 +277,7 @@ export async function describeHqChangesOutcome(
 				 * HQ, an account, a held or unavailable change) nothing need
 				 * have moved, and `now` says why nothing was brought in. */
 				message: changedMessage,
-				...("editedBy" in outcome && { edited_by: outcome.editedBy }),
+				...("editedBy" in outcome && { edited_by: editor }),
 				now,
 				next: nextPageOf(now) === null ? null : CHANGED_NOW_PAGED_NEXT,
 			};
@@ -292,7 +299,7 @@ export async function describeHqChangesOutcome(
 			cutPage({
 				count: outcome.details.length,
 				from: 0,
-				shellChars: JSON.stringify(shell).length,
+				shellChars: toolResultChars(shell),
 				pieceChars: (index, taken) => arrayItemChars(fitted(index), taken),
 				take: (index) => findings.push(fitted(index)),
 			});

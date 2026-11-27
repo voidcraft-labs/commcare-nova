@@ -1555,6 +1555,18 @@ export function readCaseDetails(
 			"schema:DetailColumn",
 		);
 		if (minted === undefined) whole = false;
+		else
+			ctx.facts.detailColumnOwners.push({
+				uuid: minted,
+				short:
+					column.short === undefined
+						? undefined
+						: shortCursors[column.short]?.pointer,
+				long:
+					column.long === undefined
+						? undefined
+						: longCursors[column.long]?.pointer,
+			});
 		uuids[index] = minted ?? (`${module.uuid}-column-${index}` as Uuid);
 	}
 

@@ -59,6 +59,7 @@ import {
 import { appPlace, whereText } from "./place";
 import { searchRowUserFields } from "./search";
 import { refusedInstanceNameOf } from "./search/settings";
+import { sourceFormExpression } from "./syntaxCompare";
 import { worldEntitiesFromReads } from "./worldEntities";
 import { type DraftField, expressionEnvOf, type ReadXForm } from "./xform";
 import { registerAttributeUses } from "./xform/attributeUses";
@@ -521,7 +522,7 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 				.sort((a, b) => a - b)
 				.map((position) => reading.claims[position] as ExpressionClaim);
 			const where = whereText(form.place);
-			let droppedFixture = false;
+			const droppedFixtures: [string, string][] = [];
 			for (const [id, src] of xform.instanceSources) {
 				const declaration = xform.parsed.instances.find(
 					(instance) => instance.id === id,
@@ -563,7 +564,7 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 							form.place,
 							claim.detail,
 						);
-					if (claim.entryId === UNSERVED_MAYBE) droppedFixture = true;
+					if (claim.entryId === UNSERVED_MAYBE) droppedFixtures.push([id, src]);
 					continue;
 				}
 				const read = readClaims.find(
@@ -598,7 +599,8 @@ function claimDeclarations(ctx: ReadContext, reading: ExpressionReading): void {
 				for (const one of declarationSites(declaration.element, key))
 					ctx.accounting.cover(one.site, finding);
 			}
-			if (droppedFixture) recordDroppedFixtures(ctx, form);
+			if (droppedFixtures.length)
+				recordDroppedFixtures(ctx, form, droppedFixtures);
 		}
 }
 
@@ -618,6 +620,7 @@ const UNSERVED_MAYBE =
 function recordDroppedFixtures(
 	ctx: ReadContext,
 	form: ReadContext["draft"]["modules"][number]["forms"][number],
+	removedInputs: readonly (readonly [string, string])[],
 ): void {
 	const readId =
 		ctx.input.source.modules[form.menu]?.forms[form.index]?.readUniqueId;
@@ -625,6 +628,7 @@ function recordDroppedFixtures(
 		entry: UNSERVED_MAYBE,
 		path: `/_attachments/${pointerToken(`${readId ?? form.xmlns}.xml`)}`,
 		register: "unread-fixture-declarations-dropped",
+		removedInputs,
 	});
 }
 
@@ -982,10 +986,16 @@ export function applyExpressionReading(
 			});
 	for (const { source, ...rewrite } of reading.rewrites) {
 		const at = ctx.pending.site(source).at;
+		const registration = ctx.pending.list()[source];
 		ctx.facts.rewrites.push(
 			"json" in at
 				? { ...rewrite, pointer: `${at.json.pointer}/${pointerToken(at.key)}` }
-				: rewrite,
+				: registration.mode.target === "xform"
+					? {
+							...rewrite,
+							formExpression: sourceFormExpression(registration.text),
+						}
+					: rewrite,
 		);
 	}
 	ctx.facts.expressionRounds = reading.rounds;

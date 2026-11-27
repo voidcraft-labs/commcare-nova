@@ -489,7 +489,7 @@ function keyedVisitApp(): BlueprintDoc {
 	);
 }
 
-it("prints each keyed create of an app brought in from CommCare HQ under the prefix its cases stand under there, in the republish and the local archive", async () => {
+async function keyedAppOnHq() {
 	const app = keyedVisitApp();
 	const document: PublishDocument = {
 		id: "keyed-visits",
@@ -528,6 +528,49 @@ it("prints each keyed create of an app brought in from CommCare HQ under the pre
 	if (source === undefined)
 		throw new Error("The peer holds no app after Nova's first publish.");
 
+	return { app, document, configuration, source };
+}
+
+/* A file an HQ-authored app holds when it is brought in is one its birth
+ * accepted removing, as `adoptedAppBaselineWrite` records it, so the publish
+ * over it goes through. Without that acceptance the capture stops, as Nova
+ * stops over a file it was never shown (the Postgres suites hold that stop
+ * for a file that arrives after the birth). */
+it("republishes over an adopted app's unused file its birth accepted removing, even with no outgoing media", async () => {
+	const { document, configuration, source } = await keyedAppOnHq();
+	const path = "jr://file/commcare/image/retained-by-a-worker.jpg";
+	const stored = {
+		...source,
+		multimedia_map: {
+			[path]: {
+				doc_type: "HQMediaMapItem",
+				media_type: "CommCareImage",
+				multimedia_id: "previous-image",
+			},
+		},
+	};
+	const capture = capturePublish({
+		create: document,
+		updates: [{ name: "republish", document }],
+		configuration,
+		seed: DEFAULT_CORPUS_SEED,
+		hqAuthoredA: {
+			source: stored,
+			identity: [],
+			mediaPaths: new Map(),
+			keyedCaseIds: [],
+			columnWords: [],
+		},
+	});
+	const outcome = await capture.then(
+		(result) => result.status,
+		(error: unknown) => String(error),
+	);
+	expect(outcome).toBe("republished");
+});
+
+it("prints each keyed create of an app brought in from CommCare HQ under the prefix its cases stand under there, in the republish and the local archive", async () => {
+	const { app, document, configuration, source } = await keyedAppOnHq();
 	const scope = {
 		formUuid: testUuid("keyed-form"),
 		operationUuid: testUuid("keyed-create"),
