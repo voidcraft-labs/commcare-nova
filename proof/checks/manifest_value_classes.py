@@ -14054,6 +14054,7 @@ def _bounded_flat_form(use, *, followup):
     xform = app.xform(form)
     if xform is None:
         return None
+    plain_answers = set()
     if followup:
         if xform.body is None or xform.model_repeats or xform.save_to_case:
             return False
@@ -14065,8 +14066,10 @@ def _bounded_flat_form(use, *, followup):
                 return False
             bind = xform.bind(ref)
             if (bind is None or bind.get("type") not in ("xsd:string", "string")
-                    or any(bind.get(name) for name in ("calculate", "relevant", "constraint", "required"))):
+                    or any(bind.get(name) for name in ("calculate", "relevant", "constraint"))
+                    or bind.get("required") not in (None, "", "true()")):
                 return False
+            plain_answers.add(ref)
         generated = None
     else:
         if not _flat_close_has_only_its_selected_case_block(xform):
@@ -14076,7 +14079,10 @@ def _bounded_flat_form(use, *, followup):
         if generated is not None and nodeset.startswith(f"{generated}/"):
             continue
         for bind in binds:
-            if any(bind.get(name) for name in ("relevant", "constraint", "required")):
+            if bind.get("relevant") or bind.get("constraint"):
+                return False
+            required = bind.get("required")
+            if required and (nodeset not in plain_answers or required != "true()"):
                 return False
             calculate = bind.get("calculate")
             if calculate and _literal(app, calculate) is not True:

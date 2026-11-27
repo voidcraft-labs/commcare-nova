@@ -79,6 +79,7 @@
 	"hq-assigned-lookups": [],
 	"hq-bounded-flat-close": [
 		"hq-bounded-flat-close/large-selection-with-a-required-text-answer",
+		"hq-bounded-flat-close/large-selection-with-conditionally-required-text",
 		"hq-bounded-flat-close/large-selection-with-interactive-question",
 		"hq-bounded-flat-close/large-selection-with-two-interactive-questions",
 		"hq-bounded-flat-close/ordinary-close-is-inert"

@@ -81,7 +81,16 @@ export function boundedFlatSelectionForm(
 		if (
 			owner.type !== "followup" ||
 			field?.kind !== "text" ||
-			slots.length !== 0 ||
+			slots.some(
+				({ ref, expression }) =>
+					ref.slot !== "required" ||
+					!(
+						expression.kind === "match-all" ||
+						(expression.kind === "term" &&
+							expression.term.kind === "literal" &&
+							expression.term.value === true)
+					),
+			) ||
 			field.addressLookup ||
 			field.androidApp ||
 			field.receiveFrom ||

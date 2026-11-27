@@ -341,6 +341,16 @@ def limit_101_with_required_text(authoring, app_id):
     ops.set_form_source(authoring, app_id, 0, 0, require_answer, what="require one answer")
 
 
+def limit_101_with_conditionally_required_text(authoring, app_id):
+    limit_101_with_two_visible_questions(authoring, app_id)
+
+    def require_answer(root, _form):
+        (bind,) = root.xpath("//*[local-name()='bind'][@nodeset='/data/recommendation']")
+        bind.set("required", "/data/outcome = 'followup'")
+
+    ops.set_form_source(authoring, app_id, 0, 0, require_answer, what="conditionally require one answer")
+
+
 def multi_select_above_a_hundred(authoring, app_id):
     """Patients' list choosing up to 500 patients."""
     _set_each(

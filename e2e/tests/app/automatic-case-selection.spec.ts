@@ -100,6 +100,10 @@ test("submits a bounded 101-record selection from manual pages and automatic sel
 				preview.getByRole("heading", { name: "101 cases selected" }),
 			).toBeVisible();
 			await form.click();
+			const submit = preview.getByRole("button", {
+				name: "Submit",
+				exact: true,
+			});
 			if (!closes) {
 				const outcome = preview.getByRole("textbox", { name: /\bOutcome$/ });
 				await expect(outcome, `Outcome appears in ${formName}`).toBeVisible({
@@ -108,16 +112,15 @@ test("submits a bounded 101-record selection from manual pages and automatic sel
 				await outcome.fill("Reviewed");
 				await expect(outcome).toHaveValue("Reviewed");
 				const recommendation = preview.getByRole("textbox", {
-					name: /\bRecommendation$/,
+					name: /\bRecommendation\b/,
 				});
+				await expect(recommendation).toHaveValue("");
+				await submit.click();
+				await expect(recommendation).toBeFocused();
 				await recommendation.fill("Call again");
 				await expect(recommendation).toHaveValue("Call again");
 			}
 
-			const submit = preview.getByRole("button", {
-				name: "Submit",
-				exact: true,
-			});
 			await expect(submit).toBeEnabled();
 			const queryState = async () => {
 				const { rows } = await db.query(
