@@ -252,7 +252,7 @@
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "Search configuration",
-		"item": "one literal ascending blank-comparison default order on a custom property, with the retained `+property::ignored` spelling and only supported neighboring order rules, on a basic built-in Search that opens on results for one record type without prompts",
+		"item": "one literal ascending blank-comparison default order on a custom property, with the retained `+property::ignored` spelling and supported neighboring order rules or an unknown comparison earlier than the reset, on a basic built-in Search that opens on results for one record type without prompts",
 		"surfaceKeys": [
 			"csql-key:commcare_sort",
 			"schema:DefaultCaseSearchProperty.property",
@@ -260,7 +260,7 @@
 		],
 		"valueClass": "default-filter-order-index-fallback",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: one typed default filter replaces all earlier server order rules. Its indexed number, date and text keys are ascending with missing values last. Later order rules still break ties. Nova keeps the exact spelling, including the suffix HQ ignores.",
+		"dispositionCell": "**HELD**: one typed default filter replaces all earlier server order rules. Its indexed number, date and text keys are ascending with missing values last. Later order rules still break ties. Nova keeps the exact spelling, including the suffix HQ ignores. An earlier unmapped comparison is preserved only while the reset discards it.",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

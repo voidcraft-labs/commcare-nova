@@ -128,6 +128,7 @@ export function* moduleCaseProperties(
 		],
 	] as const) {
 		for (const term of order) {
+			if (term.comparison === "discarded") continue;
 			const types = owners(requested, term.property);
 			yield {
 				slot,

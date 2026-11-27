@@ -76,9 +76,17 @@ export function SearchResultOrder({
 	fallbackProperties?: readonly string[];
 	onChange: (next: SearchFilterOrder) => void;
 }) {
+	const saved = order.find((term) => term.comparison === "discarded");
+	if (saved)
+		return (
+			<p className="text-xs text-nova-text-secondary">
+				A later index fallback replaces the saved order on {saved.property}.
+			</p>
+		);
 	return (
 		<div className="space-y-2">
 			{order.map((item, index) => {
+				if (item.comparison === "discarded") return null;
 				const fallback = item.comparison === "indexed-fallback";
 				const eligible =
 					order.length === 1 && fallbackProperties.includes(item.property);

@@ -207,19 +207,21 @@ export function readDedicatedOrder(
 /** The `commcare_sort` text a default filter sends for `order`. */
 export function requestOrderText(order: SearchFilterOrder): string {
 	return order
-		.map((term) =>
-			term.comparison === "indexed-fallback"
-				? `+${term.property}::ignored`
-				: (term.implicitDirection
-						? ""
-						: term.direction === "descending"
-							? "-"
-							: "+") +
-					requestOrderKey(term) +
-					(term.implicitComparison
-						? ""
-						: `:${WIRE_COMPARISON[term.comparison]}`),
-		)
+		.map((term) => {
+			if (term.comparison === "discarded")
+				return `${term.savedDirectionSigns}${term.property}:${term.savedComparison}`;
+			if (term.comparison === "indexed-fallback")
+				return `+${term.property}::ignored`;
+			return (
+				(term.implicitDirection
+					? ""
+					: term.direction === "descending"
+						? "-"
+						: "+") +
+				requestOrderKey(term) +
+				(term.implicitComparison ? "" : `:${WIRE_COMPARISON[term.comparison]}`)
+			);
+		})
 		.join(",");
 }
 
@@ -239,6 +241,42 @@ export function readIndexResetOrderText(
 	const property = signedProperty.slice(1);
 	if (!indexedResetProperty(property)) return undefined;
 	return [{ property, comparison: "indexed-fallback", direction: "ascending" }];
+}
+
+/** The signed spelling of a literal order that an independently verified later reset discards. */
+export function readDiscardedOrderText(
+	text: string,
+): SearchFilterOrder | undefined {
+	if (!unmappedSingleOrderComparison(text)) return;
+	const [signedKey, savedComparison] = text.split(":");
+	if (
+		signedKey === undefined ||
+		savedComparison === undefined ||
+		savedComparison.length > 64
+	)
+		return;
+	const property = signedKey.replace(/^[+-]+/, "");
+	const savedDirectionSigns = signedKey.slice(
+		0,
+		signedKey.length - property.length,
+	);
+	switch (savedDirectionSigns) {
+		case "":
+		case "+":
+		case "-":
+		case "++":
+		case "+-":
+		case "-+":
+		case "--":
+			return [
+				{
+					property,
+					comparison: "discarded",
+					savedComparison,
+					savedDirectionSigns,
+				},
+			];
+	}
 }
 
 export function indexedResetProperty(property: string): boolean {

@@ -57,7 +57,9 @@ export function effectiveSearchOrder(
 										comparison,
 										missing: "last",
 									}))
-								: [term],
+								: term.comparison === "discarded"
+									? []
+									: [term],
 						)
 					: [],
 			),

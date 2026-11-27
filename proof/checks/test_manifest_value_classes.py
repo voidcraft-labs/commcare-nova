@@ -8989,9 +8989,13 @@ def _search_wire_shapes():
                 '<data key="commcare_sort" ref="&apos;+priority::ignored&apos;"/>'
                 '<data key="commcare_sort" ref="&apos;-visit:date&apos;"/>'
             ), "csql-key:commcare_sort", "data[2]/@key"),
-            accepted("suite", suite(
+            refused("suite", suite(
                 '<data key="commcare_sort" ref="&apos;++priority:unknown&apos;"/>'
                 '<data key="commcare_sort" ref="&apos;+priority::ignored&apos;"/>'
+            ), "csql-key:commcare_sort", "data[1]/@key"),
+            accepted("suite", suite(
+                '<data key="commcare_sort" ref="&apos;+priority::ignored&apos;"/>'
+                '<data key="commcare_sort" ref="&apos;++priority:unknown&apos;"/>'
             ), "csql-key:commcare_sort", "data[2]/@key", **outside),
             accepted("suite", suite(
                 '<data key="commcare_sort" ref="&apos;+priority::ignored&apos;"/>'

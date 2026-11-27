@@ -5378,15 +5378,34 @@ def _index_fallback_text(text):
     return key not in SERVER_ORDER_RECORD_KEYS and searchable_order_key(key)
 
 
-def _single_index_fallback(values):
+def _discarded_order_comparison(text):
+    parsed = re.fullmatch(r"[+-]{0,2}([A-Za-z][A-Za-z0-9_-]*):([A-Za-z][A-Za-z0-9_-]{0,63})", text or "")
+    if parsed is None:
+        return False
+    property_name, comparison = parsed.groups()
     return (
-        sum(_index_fallback_text(value) for value in values) == 1
-        and all(_index_fallback_text(value) or _ordinary_sort_text(value) for value in values)
+        property_name not in SERVER_ORDER_RECORD_KEYS and searchable_order_key(property_name)
+        and comparison not in ("exact", "numeric", "date", "phonetic")
     )
 
 
+def _orders_held_by_index_fallback(values):
+    reset_positions = [i for i, value in enumerate(values) if _index_fallback_text(value)]
+    if len(reset_positions) != 1:
+        return set()
+    reset, = reset_positions
+    held = {reset}
+    for i, value in enumerate(values):
+        if i == reset or _ordinary_sort_text(value):
+            continue
+        if i >= reset or not _discarded_order_comparison(value):
+            return set()
+        held.add(i)
+    return held
+
+
 def default_filter_index_fallback(use, manifest):
-    """The exact ascending reset alone in its filter, among ordinary built-in order values."""
+    """The ascending reset and any literal order on a missing index field that it discards."""
     at, config = _search(use)
     if config is not None:
         row = at.nearest("DefaultCaseSearchProperty")
@@ -5411,9 +5430,9 @@ def default_filter_index_fallback(use, manifest):
             value = item.get("defaultValue")
             return _literal_text(value) if isinstance(value, str) else None
 
-        return _index_fallback_text(stored_sort(row)) and _single_index_fallback([
-            stored_sort(item) for item in defaults if item.get("property") == "commcare_sort"
-        ])
+        sorts = [item for item in defaults if item.get("property") == "commcare_sort"]
+        held = _orders_held_by_index_fallback([stored_sort(item) for item in sorts])
+        return any(i in held and item is row for i, item in enumerate(sorts))
     element = _suite_search_child(use, "data", "key")
     if element is None or element.get("key") != "commcare_sort":
         return False
@@ -5423,9 +5442,9 @@ def default_filter_index_fallback(use, manifest):
         for child in query
     ):
         return False
-    return _index_fallback_text(_literal_text(element.get("ref"))) and _single_index_fallback([
-        _literal_text(child.get("ref")) for child in query if child.get("key") == "commcare_sort"
-    ])
+    sorts = [child for child in query if child.get("key") == "commcare_sort"]
+    held = _orders_held_by_index_fallback([_literal_text(child.get("ref")) for child in sorts])
+    return any(i in held and child == element for i, child in enumerate(sorts))
 
 
 def endpoint_id_key(use, manifest):

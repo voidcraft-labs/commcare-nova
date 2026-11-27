@@ -238,11 +238,9 @@ it("reads repeated direction signs by their first sign and records the exact sou
 	expect(requestOrderText(filter.order)).toBe(
 		"+notes:numeric,-phone:exact,name",
 	);
-	expect(filter.order.map((term) => term.direction)).toEqual([
-		"ascending",
-		"descending",
-		"ascending",
-	]);
+	expect(
+		filter.order.map((term) => "direction" in term && term.direction),
+	).toEqual(["ascending", "descending", "ascending"]);
 	expect(reading.ctx.facts.sameStateRewrites).toContainEqual(
 		expect.objectContaining({
 			path: "/modules/0/search_config/default_properties/0/defaultValue",
@@ -642,56 +640,111 @@ it.each(["default filter", "dedicated setting"] as const)(
 	},
 );
 
-it("reads an ascending index fallback at its exact default filter and emits it in place", async () => {
-	const earlier = {
-		property: "visit",
-		comparison: "date",
-		direction: "descending",
-	} as const;
+it.each(["-visit:date", "++priority:unknown"])(
+	"keeps an index fallback after %s in its exact place",
+	async (earlierText) => {
+		const earlier = {
+			property: "visit",
+			comparison: "date",
+			direction: "descending",
+		} as const;
+		const first =
+			earlierText === "-visit:date"
+				? earlier
+				: ({
+						property: "priority",
+						comparison: "discarded",
+						savedComparison: "unknown",
+						savedDirectionSigns: "++",
+					} as const);
+		const reset = {
+			property: "priority",
+			comparison: "indexed-fallback",
+			direction: "ascending",
+		} as const;
+		const nativeDefaults = [
+			{ property: "commcare_sort", defaultValue: `'${earlierText}'` },
+			{ property: "commcare_sort", defaultValue: "'+priority::ignored'" },
+			{ property: "commcare_sort", defaultValue: "'-visit:date'" },
+		];
+		const input = patients([], { search: { workflow: "skipToResults" } });
+		const read = await readLists(input, {
+			edit: (app) => {
+				app.modules[0].search_config.default_properties = nativeDefaults;
+			},
+		});
+		expect(closedCodes(read), JSON.stringify(read.findings)).toEqual([]);
+		expect(listOf(read).searchFilters).toMatchObject([
+			{ kind: "order", order: [first] },
+			{ kind: "order", order: [reset] },
+			{ kind: "order", order: [earlier] },
+		]);
+		expect(
+			read.ctx.facts.sameStateRewrites.filter((row) =>
+				row.path.includes("/default_properties/"),
+			),
+		).toEqual([]);
+		const authored = patients([], {
+			search: { workflow: "skipToResults" },
+			list: {
+				searchFilters: [first, reset, earlier].map((term, index) => ({
+					uuid: uuid(index + 70),
+					kind: "order",
+					order: [term],
+				})),
+			},
+		});
+		const roundTrip = await readLists(authored);
+		expect(roundTrip.app.modules[0].search_config.default_properties).toEqual(
+			nativeDefaults,
+		);
+		expect(closedCodes(roundTrip), JSON.stringify(roundTrip.findings)).toEqual(
+			[],
+		);
+	},
+);
+
+it("refuses a discarded order without a later reset in the same Search", () => {
+	const saved = {
+		uuid: uuid(71),
+		kind: "order" as const,
+		order: [
+			{
+				property: "notes",
+				comparison: "discarded",
+				savedComparison: "unknown",
+				savedDirectionSigns: "++",
+			},
+		] as const,
+	};
 	const reset = {
-		property: "priority",
-		comparison: "indexed-fallback",
-		direction: "ascending",
-	} as const;
-	const nativeDefaults = [
-		{ property: "commcare_sort", defaultValue: "'-visit:date'" },
-		{ property: "commcare_sort", defaultValue: "'+priority::ignored'" },
-		{ property: "commcare_sort", defaultValue: "'-visit:date'" },
-	];
-	const input = patients([], { search: { workflow: "skipToResults" } });
-	const read = await readLists(input, {
-		edit: (app) => {
-			app.modules[0].search_config.default_properties = nativeDefaults;
-		},
-	});
-	expect(closedCodes(read), JSON.stringify(read.findings)).toEqual([]);
-	expect(listOf(read).searchFilters).toMatchObject([
-		{ kind: "order", order: [earlier] },
-		{ kind: "order", order: [reset] },
-		{ kind: "order", order: [earlier] },
-	]);
-	expect(
-		read.ctx.facts.sameStateRewrites.filter((row) =>
-			row.path.includes("/default_properties/"),
-		),
-	).toEqual([]);
-	const authored = patients([], {
-		search: { workflow: "skipToResults" },
-		list: {
-			searchFilters: [earlier, reset, earlier].map((term, index) => ({
-				uuid: uuid(index + 70),
-				kind: "order",
-				order: [term],
-			})),
-		},
-	});
-	const roundTrip = await readLists(authored);
-	expect(roundTrip.app.modules[0].search_config.default_properties).toEqual(
-		nativeDefaults,
-	);
-	expect(closedCodes(roundTrip), JSON.stringify(roundTrip.findings)).toEqual(
-		[],
-	);
+		uuid: uuid(72),
+		kind: "order" as const,
+		order: [
+			{
+				property: "notes",
+				comparison: "indexed-fallback",
+				direction: "ascending",
+			},
+		] as const,
+	};
+	for (const searchFilters of [[saved], [reset, saved]]) {
+		const doc = patients([], {
+			search: { workflow: "skipToResults" },
+			list: {
+				searchFilters: searchFilters.map((row) => ({
+					...row,
+					order: [...row.order],
+				})),
+			},
+		});
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toContainEqual(
+			expect.objectContaining({
+				code: "CASE_SEARCH_FILTER_INVALID",
+				details: { reason: "discarded-order-needs-index-fallback" },
+			}),
+		);
+	}
 });
 
 it.each([
