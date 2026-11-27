@@ -35,8 +35,8 @@ async function readDefault(expression: string) {
 	});
 }
 
-it.each(["username", "userid"] as const)(
-	"keeps a worker’s %s comparison in a simple text Search starting value",
+it.each(["username", "userid", "deviceid"] as const)(
+	"keeps a session %s comparison in a simple text Search starting value",
 	async (field) => {
 		const rawDefault = `if(instance('commcaresession')/session/context/${field} > 'm', 'north', 'south')`;
 		const reading = await readDefault(rawDefault);

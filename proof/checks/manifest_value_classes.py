@@ -5697,6 +5697,7 @@ def _orders_worker_identity(node):
     worker_paths = (
         tree("instance('commcaresession')/session/context/username"),
         tree("instance('commcaresession')/session/context/userid"),
+        tree("instance('commcaresession')/session/context/deviceid"),
     )
 
     def contains_order(node):

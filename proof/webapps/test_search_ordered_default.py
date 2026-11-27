@@ -28,6 +28,7 @@ def test_retained_search_default_orders_a_session_value_in_its_native_context(
         ("literal", LITERAL),
         ("retained", retained),
         ("worker-id", ordered_default_variant("userid").change["value"]["default_value"]),
+        ("device-id", ordered_default_variant("deviceid").change["value"]["default_value"]),
         ("number-conversion", COERCED),
         ("context-value", USERNAME),
     )

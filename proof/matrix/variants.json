@@ -39622,8 +39622,8 @@
 	{
 		"id": "hq-search/button-compares-a-device-id-with-text",
 		"base": "hq-search",
-		"entry": "case-search/search-button-display-condition-outside-predicate",
-		"standing": "not-yet",
+		"entry": "case-search/search-button-display-condition-reading-what-the-case-list-does-not-load",
+		"standing": "fix-in-hq",
 		"place": {
 			"kind": "search",
 			"menu": 0,
@@ -39634,6 +39634,30 @@
 			"pointer": "/modules/0/search_config/search_button_display_condition",
 			"value": "instance('commcaresession')/session/context/deviceid > 'm'"
 		}
+	},
+	{
+		"id": "hq-search/button-orders-the-device-id-when-the-list-loads-it",
+		"base": "hq-search",
+		"entry": "case-search/search-button-display-condition-lifting-into-predicate",
+		"change": {
+			"op": "named",
+			"name": "search_button_orders_device_id_with_session"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseSearchConfig/searchButtonDisplayCondition/left/term",
+				"value": {
+					"kind": "session-context",
+					"field": "deviceid"
+				}
+			}
+		]
 	},
 	{
 		"id": "hq-search/button-orders-the-worker-id-when-the-list-loads-it",
@@ -43248,6 +43272,30 @@
 	{
 		"id": "hq-search/owner-exclusion-on-an-ordered-device-id",
 		"base": "hq-search",
+		"entry": "case-search/blacklisted-owner-ids-expression-lifting-into-valueexpression",
+		"change": {
+			"op": "named",
+			"name": "owner_exclusion_on_an_ordered_device_id"
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 1
+					}
+				],
+				"pointer": "/caseSearchConfig/excludedOwnerIds/cond/left/term",
+				"value": {
+					"kind": "session-context",
+					"field": "deviceid"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-search/owner-exclusion-using-a-less-than-device-id-comparison",
+		"base": "hq-search",
 		"entry": "case-search/blacklisted-owner-ids-expression-outside-valueexpression",
 		"standing": "not-yet",
 		"place": {
@@ -43257,7 +43305,7 @@
 		},
 		"change": {
 			"op": "named",
-			"name": "owner_exclusion_on_an_ordered_device_id"
+			"name": "owner_exclusion_on_a_less_than_device_id"
 		}
 	},
 	{
@@ -45391,6 +45439,82 @@
 	{
 		"id": "hq-search/starting-value-ordering-a-device-id",
 		"base": "hq-search",
+		"entry": "case-search/default-value-ordering-the-worker-name",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/1",
+			"value": {
+				"name": "village",
+				"label": {
+					"en": "Village"
+				},
+				"hint": {},
+				"hidden": false,
+				"allow_blank_value": false,
+				"exclude": false,
+				"required": {
+					"test": null,
+					"text": {},
+					"doc_type": "Assertion"
+				},
+				"validations": [],
+				"itemset": {
+					"doc_type": "Itemset"
+				},
+				"is_group": false,
+				"doc_type": "CaseSearchProperty",
+				"default_value": "if(instance('commcaresession')/session/context/deviceid > 'm', 'north', 'south')"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/default",
+				"value": {
+					"kind": "if",
+					"cond": {
+						"kind": "gt",
+						"left": {
+							"kind": "term",
+							"term": {
+								"kind": "session-context",
+								"field": "deviceid"
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": "m"
+							}
+						}
+					},
+					"then": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "north"
+						}
+					},
+					"else": {
+						"kind": "term",
+						"term": {
+							"kind": "literal",
+							"value": "south"
+						}
+					}
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-search/starting-value-using-a-less-than-device-id-comparison",
+		"base": "hq-search",
 		"entry": "case-search/default-value-outside-valueexpression",
 		"standing": "not-yet",
 		"place": {
@@ -45421,7 +45545,7 @@
 				},
 				"is_group": false,
 				"doc_type": "CaseSearchProperty",
-				"default_value": "if(instance('commcaresession')/session/context/deviceid > 'm', 'north', 'south')"
+				"default_value": "if(instance('commcaresession')/session/context/deviceid < 'm', 'north', 'south')"
 			}
 		}
 	},

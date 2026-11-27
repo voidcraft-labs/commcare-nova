@@ -216,6 +216,8 @@ def test_the_hq_search_button_orders_worker_text_only_with_a_declared_session(hq
             ("numeric-control", numeric, filtered, "hidden"),
             ("worker-id-with-session", f"{worker_id} > 'm'", filtered, "hidden"),
             ("worker-id-without-session", f"{worker_id} > 'm'", None, "missing"),
+            ("device-id-with-session", f"{worker_id.replace('/userid', '/deviceid')} > 'm'", filtered, "hidden"),
+            ("device-id-without-session", f"{worker_id.replace('/userid', '/deviceid')} > 'm'", None, "missing"),
             ("shown-control", "true()", filtered, "shown"),
         ):
             app = _search_app(state.domain, list_filter, condition=condition)
