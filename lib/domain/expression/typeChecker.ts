@@ -4276,11 +4276,12 @@ function checkComparison(
 			return;
 		}
 		// Core and Preview coerce both operands in these worker-name
-		// comparisons for a Search starting value or a shared owner rule.
+		// comparisons for a Search starting value, its action, or a shared owner rule.
 		if (
 			"profile" in ctx &&
 			(ctx.profile.searchTextDefault === true ||
-				ctx.slot.slot === "excluded_owner_ids") &&
+				ctx.slot.slot === "excluded_owner_ids" ||
+				ctx.slot.slot === "search_button_display_condition") &&
 			searchUsernameTextOrder(kind, left, right)
 		)
 			return;
