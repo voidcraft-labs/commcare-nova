@@ -787,9 +787,14 @@ function buildValidation(
 		);
 	if (runtimeValidation) {
 		const authored = tests[0];
-		// A check can select the worker's native message and leave all
-		// rejection to the protection already needed by the search.
-		if (authored?.k === "call" && authored.fn === "true") tests.pop();
+		// A check can select the device’s default message and leave rejection
+		// to the Search guard. An explicit message keeps its own check.
+		if (
+			message === undefined &&
+			authored?.k === "call" &&
+			authored.fn === "true"
+		)
+			tests.pop();
 		tests.push(runtimeValidation.test);
 	}
 	return { test: w.and(...tests), ...(message !== undefined && { message }) };

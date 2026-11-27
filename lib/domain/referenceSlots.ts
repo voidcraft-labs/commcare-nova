@@ -2642,6 +2642,8 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchFilters[].order[].recordName": "config",
 	"caseListConfig.searchFilters[].order[].implicitComparison": "config",
 	"caseListConfig.searchFilters[].order[].implicitDirection": "config",
+	"caseListConfig.searchFilters[].order[].savedComparison": "config",
+	"caseListConfig.searchFilters[].order[].savedDirectionSigns": "config",
 	"caseListConfig.searchFilters[].order[].direction": "config",
 	"caseSearchConfig.workflow": "config",
 	"caseSearchConfig.formsReadSearch": "config",

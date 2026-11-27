@@ -55,6 +55,26 @@ def _menu_icon_override_with_form_carrier(authoring, app_id, carrier_language):
         assert (path in app.all_media_paths()) == (carrier_language is not None)
 
 
+def menu_audio_override_with_only_a_map_entry(authoring, app_id):
+    """A spoken menu title points at a mapped recording no ordinary carrier keeps."""
+    from proof.hq import operations
+
+    path = "jr://file/commcare/audio/data/animal_name.mp3"
+
+    def remove_recording(root, _form):
+        recording, = (
+            value for value in root.iter("{http://www.w3.org/2002/xforms}value")
+            if value.get("form") == "audio" and value.text == path
+        )
+        recording.getparent().remove(recording)
+
+    ops.set_form_source(authoring, app_id, 0, 0, remove_recording, what="remove the ordinary audio carrier")
+    ops.set_json(authoring, app_id, "/translations", {"en": {"modules.m0.audio": path}})
+    app = operations.held_app(authoring.state, app_id)
+    assert app.multimedia_map[path].media_type == "CommCareAudio"
+    assert path not in app.all_media_paths()
+
+
 def translation_overrides_a_detail_tab_title(authoring, app_id):
     """The Case Detail editor changes the tab's ordinary header independently of the generated override."""
     import json

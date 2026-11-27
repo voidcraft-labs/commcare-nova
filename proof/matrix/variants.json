@@ -25000,6 +25000,17 @@
 		}
 	},
 	{
+		"id": "hq-media/translation-overrides-menu-audio-with-only-a-map-entry",
+		"base": "hq-media",
+		"entry": "application-and-settings/translations-generated-navigation-file-not-packaged",
+		"standing": "not-yet",
+		"place": { "kind": "app" },
+		"change": {
+			"op": "named",
+			"name": "menu_audio_override_with_only_a_map_entry"
+		}
+	},
+	{
 		"id": "hq-media/translation-overrides-a-menu-icon-with-only-a-map-entry",
 		"base": "hq-media",
 		"entry": "application-and-settings/translations-generated-menu-icon-only-in-media-map",
@@ -40521,6 +40532,22 @@
 				]
 			}
 		]
+	},
+	{
+		"id": "hq-search/default-order-mixes-an-index-reset-with-another-property",
+		"base": "hq-search",
+		"entry": "case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+		"standing": "not-yet",
+		"place": { "kind": "search", "menu": 1, "name": "Active clients" },
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/1/search_config/default_properties/-",
+			"value": {
+				"property": "commcare_sort",
+				"doc_type": "DefaultCaseSearchProperty",
+				"defaultValue": "'-visit:date,+priority::obsolete'"
+			}
+		}
 	},
 	{
 		"id": "hq-search/default-filter-sorting-by-an-unknown-comparison",
