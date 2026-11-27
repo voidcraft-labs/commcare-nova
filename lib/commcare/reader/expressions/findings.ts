@@ -16,6 +16,7 @@ import {
 } from "@/lib/domain/expression/formStructure";
 import {
 	readsSearchRequiredCaseQuery,
+	searchDefaultSessionPairOrder,
 	searchSessionTextOrder,
 } from "@/lib/domain/expression/ruleSets";
 import type {
@@ -2100,12 +2101,20 @@ export const SLOT_ENTRIES: Readonly<Record<RegisteredSlotName, SlotRow>> = {
 					walkExpression(bound, {
 						visitExpression(expression) {
 							if (
-								(expression.kind === "gt" || expression.kind === "lt") &&
-								searchSessionTextOrder(
+								(expression.kind === "gt" ||
+									expression.kind === "lt" ||
+									expression.kind === "gte" ||
+									expression.kind === "lte") &&
+								(searchSessionTextOrder(
 									expression.kind,
 									expression.left,
 									expression.right,
-								)
+								) ||
+									searchDefaultSessionPairOrder(
+										expression.kind,
+										expression.left,
+										expression.right,
+									))
 							)
 								containsOrder = true;
 						},

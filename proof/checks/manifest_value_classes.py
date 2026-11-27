@@ -5804,10 +5804,10 @@ def worker_name_order_in_text_default(use, manifest):
     raw = prompt.get("default_value")
     if not isinstance(raw, str):
         return False
-    return _orders_worker_identity(tree(raw))
+    return _orders_worker_identity(tree(raw), pair=True)
 
 
-def _orders_worker_identity(node):
+def _orders_worker_identity(node, *, pair=False):
     from proof.checks.xpath_tree import tree
 
     worker_paths = (
@@ -5819,6 +5819,9 @@ def _orders_worker_identity(node):
     def contains_order(node):
         if not isinstance(node, tuple):
             return False
+        if (pair and len(node) == 3 and node[0] in ("LT", "GT", "LTE", "GTE", "LE", "GE")
+                and node[1] in worker_paths and node[2] in worker_paths):
+            return True
         if len(node) == 3 and (
             (node[0] == "GT" and node[1] in worker_paths)
             or (node[0] == "LT" and node[1] == worker_paths[2])

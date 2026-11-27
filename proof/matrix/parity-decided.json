@@ -813,6 +813,7 @@
 		"hq-search/starting-value-of-an-ordered-text",
 		"hq-search/starting-value-ordering-a-device-id",
 		"hq-search/starting-value-ordering-a-worker-id",
+		"hq-search/starting-value-orders-two-session-values",
 		"hq-search/starting-value-using-a-less-than-device-id-comparison",
 		"hq-search/three-link-date-field-named-by-a-parent-path",
 		"hq-search/translation-duplicates-a-saved-legacy-search-group-heading",

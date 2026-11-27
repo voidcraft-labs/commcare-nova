@@ -47005,6 +47005,52 @@
 	{
 		"id": "hq-search/starting-value-orders-two-session-values",
 		"base": "hq-search",
+		"entry": "case-search/default-value-ordering-the-worker-name",
+		"change": {
+			"op": "set-json",
+			"pointer": "/modules/0/search_config/properties/1",
+			"value": {
+				"name": "village",
+				"label": {
+					"en": "Village"
+				},
+				"hint": {},
+				"hidden": false,
+				"allow_blank_value": false,
+				"exclude": false,
+				"required": {
+					"test": null,
+					"text": {},
+					"doc_type": "Assertion"
+				},
+				"validations": [],
+				"itemset": {
+					"doc_type": "Itemset"
+				},
+				"is_group": false,
+				"doc_type": "CaseSearchProperty",
+				"default_value": "if(instance('commcaresession')/session/context/deviceid < instance('commcaresession')/session/context/userid, 'north', 'south')"
+			}
+		},
+		"holds": [
+			{
+				"key": [
+					"module",
+					{
+						"$menu": 0
+					}
+				],
+				"pointer": "/caseListConfig/searchInputs/1/default/cond/right/term",
+				"value": {
+					"kind": "session-context",
+					"field": "userid"
+				}
+			}
+		]
+	},
+	{
+		"id": "hq-search/starting-value-orders-unrepresented-number-coercions",
+		"base": "hq-search",
 		"entry": "case-search/default-value-outside-valueexpression",
 		"standing": "not-yet",
 		"place": {
@@ -47035,7 +47081,7 @@
 				},
 				"is_group": false,
 				"doc_type": "CaseSearchProperty",
-				"default_value": "if(instance('commcaresession')/session/context/deviceid < instance('commcaresession')/session/context/userid, 'north', 'south')"
+				"default_value": "if(number(instance('commcaresession')/session/context/username) > number('m'), 'north', 'south')"
 			}
 		}
 	},

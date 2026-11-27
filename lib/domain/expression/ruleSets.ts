@@ -418,6 +418,25 @@ export function searchSessionTextOrder(
 	);
 }
 
+/** A Search starting value can compare two raw session identities numerically. */
+export function searchDefaultSessionPairOrder(
+	kind: ComparisonKind,
+	left: Expression,
+	right: Expression,
+): boolean {
+	return (
+		(kind === "gt" || kind === "lt" || kind === "gte" || kind === "lte") &&
+		[left, right].every(
+			(value) =>
+				value.kind === "term" &&
+				value.term.kind === "session-context" &&
+				(value.term.field === "username" ||
+					value.term.field === "userid" ||
+					value.term.field === "deviceid"),
+		)
+	);
+}
+
 export function literalType(lit: Literal): ResolvedType {
 	if (lit.data_type) return lit.data_type;
 	if (lit.value === null) return ANY_TYPE;

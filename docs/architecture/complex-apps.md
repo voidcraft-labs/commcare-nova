@@ -1564,6 +1564,8 @@ reads that function name as a path after a comma. Native Core-to-HQ payload
 proofs cover the conversion, calendar result and nested argument structure;
 `lib/commcare/CLAUDE.md` owns the emission detail.
 
+A simple text Search prompt can use a comparison of two session identities to choose its starting value. Core and Preview compare the worker name, worker ID and device ID numerically.
+
 Static search-value reachability follows emitted Core equality: null literals
 are empty text, boolean literals are text, and numeric equality uses Core's
 absolute tolerance. Unknown numeric/text conversions keep both branches
