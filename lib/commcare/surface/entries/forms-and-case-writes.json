@@ -5238,7 +5238,7 @@
 		"surfaceKeys": [],
 		"noSurfaceKey": "A relation among the questions, Hidden Values and case changes that write one case property (writers of two other types), which no single surface item holds; each writer's own items are named by the question-type and case-write rows.",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: join `text` for a date and time and a time, whose text HQ's server (`adjust_datetimes`, to UTC) and the device (a time's offset) each keep their own way, and for a property a question opens on through an answer class that casts it, which stops the form on another writer's text (Core's failed cast), a stop Preview does not yet make",
+		"dispositionCell": "**HELD-NEW**: join `text` for a date and time and a time, whose text HQ's server (`adjust_datetimes`, to UTC) and the device (a time's offset) each keep their own way, and for a property a question opens on through an answer class that casts it, which stops the form on another writer's text (Core's failed cast), a stop Preview also models for stored data. This writer pair would let a valid text submission make the number form stop opening. Numeric storage would also lose text spellings, and only-if-changed writes need the device's comparison for such spellings",
 		"subject": "writer-types",
 		"owner": "forms-and-case-management",
 		"platforms": {
