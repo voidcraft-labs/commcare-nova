@@ -133,6 +133,7 @@ class Base:
 # builds its BASE from.
 from proof.matrix.bases import (  # noqa: E402
     bounded_flat_close,
+    assigned_lookups,
     case_lists,
     connect_deliver,
     connect_learn,
@@ -196,6 +197,7 @@ BASES: tuple[Base, ...] = (
     project_search.BASE,
     project_search_sql.BASE,
     lookups.BASE,
+    assigned_lookups.BASE,
     shared_table_journey.BASE,
     lookup_aliases.BASE,
     lookup_names.BASE,

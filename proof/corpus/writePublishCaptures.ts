@@ -255,6 +255,12 @@ function lookupSnapshotProblem(
 		}
 		const rows = snapshot.rowsByTable[definition.id];
 		if (rows === undefined) {
+			// Assigned rows stay in HQ and are observable only in a worker restore.
+			if (
+				definition.hq?.managedBy === "commcare-hq" &&
+				definition.hq.source?.distribution === "assigned"
+			)
+				continue;
 			return `the table ${definition.tag} has no rowsByTable entry`;
 		}
 		const row = repeated(rows.map((r) => r.id));
@@ -316,9 +322,9 @@ function readLookup(
 		projectRevision: parsed.data.projectRevision,
 		definitions: parsed.data.definitions,
 		rowsByTable: new Map(
-			parsed.data.definitions.map((definition) => [
-				definition.id,
-				(parsed.data.rowsByTable[definition.id] ?? []).map(
+			Object.entries(parsed.data.rowsByTable).map(([id, rows]) => [
+				id as LookupTableId,
+				rows.map(
 					(row): LookupFixtureRow => ({
 						...row,
 						values: row.values as LookupRowValues,
