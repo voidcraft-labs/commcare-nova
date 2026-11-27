@@ -207,17 +207,26 @@ it("opens a form on the same search response that supplied Results", async () =>
 	};
 	const prompt = testUuid("search-response-name");
 	const unanswered = testUuid("search-response-unanswered");
-	const frame = [
-		{ inputUuid: prompt, answer: "original typed text" },
-		{ inputUuid: unanswered, answer: null },
-	];
+	const offeredRow = opening.snapshot.rows[0];
+	const primary = {
+		rows: [offeredRow, { ...offeredRow, case_id: "filtered-by-device" }],
+		totalMatches: 2,
+	};
+	const frame = {
+		visibleCaseIds: ["served"],
+		answers: [
+			{ inputUuid: prompt, answer: "original typed text" },
+			{ inputUuid: unanswered, answer: null },
+		],
+	};
 	const detailReceipt = await keepSearchResult(
 		resultScope,
 		context,
-		opening.snapshot,
+		primary,
 		frame,
 	);
-	frame[0].answer = "later draft";
+	frame.answers[0].answer = "later draft";
+	frame.visibleCaseIds.push("filtered-by-device");
 	expect(
 		await readKeptSearchResultDetail(
 			resultScope,
@@ -277,7 +286,17 @@ it("opens a form on the same search response that supplied Results", async () =>
 			...form,
 			resultReceipt: detailReceipt,
 		}),
-	).toEqual(opening);
+	).toEqual({ kind: "data", snapshot: primary });
+
+	expect(
+		await readKeptSearchResultDetail(
+			resultScope,
+			context,
+			detailReceipt,
+			"filtered-by-device",
+			prompt,
+		),
+	).toBeUndefined();
 
 	const firstSession = auth.sessionId;
 	try {

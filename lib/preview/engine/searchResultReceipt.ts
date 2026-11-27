@@ -46,8 +46,15 @@ export interface SearchResultDetailAnswer {
 	readonly answer: string | null;
 }
 
+/** Only a case actually offered for selection by this response can reopen
+ * its Details. The primary roster includes matches the device filtered out. */
+export interface SearchResultDetailFrame {
+	readonly visibleCaseIds: readonly string[];
+	readonly answers: readonly SearchResultDetailAnswer[];
+}
+
 type KeptSearchResult = SearchResultsSnapshot & {
-	readonly detailAnswers?: readonly SearchResultDetailAnswer[];
+	readonly detail?: SearchResultDetailFrame;
 };
 
 async function withCurrentAudience<T>(
@@ -125,12 +132,12 @@ export async function keepSearchResult(
 	scope: SearchReceiptScope,
 	context: Context,
 	instance: SearchResultsSnapshot,
-	detailAnswers?: readonly SearchResultDetailAnswer[],
+	detail?: SearchResultDetailFrame,
 ): Promise<string> {
 	const key = await withCurrentAudience(scope, context, (current) => current);
 	if (key === undefined) throw new Error("Search response scope is missing.");
 	const snapshot: KeptSearchResult =
-		detailAnswers === undefined ? instance : { ...instance, detailAnswers };
+		detail === undefined ? instance : { ...instance, detail };
 	const bytes = await compress(JSON.stringify(snapshot));
 	const contentDigest = bytesDigest(bytes);
 	await putFormOpeningData({ ...key, contentDigest }, bytes);
@@ -158,10 +165,13 @@ export async function readKeptSearchResultDetail(
 	inputUuid: Uuid,
 ): Promise<{ readonly answer: string | null } | undefined> {
 	const snapshot = await readKeptSearchResponse(scope, context, receipt);
-	if (!snapshot?.rows.some((row) => row.case_id === caseId)) return;
-	const offered = snapshot.detailAnswers?.find(
-		(row) => row.inputUuid === inputUuid,
-	);
+	const frame = snapshot?.detail;
+	if (
+		!frame?.visibleCaseIds.includes(caseId) ||
+		!snapshot?.rows.some((row) => row.case_id === caseId)
+	)
+		return;
+	const offered = frame.answers.find((row) => row.inputUuid === inputUuid);
 	return offered === undefined ? undefined : { answer: offered.answer };
 }
 
