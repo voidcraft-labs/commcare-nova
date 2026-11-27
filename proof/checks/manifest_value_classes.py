@@ -11089,11 +11089,16 @@ def itemset_position_of_number(use, manifest):
 
 
 def itemset_literal_row_index(use):
-    """A bare numeric fixture row index works in Core and is outside Nova's boolean filter."""
-    form, predicate = _lookup_itemset_predicate(use)
+    """Distinguish a preserved fixture ordinal from a remaining bare numeric filter."""
+    from proof.checks.xpath_tree import fixture_itemset_number
+
+    form, itemset = _form_element(use)
     if form is None:
         return None
-    return predicate is not None and predicate[0] == "number"
+    numeric = fixture_itemset_number(itemset.get("nodeset") or "", dict(form.declared_instances))
+    if numeric is None:
+        return None
+    return "ordinal" if numeric[2] else "other-number"
 
 
 def case_itemset_survey_readiness(use):

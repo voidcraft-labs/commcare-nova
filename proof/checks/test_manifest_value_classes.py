@@ -8666,13 +8666,16 @@ def test_retained_search_matches_only_proven_parent_text_paths(manifest, name, w
 def test_literal_itemset_row_position_is_scoped_to_retained_parity(manifest):
     from proof.checks import parity
 
-    entry = "questions/itemset-filter-outside-predicate"
-    assert entry not in manifest.readers
+    held = "questions/itemset-filter-lifting-into-predicate"
+    deferred = "questions/itemset-filter-outside-predicate"
+    assert {held, deferred}.isdisjoint(manifest.readers)
     source = _form(
         data="<choice/>",
         model='<instance id="items" src="jr://fixture/item-list:items"/>',
         body="""
           <select1 ref="/data/choice"><itemset nodeset="instance('items')/items_list/items[2]">
+            <label ref="name"/><value ref="id"/></itemset></select1>
+          <select1 ref="/data/choice"><itemset nodeset="instance('items')/items_list/items[2.5]">
             <label ref="name"/><value ref="id"/></itemset></select1>
           <select1 ref="/data/choice"><itemset nodeset="instance('items')/items_list/items[last() - 1]">
             <label ref="name"/><value ref="id"/></itemset></select1>
@@ -8681,10 +8684,14 @@ def test_literal_itemset_row_position_is_scoped_to_retained_parity(manifest):
     shape = refused("form", source, "xform:select1/itemset@nodeset", "select1[1]/itemset[1]/@nodeset")
     found = _shape_uses(shape, manifest)
     assert list(parity._forms_variant_uses(found, manifest, set())) == []
-    decided, = parity._forms_variant_uses(found, manifest, {entry})
-    assert decided.standing == manifest_usage.HELD_NEW
-    assert [one.id for one in decided.entries] == [entry]
-    assert decided.use.where.endswith(shape.where)
+    ordinal, = parity._forms_variant_uses(found, manifest, {held})
+    assert ordinal.standing == manifest_usage.HELD
+    assert [entry.id for entry in ordinal.entries] == [held]
+    assert ordinal.use.where.endswith(shape.where)
+    other, = parity._forms_variant_uses(found, manifest, {deferred})
+    assert other.standing == manifest_usage.HELD_NEW
+    assert [entry.id for entry in other.entries] == [deferred]
+    assert other.use.where.endswith("select1[2]/itemset[1]/@nodeset")
 
 
 @pytest.fixture(scope="module")

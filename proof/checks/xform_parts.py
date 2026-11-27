@@ -593,8 +593,11 @@ def compare(before: str | None, after: str | None, languages=None):
             path = a[at][0]
             if path.endswith(f"/{ORDER}") and _same_order(a[at][1], b[at][1]):
                 continue
-            if first.root_name == second.root_name and _expression(path) and xpath_tree.same(
-                a[at][1], b[at][1], instances=(first.instances, second.instances), context=_context(at, first.root_name)
+            instances = (first.instances, second.instances)
+            if first.root_name == second.root_name and _expression(path) and (
+                xpath_tree.same(a[at][1], b[at][1], instances=instances, context=_context(at, first.root_name))
+                or (path.endswith("/:control/itemset/@nodeset")
+                    and xpath_tree.fixture_itemset_ordinal_spelling(a[at][1], b[at][1], instances))
             ):
                 yield ("changed", f"{at}/{RESPELLED}", f"{path}/{RESPELLED}", a[at][1], b[at][1])
                 continue
