@@ -1484,3 +1484,54 @@ def test_an_unguarded_answer_on_a_search_first_result_list(
             row, = run.screens[-1]["list"]["rows"]
             assert row["id"] == f"row-{client.case_id}", observed
             assert row["cells"][1]["text"] == village_answer, observed
+
+
+@pytest.mark.parametrize("answer", [True, False], ids=["answered", "unanswered"])
+def test_standalone_search_detail_displays_the_submitted_date(
+    hq, formplayer_runner, editor_driver, webapps_documents, evidence, answer,
+):
+    from proof.matrix import registry
+    from proof.matrix.authoring import Authoring
+    from proof.observe.search_address import enable_address_search
+
+    document = webapps_documents["hq-search"]
+    data = casedata.document_case_database(document)
+    sample = next(case for case in data.cases if case.case_type == "client")
+    day = "2025-03-09"
+    client = dataclasses.replace(sample, name="Date detail witness", properties=(
+        ("village", "north"), ("last_visit", "2025-01-01"), ("dob", day),
+    ))
+    data = dataclasses.replace(data, cases=(client,))
+    date_entry = [
+        {"mark": True},
+        {"eval": """() => {
+            const field = document.querySelector('#query-list-contents input.date');
+            if (!field) throw new Error('The Search date did not open');
+            window.jQuery(field).val('03/09/2025').trigger('change.td');
+        }"""},
+        {"awaitRequest": {"method": "POST", "pathname": steps.NAVIGATE}, "sinceMark": True},
+        steps.SETTLE,
+    ]
+    with webapps_hq.authored_project(document, "A", configure=enable_address_search) as project:
+        authoring = Authoring(project.unit, {}, document.id, operation=project.unit.operation)
+        registry.named_change("standalone_search_detail_with_date_prompt")(authoring, project.app_id)
+        with project.released(
+            formplayer_runner, database=data, driver=editor_driver,
+            saves=((pages.CASE_LIST, project.module_id(0)),), label="standalone-date-detail",
+        ) as release:
+            run = Session(release, editor_driver).run([
+                *steps.open_app("Client search"), *steps.choose("Clients"), *steps.choose("Followup Form"),
+                *steps.type_prompt(0, "Date detail witness"), *(date_entry if answer else []), *steps.run_search(),
+                *steps.click(f"#menu-region [id='row-{client.case_id}']"),
+                {"until": "webapps/detail", "arg": {"selections": ["0", None]}},
+                steps.SCREEN,
+            ])
+    requests = _menu_requests(run)
+    submitted = [entry["inputs"].get("dob") for request in requests if request["searched"]
+                 for entry in request["queryData"].values() if isinstance(entry, dict) and entry.get("execute")]
+    observed = {"screens": run.screens, "requests": requests, "errors": run.page_errors, "dialogs": run.dialogs}
+    evidence("standalone-date-result", observed)
+    assert not run.page_errors and not run.dialogs, observed
+    assert submitted == ([day] if answer else [None]), observed
+    expected = f"Entered [{day if answer else ''}]"
+    assert {"header": "Submitted village", "value": expected} in run.screens[-1]["detail"]["rows"], observed

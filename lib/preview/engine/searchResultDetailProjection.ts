@@ -3,7 +3,7 @@ import type { Uuid } from "@/lib/domain/uuid";
 
 type Columns = ReturnType<typeof searchResultDetailColumns>;
 
-/** Match the query input instance. An absent or empty text prompt has no node,
+/** Match the query input instance. An absent or empty prompt has no node,
  * and a menu's default search sends none of its visible prompts. */
 export function submittedSearchResultDetailAnswers(
 	columns: Columns,

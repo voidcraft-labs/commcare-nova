@@ -6,7 +6,11 @@ import { buildCaseTypeMap, withProjectContext } from "@/lib/case-store";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { setPreviewSearchSettings } from "@/lib/deployment/previewSearchSettings";
 import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
-import { calculatedColumn, simpleSearchInputDef } from "@/lib/domain";
+import {
+	calculatedColumn,
+	proseText,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import { count, eq, gt, literal, prop, term } from "@/lib/domain/expression";
 import { resolvePreviewSearchFacts } from "../../searchSettings";
 import {
@@ -498,6 +502,7 @@ it("opens a form on the same search response that supplied Results", async () =>
 
 const detailVariants = [
 	"submitted answer",
+	"submitted date",
 	"fixed text",
 	"a Results-only answer",
 ] as const;
@@ -508,6 +513,9 @@ it.each(detailVariants)(
 
 async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 	const fixed = branch === "fixed text";
+	const date = branch === "submitted date";
+	const inputName = date ? "dob" : "name";
+	const submitted = date ? "2025-03-09" : "Asha";
 	const onList = branch === "a Results-only answer";
 	const actor = ACTOR;
 	const appId = "search-detail-restored-app";
@@ -538,7 +546,14 @@ async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 	const ordinaryList = caseListConfig([{ field: "case_name", header: "Name" }]);
 	const fixture = buildDoc({
 		appId,
-		caseTypes: [{ name: "patient", properties: [] }],
+		caseTypes: [
+			{
+				name: "patient",
+				properties: date
+					? [{ name: "dob", label: proseText("Born on"), data_type: "date" }]
+					: [],
+			},
+		],
 		modules: [
 			{
 				name: "Patients",
@@ -552,10 +567,10 @@ async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 					searchInputs: [
 						simpleSearchInputDef(
 							inputUuid,
-							"name",
-							"Name",
-							"text",
-							"case_name",
+							inputName,
+							date ? "Born on" : "Name",
+							date ? "date" : "text",
+							date ? "dob" : "case_name",
 						),
 					],
 				},
@@ -598,7 +613,7 @@ async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 				case_id: caseId,
 				case_type: "patient",
 				case_name: "Asha",
-				properties: {},
+				properties: date ? { dob: submitted } : {},
 			},
 		});
 	}
@@ -670,7 +685,7 @@ async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 			opening: { ...runScope, submission, receipt: results.resultReceipt },
 		};
 	};
-	const answered = await run({ name: "Asha" });
+	const answered = await run({ [inputName]: submitted });
 	const unanswered = await run({});
 	const reopen = (
 		caseId: string,
@@ -694,7 +709,7 @@ async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 			false,
 			null,
 			{ ...device, appLanguage: options.wireLanguage ?? device.appLanguage },
-			{ name: "edited draft" },
+			{ [inputName]: date ? "2024-11-03" : "edited draft" },
 			undefined,
 			undefined,
 			opening,
@@ -702,7 +717,9 @@ async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 	expect(await reopen(answered.chosen, answered.opening)).toMatchObject({
 		kind: "row",
 		row: {
-			calculated: { [columnUuid]: fixed ? "entered=[]" : "entered=[Asha]" },
+			calculated: {
+				[columnUuid]: fixed ? "entered=[]" : `entered=[${submitted}]`,
+			},
 		},
 	});
 
@@ -711,7 +728,9 @@ async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 	).toMatchObject({
 		kind: "row",
 		row: {
-			calculated: { [columnUuid]: fixed ? "entered=[]" : "entered=[Asha]" },
+			calculated: {
+				[columnUuid]: fixed ? "entered=[]" : `entered=[${submitted}]`,
+			},
 		},
 	});
 	expect(await reopen(unanswered.chosen, unanswered.opening)).toMatchObject({
@@ -755,7 +774,7 @@ async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 			previewRun: answered.opening.previewRun,
 			searchSubmission: crypto.randomUUID(),
 			inputValues: {
-				name: { value: "crafted non-text" },
+				[inputName]: { value: "crafted non-text" },
 			} as unknown as Record<string, string>,
 		}),
 	).toMatchObject({ kind: "invalid-search", repair: "inputs" });
@@ -765,7 +784,7 @@ async function testStandaloneDetails(branch: (typeof detailVariants)[number]) {
 		...request,
 		previewRun: answered.opening.previewRun,
 		searchSubmission: crypto.randomUUID(),
-		inputValues: { name: "Nobody on this page" },
+		inputValues: { [inputName]: date ? "2024-11-03" : "Nobody on this page" },
 	});
 	expect(empty).toMatchObject({ kind: "empty" });
 	expect(empty).not.toHaveProperty("resultReceipt");
