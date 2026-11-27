@@ -1236,6 +1236,7 @@ export interface CaseStore extends SchemaCaseStore {
 		readonly caseIds: readonly string[];
 		readonly caseType: string;
 		readonly restoreScope: RestoreScope;
+		readonly automaticMaximum?: number;
 	}): Promise<DeviceCaseDatabase | undefined>;
 
 	/** An automatic device selection returns its complete set in datum order,

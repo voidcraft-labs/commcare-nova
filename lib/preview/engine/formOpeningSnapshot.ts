@@ -122,6 +122,8 @@ export interface FormOpeningProjection {
 	/** The entry's own cases and its automatically reached values are signed
 	 * separately: a blank text value is distinct from an absent selection. */
 	readonly primaryCaseIds: readonly string[];
+	/** This exact ordered selection was opened without a full device restore. */
+	readonly boundedFlatClose?: { readonly expiresAt: number };
 	readonly parentChoices?: Readonly<Record<string, readonly string[]>>;
 	/** The cases the submission that opened this entry left on the device
 	 * (`afterSubmission`), held there until sync though a restore may omit

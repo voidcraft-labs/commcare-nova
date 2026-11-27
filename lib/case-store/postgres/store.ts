@@ -1683,6 +1683,7 @@ export class PostgresCaseStore implements CaseStore {
 		readonly caseIds: readonly string[];
 		readonly caseType: string;
 		readonly restoreScope: RestoreScope;
+		readonly automaticMaximum?: number;
 	}): Promise<DeviceCaseDatabase | undefined> {
 		return this.dataTransaction(
 			(tx) => this.readFlatCloseSelectionInTransaction(tx, args),
@@ -1697,9 +1698,10 @@ export class PostgresCaseStore implements CaseStore {
 			readonly caseIds: readonly string[];
 			readonly caseType: string;
 			readonly restoreScope: RestoreScope;
+			readonly automaticMaximum?: number;
 		},
 	): Promise<DeviceCaseDatabase | undefined> {
-		const { appId, caseIds, caseType, restoreScope } = args;
+		const { appId, caseIds, caseType, restoreScope, automaticMaximum } = args;
 		if (
 			!caseIds.length ||
 			caseIds.length > FLAT_CLOSE_SELECTED_RECORDS ||
@@ -1708,7 +1710,7 @@ export class PostgresCaseStore implements CaseStore {
 		)
 			return undefined;
 
-		const available = await this.buildCaseSelect(
+		const eligible = this.buildCaseSelect(
 			{
 				appId,
 				caseType,
@@ -1719,10 +1721,30 @@ export class PostgresCaseStore implements CaseStore {
 		)
 			.qb.clearSelect()
 			.select("c.case_id")
-			.where("c.case_id", "in", caseIds)
-			.where("c.status", "is distinct from", "closed")
-			.execute();
-		if (available.length !== caseIds.length) return undefined;
+			.where("c.status", "is distinct from", "closed");
+		if (automaticMaximum !== undefined) {
+			if (
+				!Number.isInteger(automaticMaximum) ||
+				automaticMaximum < caseIds.length ||
+				automaticMaximum > FLAT_CLOSE_SELECTED_RECORDS
+			)
+				return undefined;
+			const ordered = await eligible
+				.orderBy("c.opened_on", "asc")
+				.orderBy("c.case_id", "asc")
+				.limit(automaticMaximum + 1)
+				.execute();
+			if (
+				ordered.length !== caseIds.length ||
+				ordered.some(({ case_id }, index) => case_id !== caseIds[index])
+			)
+				return undefined;
+		} else {
+			const available = await eligible
+				.where("c.case_id", "in", caseIds)
+				.execute();
+			if (available.length !== caseIds.length) return undefined;
+		}
 		const patch = await this.readCaseDatabasePatchInTransaction(tx, {
 			appId,
 			projectId: this.requireProjectId(),

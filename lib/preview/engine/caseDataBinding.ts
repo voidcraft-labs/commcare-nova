@@ -95,6 +95,7 @@ import {
 	caseListSortChoiceSchema,
 } from "../caseListSortMenu";
 import { previewPlatformRules } from "../platform";
+import { boundedFlatCloseForm } from "./boundedFlatClose";
 import { validateCaptureSubmissionProjection } from "./captureSubmissionValidation";
 import {
 	mapFilterPreviewError,
@@ -2439,6 +2440,16 @@ export async function submitFormAction(
 				"The selected records changed. Reopen the form to choose them again.",
 			);
 		}
+		if (
+			opening?.boundedFlatClose &&
+			(!binding ||
+				!boundedFlatCloseForm(committed, binding.module, projection.formUuid) ||
+				admitted.device.platform !== "web-apps" ||
+				opening.boundedFlatClose.expiresAt <= Date.now())
+		)
+			throw new CaptureSubmissionRejectedError(
+				"Reopen this form to choose the records again.",
+			);
 		const built = await buildSubmissionOperationProgram({
 			opening,
 			appId,
@@ -2511,6 +2522,7 @@ export async function submitFormAction(
 					);
 		const result = await store.applySubmission({
 			...envelope,
+			...(opening?.boundedFlatClose && ({ boundedFlatClose: true } as const)),
 			submissionReceipt: {
 				...envelope.submissionReceipt,
 				openingCarryScope: run

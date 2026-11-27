@@ -839,6 +839,21 @@ describe("bounded flat close", () => {
 				caseIds: ["unrelated-other-worker"],
 			}),
 		).toBeUndefined();
+		const datumOrder = selected.toSorted();
+		expect(
+			await store.readFlatCloseSelection({
+				...scope,
+				caseIds: datumOrder,
+				automaticMaximum: 101,
+			}),
+		).toBeDefined();
+		expect(
+			await store.readFlatCloseSelection({
+				...scope,
+				caseIds: datumOrder.toReversed(),
+				automaticMaximum: 101,
+			}),
+		).toBeUndefined();
 		const ordered = selected.toReversed();
 		const args = await signedProgram(store, ordered);
 		expect(args.operations?.openingReads?.cases).toMatchObject({
