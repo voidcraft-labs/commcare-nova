@@ -10777,8 +10777,10 @@ def _direct_fingerprint_survey(use, *, guarded):
         if not isinstance(fallback, list) or fallback[:1] != ["text"] or not fallback[1]:
             return False
         path = "instance('commcaresession')/session/data/fingerprintquery"
-        if ["call", "if", [test, ["text", ""], present]] != expression_tree(
-            f"if(count({path}) = 0, '', string({path}[1]))"
+        if not any(
+            ["call", "if", [test, ["text", ""], present]]
+            == expression_tree(f"if(count({path}) = 0, '', string({path}[{position}]))")
+            for position in (1, 2)
         ):
             return False
         if len((at.element.get("nodeset") or "").split("/")) != 3:

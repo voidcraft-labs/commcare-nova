@@ -54,35 +54,38 @@ describe("bare fingerprint query in a Hidden Value", () => {
 		);
 	});
 
-	it("keeps only the fallback of the exact guard in a survey without a supplier", async () => {
-		const outcome = await survey(
-			`if(count(${PATH}) = 0, 'No lookup result', string(${PATH}[1]))`,
-		);
-		expect(outcome.kind).toBe("read");
-		if (outcome.kind !== "read") throw new Error("The survey did not read.");
-		const held = Object.values(outcome.draft.doc.fields).find(
-			(field) => field.id === "language",
-		);
-		expect(held).toMatchObject({
-			kind: "hidden",
-			calculate: {
-				kind: "term",
-				term: { kind: "literal", value: "No lookup result" },
-			},
-		});
-		expect([...outcome.claims.records()]).toContainEqual(
-			expect.objectContaining({
-				key: KEY,
-				entry:
-					"expressions-and-data/guarded-fingerprint-query-without-a-supplier",
-				standing: "held",
-			}),
-		);
-	});
+	it.each([1, 2])(
+		"keeps only the fallback of the exact guard for result %s in a survey without a supplier",
+		async (position) => {
+			const outcome = await survey(
+				`if(count(${PATH}) = 0, 'No lookup result', string(${PATH}[${position}]))`,
+			);
+			expect(outcome.kind).toBe("read");
+			if (outcome.kind !== "read") throw new Error("The survey did not read.");
+			const held = Object.values(outcome.draft.doc.fields).find(
+				(field) => field.id === "language",
+			);
+			expect(held).toMatchObject({
+				kind: "hidden",
+				calculate: {
+					kind: "term",
+					term: { kind: "literal", value: "No lookup result" },
+				},
+			});
+			expect([...outcome.claims.records()]).toContainEqual(
+				expect.objectContaining({
+					key: KEY,
+					entry:
+						"expressions-and-data/guarded-fingerprint-query-without-a-supplier",
+					standing: "held",
+				}),
+			);
+		},
+	);
 
-	it("keeps an indexed read from a different fallback branch in its own finding", async () => {
+	it("keeps an indexed read without an empty-frame guard in its own finding", async () => {
 		const outcome = await survey(
-			`if(count(${PATH}) = 0, 'No lookup result', string(${PATH}[2]))`,
+			`if(count(${PATH}) = 1, 'No lookup result', string(${PATH}[2]))`,
 		);
 		expect([...outcome.claims.records()]).toContainEqual(
 			expect.objectContaining({

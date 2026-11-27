@@ -2114,13 +2114,16 @@ function explicitTextOrder(
 
 const fingerprintPath =
 	"instance('commcaresession')/session/data/fingerprintquery";
-const emptyFingerprintGuard = readFormSyntax(
-	`if(count(${fingerprintPath}) = 0, '', string(${fingerprintPath}[1]))`,
+const emptyFingerprintGuardKeys = new Set(
+	[1, 2].flatMap((position) => {
+		const parsed = readFormSyntax(
+			`if(count(${fingerprintPath}) = 0, '', string(${fingerprintPath}[${position}]))`,
+		);
+		return parsed.ok && parsed.node !== undefined
+			? [formSyntaxKey(parsed.node)]
+			: [];
+	}),
 );
-const emptyFingerprintGuardKey =
-	emptyFingerprintGuard.ok && emptyFingerprintGuard.node !== undefined
-		? formSyntaxKey(emptyFingerprintGuard.node)
-		: undefined;
 
 /** The direct Android survey has no producer for this session datum.
  * Compare the entire guarded shape before reducing it to its fallback. */
@@ -2153,7 +2156,7 @@ export function missingFingerprintFallback(
 		...node,
 		args: [test, { ...fallback, value: "" }, present],
 	};
-	return formSyntaxKey(normalized) === emptyFingerprintGuardKey
+	return emptyFingerprintGuardKeys.has(formSyntaxKey(normalized))
 		? fallback
 		: undefined;
 }

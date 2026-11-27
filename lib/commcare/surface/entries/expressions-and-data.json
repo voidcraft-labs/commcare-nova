@@ -256,7 +256,7 @@
 		"id": "expressions-and-data/guarded-fingerprint-query-without-a-supplier",
 		"area": "expressions-and-data",
 		"section": "Secondary instances",
-		"item": "A root Hidden Value in a direct Android survey keeps its text fallback when the absent lookup count is checked before reading its first value",
+		"item": "A root Hidden Value in a direct Android survey keeps its text fallback when the absent lookup count is checked before reading its first or second value",
 		"surfaceKeys": ["session-path:session/data/fingerprintquery"],
 		"disposition": "HELD",
 		"dispositionCell": "**HELD**: the survey always supplies the same fallback text. Nova saves that text as the calculation.",

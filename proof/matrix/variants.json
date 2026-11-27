@@ -23606,6 +23606,25 @@
 		]
 	},
 	{
+		"id": "hq-expressions/fingerprint-query-guarded-second-result",
+		"base": "hq-expressions",
+		"entry": "expressions-and-data/guarded-fingerprint-query-without-a-supplier",
+		"change": {
+			"op": "named",
+			"name": "fingerprint_query_guarded_second_result"
+		},
+		"holds": [
+			{
+				"key": ["field", { "$xmlns": [0, 0] }, ["language"]],
+				"pointer": "/calculate",
+				"value": {
+					"kind": "term",
+					"term": { "kind": "literal", "value": "No lookup result" }
+				}
+			}
+		]
+	},
+	{
 		"id": "hq-expressions/fingerprint-query-second-result",
 		"base": "hq-expressions",
 		"entry": "expressions-and-data/session-data-fingerprintquery",
