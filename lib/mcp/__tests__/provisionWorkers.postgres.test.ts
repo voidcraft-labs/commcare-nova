@@ -7,6 +7,7 @@ import {
 	readHttpRequestBody,
 	withHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
+import { installationCredential } from "@/__tests__/helpers/installationCredential";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -14,15 +15,18 @@ import { getSession } from "@/lib/auth-utils";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { commitGuardedBatch, restoreApp, softDeleteApp } from "@/lib/db/apps";
+import { revokeAuthorizedClient } from "@/lib/db/oauth-consents";
 import { openRemoteWrite } from "@/lib/db/openRemoteWrite";
 import { stopHere } from "@/lib/deployment/__tests__/stopHere";
 import { provisionWorkersAction } from "@/lib/deployment/actions";
 import { deploymentNotFound } from "@/lib/deployment/errors";
 import {
+	admitWorkerWrite,
 	applyDeploymentObservation,
 	foldDeploymentAttempt,
 	readDeployment,
 	recordCreatedRemoteApp,
+	recordProvisionedWorkers,
 	recordPushedResources,
 	recordRemoteResource,
 	recordWorkerLevelConfirmations,
@@ -167,17 +171,62 @@ async function seed(
 		},
 	});
 }
-function asUser<T>(
+const workerScopes = ["nova.read", "nova.write", "nova.hq.write"];
+async function asUser<T>(
 	run: (client: Client) => Promise<T>,
 	userId = ACTOR,
-	scopes = ["nova.read", "nova.hq.write"],
+	scopes = workerScopes,
 ) {
+	const context = await installationCredential(h.db(), userId, scopes);
 	return withMcpClient(
-		(server) =>
-			registerProvisionWorkers(server, { userId, scopes, authKind: "oauth" }),
+		(server) => registerProvisionWorkers(server, context),
 		run,
 	);
 }
+
+async function workerCredential(kind: "api-key" | "oauth") {
+	if (kind === "api-key") {
+		const context = await installationCredential(h.db(), ACTOR, workerScopes);
+		const grant = context.grant;
+		if (grant?.kind !== "api-key") throw new Error("Expected an API key");
+		return {
+			context,
+			end: () =>
+				sql`UPDATE auth_apikey SET "expiresAt" = clock_timestamp() WHERE id = ${grant.keyId}`.execute(
+					h.db(),
+				),
+			message: /This API key no longer authorizes this change/,
+		};
+	}
+	const clientId = "worker-fixture-client";
+	const consentId = "worker-fixture-consent";
+	const issuedAt = Math.floor(Date.now() / 1000);
+	await sql`INSERT INTO auth_oauth_client (id, "clientId", "redirectUris", "createdAt", "updatedAt")
+		VALUES (${clientId}, ${clientId}, '[]'::jsonb, now(), now())`.execute(
+		h.db(),
+	);
+	await sql`INSERT INTO auth_oauth_consent (id, "clientId", "userId", scopes, "createdAt", "updatedAt")
+		VALUES (${consentId}, ${clientId}, ${ACTOR}, ${JSON.stringify(workerScopes)}::jsonb, now(), now())`.execute(
+		h.db(),
+	);
+	return {
+		context: {
+			userId: ACTOR,
+			scopes: workerScopes,
+			authKind: "oauth" as const,
+			grant: {
+				kind: "oauth" as const,
+				clientId,
+				issuedAt,
+				expiresAt: issuedAt + 3600,
+				scopes: workerScopes,
+			},
+		},
+		end: () => revokeAuthorizedClient(ACTOR, consentId),
+		message: /This client no longer has permission for this change/,
+	};
+}
+
 function call(client: Client, extra: Record<string, unknown> = {}) {
 	return client.callTool({
 		name: "provision_workers",
@@ -1113,6 +1162,105 @@ it("settles the admitted worker when its browser session ends mid-call", async (
 		).toEqual([]);
 	});
 });
+
+it.each(["oauth", "api-key"] as const)(
+	"stops admitting new MCP workers when the %s grant ends and settles the one HQ created",
+	async (kind) => {
+		await seed();
+		const removed = testUuid("worker-removed-persona");
+		const earlierWrite = await admitWorkerWrite(SCOPE, TARGET, {
+			expectedEndings: 0,
+			personaUuid: removed,
+		});
+		await recordProvisionedWorkers(SCOPE, TARGET, {
+			landed: [
+				{
+					kind: "worker",
+					novaResourceId: removed,
+					remoteId: "hq-removed",
+					ownership: "nova-created",
+					pushedIdentity: "former@clinic.commcarehq.org",
+					pushedRevision: null,
+					remoteRevision: null,
+				},
+			],
+			stillUsed: [removed],
+			writeIds: [earlierWrite],
+		});
+		const { context, end, message } = await workerCredential(kind);
+		await withHttpPeer(async (peer) => {
+			search(peer);
+			let password: unknown;
+			wire(peer).reply(async (request) => {
+				password = JSON.parse(
+					(await readHttpRequestBody(request)).toString(),
+				).password;
+				await end();
+				return { statusCode: 201, data: '{"id":"hq-amina"}' };
+			});
+			await withMcpClient(
+				(server) => registerProvisionWorkers(server, context),
+				async (client) => {
+					const result = body(await call(client), true);
+					expect(password).toEqual(expect.any(String));
+					expect(result).toEqual({
+						error_type: "permission_denied",
+						message: expect.stringMatching(message),
+						app_id: APP,
+						workers: [
+							{
+								persona_uuid: AMINA,
+								persona_name: "Amina",
+								username: "amina@clinic.commcarehq.org",
+								hq_user_id: "hq-amina",
+								action: "created",
+								adopted: false,
+								password,
+							},
+						],
+					});
+					expect(peer.getCallHistory()?.calls()).toHaveLength(2);
+					const settled = await snapshot();
+					const retry = body(await call(client), true);
+					expect(retry).toMatchObject({
+						error_type: "permission_denied",
+						message: expect.stringMatching(message),
+					});
+					expect(retry).not.toHaveProperty("workers");
+					expect(peer.getCallHistory()?.calls()).toHaveLength(2);
+					expect(await snapshot()).toEqual(settled);
+				},
+			);
+			const deployment = await readDeployment(SCOPE, TARGET);
+			const activeWorkers = deployment?.active.filter(
+				(mapping) => mapping.kind === "worker",
+			);
+			expect(activeWorkers).toHaveLength(2);
+			expect(activeWorkers).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						novaResourceId: AMINA,
+						remoteId: "hq-amina",
+					}),
+					// This prior mapping is outside the stopped request's admissions.
+					expect.objectContaining({
+						novaResourceId: removed,
+						remoteId: "hq-removed",
+					}),
+				]),
+			);
+			expect(
+				await h
+					.db()
+					.selectFrom("hq_remote_writes")
+					.select(["resource_id", "settled_at"])
+					.where("write_kind", "=", "worker")
+					.where("id", "!=", earlierWrite)
+					.execute(),
+			).toEqual([{ resource_id: AMINA, settled_at: expect.any(Date) }]);
+		});
+	},
+);
 
 it.each(["viewer", "outsider", "scope"])(
 	"enforces %s access through actual SDK and membership before contacting HQ",

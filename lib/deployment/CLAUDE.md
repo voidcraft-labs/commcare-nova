@@ -2194,6 +2194,12 @@ credential and is aimed at named people, which is not something a publish
 should do on the way past. So it folds no phase, leaves the deployment's
 states where it found them, and writes only the ledger.
 
+Each worker admission and level confirmation verifies the Browser session or
+MCP bearer that started the request. When the credential ends mid-call, Nova
+stops admitting accounts and settles already-admitted writes. The original
+response still carries their one-time passwords. An ended credential cannot
+reconcile other mappings or read a refreshed deployment.
+
 **A password exists in exactly one place: the answer.**
 `workerCredentials.ts` generates it, the create sends it, and the outcome
 carries it back once. Nothing writes it to Postgres, hands it to `log.*`

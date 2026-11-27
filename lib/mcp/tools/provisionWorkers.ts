@@ -103,6 +103,8 @@
 
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { DeploymentCredentialInactiveError } from "@/lib/deployment/errors";
+import type { HqManagementGrant } from "@/lib/deployment/store";
 import {
 	MAX_WORKER_LEVELS_PER_PROVISION_CALL,
 	organizationLevelCodeSchema,
@@ -119,6 +121,7 @@ import type {
 } from "@/lib/deployment/workers";
 import { provisionWorkers } from "@/lib/deployment/workers";
 import { readPlaceOverview } from "@/lib/organization/pages";
+import { toolWriteGrant } from "../credentialWriteGrant";
 import {
 	type McpToolErrorResult,
 	type McpToolSuccessResult,
@@ -126,6 +129,7 @@ import {
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { registerScopedTool } from "../scopedTool";
+import { McpCredentialInactiveError } from "../scopes";
 import type { ToolContext } from "../types";
 
 /**
@@ -150,6 +154,7 @@ const WORKER_ERROR_TAGS = {
 	/* The access-failure bucket every tool answers a deleted or unreachable
 	 * app with, carrying the accounts made before it. */
 	app_not_available: "not_found",
+	credential_inactive: "permission_denied",
 } as const satisfies Record<WorkerRefusalCode, string>;
 
 /**
@@ -264,11 +269,24 @@ export function registerProvisionWorkers(
 					ctx.userId,
 					"edit",
 				);
+				const writeGrant = toolWriteGrant(ctx, "provision_workers");
+				const requireOperation: HqManagementGrant = async (tx) => {
+					try {
+						await writeGrant(tx);
+					} catch (error) {
+						if (error instanceof McpCredentialInactiveError)
+							throw new DeploymentCredentialInactiveError(error.message, {
+								cause: error,
+							});
+						throw error;
+					}
+				};
 				const scope = {
 					appId: args.app_id,
 					projectId: access.projectId,
 					role: access.role,
 					actorUserId: ctx.userId,
+					requireOperation,
 				};
 				/* The places, so a refusal can name the one a persona stands
 				 * in rather than making somebody look up a uuid. */
@@ -347,10 +365,13 @@ export function registerProvisionWorkers(
 					],
 				};
 			} catch (err) {
-				return toMcpErrorResult(err, {
-					appId: args.app_id,
-					userId: ctx.userId,
-				});
+				return toMcpErrorResult(
+					err instanceof DeploymentCredentialInactiveError &&
+						err.cause instanceof McpCredentialInactiveError
+						? err.cause
+						: err,
+					{ appId: args.app_id, userId: ctx.userId },
+				);
 			}
 		},
 	);

@@ -46,6 +46,7 @@ import type { StoredLocation } from "@/lib/organization/types";
 import { namesInWords } from "@/lib/publish/planFeatures";
 import {
 	DeploymentAppDeletedError,
+	DeploymentCredentialInactiveError,
 	DeploymentEndedError,
 	DeploymentError,
 } from "./errors";
@@ -132,6 +133,8 @@ export const WORKER_REFUSAL_CODES = [
 	 * recorded as Nova's.
 	 */
 	"app_not_available",
+	/** This request’s credential stopped authorizing new worker writes. */
+	"credential_inactive",
 ] as const;
 export type WorkerRefusalCode = (typeof WORKER_REFUSAL_CODES)[number];
 
@@ -441,7 +444,7 @@ export async function provisionWorkers(
 			 * may still make them is told the app was deleted; anyone else gets
 			 * the not-found as it stands. */
 			if (
-				!(error instanceof DeploymentSessionEndedError) &&
+				!(error instanceof DeploymentCredentialInactiveError) &&
 				!(error instanceof DeploymentError && error.code === "not_found")
 			)
 				throw error;
@@ -451,7 +454,11 @@ export async function provisionWorkers(
 					? error.restated(appDeletedBeforeAccounts(domain))
 					: error;
 			return stopped({
-				code: "app_not_available",
+				code:
+					error instanceof DeploymentCredentialInactiveError &&
+					!(error instanceof DeploymentSessionEndedError)
+						? "credential_inactive"
+						: "app_not_available",
 				message: deleted ? appDeletedBetweenAccounts(domain) : error.message,
 				details: [],
 				conflicts: [],

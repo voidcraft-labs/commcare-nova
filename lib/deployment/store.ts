@@ -71,6 +71,7 @@ import {
 	APP_DELETED_READ,
 	APP_DELETED_WRITE,
 	DeploymentAppDeletedError,
+	DeploymentCredentialInactiveError,
 	DeploymentEndedError,
 	DeploymentError,
 	deploymentNotFound,
@@ -95,7 +96,6 @@ import {
 import { readPreviewDeploymentRecordsIn } from "./previewRecords";
 import type { ProjectSearchDestinationEdit } from "./projectSearchDestinationInput";
 import { type FirstPublishState, publishedRemoteApp } from "./resources";
-import { DeploymentSessionEndedError } from "./sessionManagementGrant";
 import {
 	applyAttemptOutcome,
 	applyObservation,
@@ -6808,11 +6808,11 @@ export async function recordProvisionedWorkers(
 		async (tx, row, access) => {
 			let currentAccess = access;
 			// Admissions still authorize recording what already went to HQ. A
-			// closed session cannot reconcile or receive the deployment view.
+			// credential that ended cannot reconcile or receive the deployment view.
 			try {
 				if (access.read) await scope.requireOperation?.(tx);
 			} catch (error) {
-				if (!(error instanceof DeploymentSessionEndedError)) throw error;
+				if (!(error instanceof DeploymentCredentialInactiveError)) throw error;
 				if (input.writeIds.length === 0) throw error;
 				currentAccess = { read: false, edit: false };
 			}
