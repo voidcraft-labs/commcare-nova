@@ -172,6 +172,7 @@ import {
 	nativeMappingKeys,
 } from "./mappingCondition";
 import { columnStoredAsExpression } from "./orderPlanOptions";
+import { resultDetailTextWire } from "./resultDetailText";
 import {
 	buildSortBlock,
 	calculatedPropertyText,
@@ -1778,15 +1779,18 @@ function buildCalculatedField(args: {
 	// for them; cross-case `count(...)` calls and `via`-walked property
 	// refs both thread the root through to the relation-walk anchor
 	// builders in `lib/commcare/xpath/wire/fromExpression.ts`.
-	const calcXpath = toWire(column.expression, {
-		target: "suite",
-		root: instanceRootFor(ctx),
-		types: ctx.expressions({
-			slot: "case_list_column_expression",
-			member: { columnUuid: column.uuid },
-		}),
-		bindings: lookupTermContext(ctx),
-	});
+	const resultDetailText = ctx.resultDetailText?.(column);
+	const calcXpath = resultDetailText
+		? resultDetailTextWire(resultDetailText)
+		: toWire(column.expression, {
+				target: "suite",
+				root: instanceRootFor(ctx),
+				types: ctx.expressions({
+					slot: "case_list_column_expression",
+					member: { columnUuid: column.uuid },
+				}),
+				bindings: lookupTermContext(ctx),
+			});
 	if (column.texts !== undefined && !hidden) {
 		const source = translatedDistanceProperty(column);
 		const headerId = source

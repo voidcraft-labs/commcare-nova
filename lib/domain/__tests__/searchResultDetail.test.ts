@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { literal, term } from "../expression";
 import { calculatedColumn, simpleSearchInputDef } from "../modules";
 import { resolveSearchResultDetailText } from "../searchResultDetail";
@@ -24,7 +24,9 @@ const doc = buildDoc({
 			caseType: "patient",
 			caseSearchConfig: { workflow: "searchFirst" },
 			caseListConfig: {
-				...caseListConfig([column]),
+				columns: [column],
+				listColumnOrder: [column.uuid],
+				detailColumnOrder: [column.uuid],
 				searchInputs: [
 					simpleSearchInputDef(prompt, "marker", "Marker", "text", "case_name"),
 				],

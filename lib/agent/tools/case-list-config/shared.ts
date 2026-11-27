@@ -382,7 +382,7 @@ const linkColumnInputArm = linkColumnArm.omit(columnToolOwnedSlots).extend({
 	),
 });
 const calculatedColumnInputArm = calculatedColumnArm
-	.omit(columnToolOwnedSlots)
+	.omit({ ...columnToolOwnedSlots, searchResultDetail: true })
 	.extend({
 		...columnInputSlots,
 		sort: columnSortInput(

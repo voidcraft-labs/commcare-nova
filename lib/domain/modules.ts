@@ -71,6 +71,7 @@ import {
 	formerNavigationMediaSchema,
 	navigationMediaSchema,
 } from "./navigationMedia";
+import { searchResultDetailTextSchema } from "./searchResultDetailShape";
 import {
 	CASE_NODE_ATTRIBUTE_PROPERTIES,
 	isDeviceOnlyCaseProperty,
@@ -1097,6 +1098,7 @@ const calculatedColumnSchema = columnBase.extend({
 			"Show this calculation as formatted text. Workers on Web Apps can follow Markdown links in a case result.",
 		),
 	expression: valueSchema,
+	searchResultDetail: searchResultDetailTextSchema.optional(),
 	loadBehavior: columnLoadBehaviorSchema.optional(),
 });
 

@@ -1,4 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { literal, term } from "@/lib/domain/expression";
+import { calculatedColumn, simpleSearchInputDef } from "@/lib/domain/modules";
+import { serializeXml } from "../../../serializeXml";
+import { buildLongDetail } from "../../../suite/case-list/longDetail";
+import { hqExpressionField } from "../../../suite/case-list/orderPlanOptions";
 import { resultDetailTextWire } from "../../../suite/case-list/resultDetailText";
 import { serializeWire } from "../../../xpath/wire/serialize";
 import { readResultDetailText } from "../resultDetailText";
@@ -31,6 +38,77 @@ describe("standalone Search result-detail text", () => {
 			interpolation: "no-dots",
 		});
 		expect(readResultDetailText(hq.text)).toEqual(parsed);
+	});
+
+	it("emits only on Details in the HQ and local projections", () => {
+		const promptId = testUuid("result-detail-wire-prompt");
+		const column = {
+			...calculatedColumn(
+				testUuid("result-detail-wire-column"),
+				"Entered value",
+				term(literal("local row")),
+				{ notOnList: true, visibleInList: false },
+			),
+			searchResultDetail: {
+				inputUuid: promptId,
+				prefix: "entered=[",
+				suffix: "]",
+			},
+		};
+		const fixture = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					caseType: "patient",
+					caseSearchConfig: { workflow: "searchFirst" },
+					caseListConfig: {
+						columns: [column],
+						listColumnOrder: [column.uuid],
+						detailColumnOrder: [column.uuid],
+						searchInputs: [
+							simpleSearchInputDef(
+								promptId,
+								"detail_marker",
+								"Marker",
+								"text",
+								"case_name",
+							),
+						],
+					},
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [{ id: "note", kind: "text" }],
+						},
+					],
+				},
+			],
+		});
+		const doc = {
+			...fixture,
+			appSettings: { ...fixture.appSettings, runsOnlyOn: "web-apps" as const },
+		};
+		const module = doc.modules[doc.moduleOrder[0]];
+		const hq = (screen: "results" | "details") =>
+			serializeWire(hqExpressionField(column, module, doc, screen), {
+				target: "hq-json",
+				interpolation: "no-dots",
+			});
+		expect(readResultDetailText(hq("details").text)).toEqual(
+			readResultDetailText(formula),
+		);
+		expect(hq("results").text).toBe("'local row'");
+		expect(hq("results").instances.size).toBe(0);
+		for (const target of ["case", "search"] as const) {
+			const detail = buildLongDetail({ doc, module, moduleIndex: 0, target });
+			expect(detail.instances.map((instance) => instance.id)).toEqual([
+				"search-input:results",
+			]);
+			const out = serializeXml(detail.element);
+			expect(out).toContain("current()/../../results");
+			expect(out).toContain("detail_marker");
+		}
 	});
 
 	it.each([

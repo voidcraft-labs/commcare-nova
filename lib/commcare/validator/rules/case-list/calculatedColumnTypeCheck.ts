@@ -80,6 +80,20 @@ export function calculatedColumnTypeCheck(
 			}
 		}
 		if (column.kind !== "calculated") continue;
+		if (column.searchResultDetail) {
+			errors.push(
+				validationError(
+					"CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
+					"module",
+					"This calculation reads a Search answer on result Details. This version of Nova cannot use that answer when it opens a case.",
+					{ moduleUuid, moduleName: mod.name },
+					{
+						columnUuid: column.uuid,
+						slot: `caseListConfig.columns[${index}].searchResultDetail`,
+					},
+				),
+			);
+		}
 		let hiddenTextRead = false;
 		if (
 			column.texts?.length &&

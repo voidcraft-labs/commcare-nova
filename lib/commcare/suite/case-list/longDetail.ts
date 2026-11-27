@@ -71,6 +71,7 @@ import { detailTabForColumn, detailTabSpans } from "@/lib/domain/detailTabs";
 import { detailColumnRowScope } from "@/lib/domain/expression/detailRowScope";
 import { detailTabWordingId } from "@/lib/domain/generatedWording";
 import { makeTranslationUnitId } from "@/lib/domain/localization";
+import { resolveSearchResultDetailText } from "@/lib/domain/searchResultDetail";
 import { moduleExpressionContexts } from "../../expressionContext";
 import { detailTabVariableNames } from "../../formLinkProjection";
 import { lookupTypeIndexFromNaming } from "../../lookup/naming";
@@ -185,6 +186,14 @@ export function buildLongDetail(args: {
 		caseTypes.find((type) => type.name === mod.caseType)?.properties ?? [];
 	const ctx: CaseListEmitContext = {
 		detailBindings: detailBindings(args.doc, mod),
+		resultDetailText: (column) =>
+			column.searchResultDetail &&
+			resolveSearchResultDetailText(
+				args.doc,
+				mod,
+				column,
+				column.searchResultDetail,
+			),
 		wire: { mode: { target: "suite" }, instances },
 		moduleIndex,
 		sortByUuid: EMPTY_SORT_DIRECTIVES,
