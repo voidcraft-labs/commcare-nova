@@ -129,6 +129,7 @@ final class Screens {
         found.put("home", Home.read());
         Lists.searches = request.optJSONArray("searches");
         Lists.lookupReturns = request.optJSONArray("caseLookupReturns");
+        Lists.legacyLookupMode = request.optBoolean("caseLookupLegacyMode");
         Queries.answer = request.has("queryAnswer") ? request.getString("queryAnswer") : null;
         Queries.findsNothing = request.optBoolean("queryFindsNothing");
         Queries.namedAnswers = request.optJSONObject("searchAnswers");

@@ -284,9 +284,6 @@ def test_case_list_lookup_sends_saved_extra_under_the_worker_mode(hq, editor_dri
     extras = [{"key": "mode", "value": value}]
     if mode == "forced":
         extras.append({"key": "force_xpath_parsing", "value": "yes"})
-    # Set only the isolated Android preference read by ReportingUtils.getDomain. The signed worker,
-    # install, restore and companion all continue to use the harness's fixture and network peer.
-    preferences = None if mode == "ordinary" else {"cc_user_domain": "icds-cas.commcarehq.org"}
     with hq_check(CONFIGURATION) as (state, _):
         app_id, _ = _lookup_case_list(state, editor_driver, extras=extras)
         with formplayer.serve(state, None, app_id, database=database, label="case-list-lookup-mode") as served:
@@ -297,13 +294,15 @@ def test_case_list_lookup_sends_saved_extra_under_the_worker_mode(hq, editor_dri
                 assert suite.xpath(".//lookup/extra[@key='mode']/@value") == [value]
             result = observe.app(
                 served, blobs, label="case-list-lookup-mode", archive=archive,
-                preferences=preferences, case_lookup_returns=[{"primary": " Juniper "}],
+                case_lookup_legacy_mode=mode != "ordinary", case_lookup_returns=[{"primary": " Juniper "}],
             )
             installed = blobs.get_json(result["answer"])
 
     assert installed["install"] == "Installed", installed
     assert installed["signIn"].startswith("Success("), installed
-    assert not any("raised" in walk for walk in installed["walks"].values()), installed
+    raised = {name: walk["raised"] for name, walk in installed["walks"].items() if "raised" in walk}
+    write_evidence("lookup-mode-walks", installed["walks"])
+    assert not raised, raised
     (observed,) = [
         step["list"]["lookupReturns"]
         for walk in installed["walks"].values()
