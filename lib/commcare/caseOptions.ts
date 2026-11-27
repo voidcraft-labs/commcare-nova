@@ -31,13 +31,16 @@ export function availableCasesNodeset(
 	const predicates: WireExpr[] = [];
 	if (source.status !== undefined)
 		predicates.push(w.eq(w.context([w.attr("status")]), w.str(source.status)));
-	if (source.propertyMatch !== undefined)
+	const match = source.propertyMatch;
+	if (match !== undefined) {
+		const property = w.context([casePropertyStep(match.property)]);
+		const equals = w.eq(property, w.str(match.text));
 		predicates.push(
-			w.eq(
-				w.context([casePropertyStep(source.propertyMatch.property)]),
-				w.str(source.propertyMatch.text),
-			),
+			match.alternateText === undefined
+				? equals
+				: w.or(equals, w.eq(property, w.str(match.alternateText))),
 		);
+	}
 	return deviceCasesNodeset(predicates);
 }
 

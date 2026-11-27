@@ -291,7 +291,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: setFieldOptionsSourceTool.description,
 		schema: setFieldOptionsSourceTool.inputSchema,
 		prompt:
-			'Use setFieldOptionsSource for the field patient in the form "Follow-up visit" in the module "Patients". Offer closed cases of all case types restored for the worker by name. Use optionsSource kind available-cases, status closed, and propertyMatch with property survey_ready and text yes.',
+			'Use setFieldOptionsSource for the field patient in the form "Follow-up visit" in the module "Patients". Offer closed cases of all case types restored for the worker by name. Use optionsSource kind available-cases, status closed, and propertyMatch with property survey_ready, text yes, and alternateText pending.',
 	},
 	{
 		name: "updateModule",

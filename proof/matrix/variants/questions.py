@@ -2458,8 +2458,13 @@ def itemset_filters_available_cases_by_survey_readiness(authoring, app_id):
 
 
 def itemset_filters_available_cases_by_multiple_values(authoring, app_id):
-    """A compound cross-type filter is a separate advanced data source."""
+    """One restored property accepts either of two distinct stored text values."""
     return _filter_available_cases_in_vellum(authoring, app_id, "survey_ready = 'yes' or survey_ready = 'pending'")
+
+
+def itemset_filters_available_cases_by_multiple_properties(authoring, app_id):
+    """A disjunction of separate property names does not belong to one property's choices."""
+    return _filter_available_cases_in_vellum(authoring, app_id, "survey_ready = 'yes' or survey_phase = 'pending'")
 
 
 def _filter_available_cases_in_vellum(authoring, app_id, predicate):

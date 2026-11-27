@@ -11972,8 +11972,10 @@ def case_itemset_survey_readiness(use):
         return False
     children = [(_local(child), child.get("ref")) for child in _children(itemset)]
     return (children == [("label", "case_name"), ("value", "@case_id")]
-            and expression_tree(itemset.get("nodeset") or "") ==
-            expression_tree("instance('casedb')/casedb/case[survey_ready = 'yes']"))
+            and expression_tree(itemset.get("nodeset") or "") in (
+                expression_tree("instance('casedb')/casedb/case[survey_ready = 'yes']"),
+                expression_tree("instance('casedb')/casedb/case[survey_ready = 'yes' or survey_ready = 'pending']"),
+            ))
 
 
 def _itemset_read(use):

@@ -1,5 +1,6 @@
 """A cross-type case itemset authored in Vellum filters the worker's restored records."""
 
+import pytest
 from lxml import etree
 
 from proof.editors.conftest import corpus_document, write_evidence
@@ -25,6 +26,7 @@ def _database():
     return casedata.CaseDatabase(casedata.USER_ID, casedata.USERNAME, (), (
         _case("ready-clinic", "clinic", "North clinic", "yes"),
         _case("waiting-clinic", "clinic", "Riverside clinic", "no"),
+        _case("pending-clinic", "clinic", "Review clinic", "pending"),
         _case("ready-outpost", "outpost", "Hill outpost", "yes"),
         _case("private-outpost", "outpost", "Private outpost", "yes", owner_id="another-worker"),
     ))
@@ -48,7 +50,8 @@ def _worker(unit, app_id, document, runner, label, *, select=None):
         return result
 
 
-def test_vellum_filters_available_cases_by_survey_readiness(hq, editor_driver, formplayer_runner):
+@pytest.mark.parametrize("multiple", [False, True], ids=["one-value", "either-value"])
+def test_vellum_filters_available_cases_by_survey_readiness(hq, editor_driver, formplayer_runner, multiple):
     document = corpus_document("hq-lookups")
     with hq_check(document.exports["minimum"].configuration.hq()) as (unit, _):
         with unit.operation("case-itemset:source", b"hq-lookups"):
@@ -59,7 +62,11 @@ def test_vellum_filters_available_cases_by_survey_readiness(hq, editor_driver, f
             questions.itemset_over_cases(authoring, app_id)
             unfiltered = _worker(unit, app_id, document, formplayer_runner, "unfiltered-survey-cases")
 
-        run = questions.itemset_filters_available_cases_by_survey_readiness(authoring, app_id)
+        change = (
+            questions.itemset_filters_available_cases_by_multiple_values if multiple
+            else questions.itemset_filters_available_cases_by_survey_readiness
+        )
+        run = change(authoring, app_id)
         root = etree.fromstring(run.stored_source.encode())
         itemset, = root.xpath("//*[local-name()='select1' and @ref='/data/district']/*[local-name()='itemset']")
         source = {
@@ -69,13 +76,13 @@ def test_vellum_filters_available_cases_by_survey_readiness(hq, editor_driver, f
             "instance": root.xpath("//*[local-name()='instance' and @id='casedb']/@src"),
         }
         assert source == {
-            "nodeset": QUERY, "label": ["case_name"], "value": ["@case_id"], "instance": ["jr://instance/casedb"],
+            "nodeset": QUERY.replace("]", " or survey_ready = 'pending']") if multiple else QUERY, "label": ["case_name"], "value": ["@case_id"], "instance": ["jr://instance/casedb"],
         }
         filtered = _worker(
-            unit, app_id, document, formplayer_runner, "survey-ready-cases", select="Hill outpost",
+            unit, app_id, document, formplayer_runner, "survey-ready-cases", select="Review clinic" if multiple else "Hill outpost",
         )
 
     write_evidence("case-itemset-survey-readiness", {"source": source, "unfiltered": unfiltered, "filtered": filtered})
-    assert sorted(unfiltered["choices"]) == ["Hill outpost", "North clinic", "Riverside clinic"]
-    assert sorted(filtered["choices"]) == ["Hill outpost", "North clinic"]
-    assert filtered["submitted"] == "ready-outpost"
+    assert sorted(unfiltered["choices"]) == ["Hill outpost", "North clinic", "Review clinic", "Riverside clinic"]
+    assert sorted(filtered["choices"]) == ["Hill outpost", "North clinic"] + (["Review clinic"] if multiple else [])
+    assert filtered["submitted"] == ("pending-clinic" if multiple else "ready-outpost")

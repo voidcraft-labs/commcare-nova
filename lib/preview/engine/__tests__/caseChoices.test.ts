@@ -79,6 +79,15 @@ describe("case choices in the captured device world", () => {
 			status: "open",
 			propertyMatch: { property: "survey_ready", text: "yes" },
 		},
+		{
+			stagedAsync: true,
+			status: "open",
+			propertyMatch: {
+				property: "survey_ready",
+				text: "yes",
+				alternateText: "pending",
+			},
+		},
 	] as const)(
 		"filters the restored choices where asked and keeps opaque IDs (worker=$stagedAsync status=$status)",
 		async (arm) => {
@@ -134,6 +143,10 @@ describe("case choices in the captured device world", () => {
 				},
 				choiceRow("worker-profile-key", "commcare-user", "Worker profile"),
 				{
+					...choiceRow("pending-service", "outpost", "Pending service"),
+					properties: { survey_ready: "pending" },
+				},
+				{
 					...choiceRow("current outpost", "outpost", "Outpost"),
 					properties: { survey_ready: "yes" },
 				},
@@ -142,7 +155,9 @@ describe("case choices in the captured device world", () => {
 				(row) =>
 					(status === undefined || row.status === status) &&
 					(propertyMatch === undefined ||
-						row.properties?.survey_ready === "yes"),
+						row.properties?.survey_ready === propertyMatch.text ||
+						("alternateText" in propertyMatch &&
+							row.properties?.survey_ready === propertyMatch.alternateText)),
 			);
 			const selectedId =
 				status === "closed" ? "closed host key" : "old service key";
