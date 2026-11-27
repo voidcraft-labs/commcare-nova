@@ -938,9 +938,15 @@ def _object_uses(cls, value, pointer, manifest, artifact, found, at):
         # A filter with no value is refused whole. A project endpoint reads its parameter as an
         # ordered request row with its own identity. Ordinary filters are used through their keys.
         endpoint = (at.nearest("CaseSearch") or {}).get("case_search_endpoint_id")
-        if holds_no_default_value(value) or project_search_endpoint_id(endpoint):
-            found.add(f"schema:{cls}", artifact, pointer, at)
         name = value.get("property")
+        key = (manifest.item(f"csql-key:{name}") or {}) if isinstance(name, str) else {}
+        parameter = (
+            project_search_endpoint_id(endpoint)
+            and isinstance(name, str) and bool(name)
+            and not key.get("configField") and "tag" not in key.get("roles", ())
+        )
+        if holds_no_default_value(value) or parameter:
+            found.add(f"schema:{cls}", artifact, pointer, at)
         _search_key(name, manifest, artifact, f"{pointer}/property", found, JsonAt(at.app, at.scope, "property"))
         if name == XPATH_QUERY_KEY and isinstance(value.get("defaultValue"), str):
             found.query(artifact, f"{pointer}/defaultValue", value["defaultValue"])

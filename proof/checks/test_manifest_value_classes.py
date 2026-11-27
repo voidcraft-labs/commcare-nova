@@ -80,21 +80,24 @@ def test_each_positive_reader_has_a_held_value_class(manifest):
 
 
 def test_a_configured_project_search_uses_an_endpoint_datum_and_owns_its_parameter_row(manifest):
-    def source(endpoint):
+    def source(endpoint, name):
         return {
             "doc_type": "Application",
             "modules": [{
                 "doc_type": "Module",
                 "search_config": {
                     "case_search_endpoint_id": endpoint,
-                    "default_properties": [{"property": "district", "defaultValue": "'north'"}],
+                    "default_properties": [{"property": name, "defaultValue": "'north'"}],
                 },
             }],
         }
 
-    for endpoint, expected in [(17, True), ("17", False), (0, False)]:
+    for endpoint, name, expected in [
+        (17, "district", True), (17, "_xpath_query", True), ("17", "district", False), (0, "district", False),
+        (17, "x_commcare_endpoint_id", False), (17, "x_commcare_tag_module_name", False), (17, "", False),
+    ]:
         found = manifest_usage.Uses()
-        manifest_usage.app_json_uses(source(endpoint), manifest, "app.json", found)
+        manifest_usage.app_json_uses(source(endpoint, name), manifest, "app.json", found)
         assert any(
             use.key == "schema:DefaultCaseSearchProperty"
             and use.where == "/modules/0/search_config/default_properties/0"
@@ -8557,6 +8560,10 @@ def _search_wire_shapes():
     outside = {"standing": manifest_usage.UNHELD}
     return {
         "case-search/address-picker-on-a-search-screen": (
+            refused("app", _app([_search_module(properties=[_prompt("place", appearance="address")])]),
+                    "prompt-appearance:address", "/properties/0/appearance"),
+            accepted("app", _app([_search_module(properties=[_prompt("place", appearance="address", input_="date")])]),
+                     "prompt-appearance:address", "/properties/0/appearance", **outside),
             refused("suite", suite('<prompt key="address" input="address"/>'),
                     "prompt-input:address", "prompt[1]/@input"),
             accepted("suite", suite('<prompt key="address" input="address" receive="other"/>'),

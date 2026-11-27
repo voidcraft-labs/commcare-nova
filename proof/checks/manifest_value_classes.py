@@ -5195,7 +5195,7 @@ def named_search_order(use, manifest):
     else:
         element = _suite_search_child(use, "data", "key")
         ref = element.get("ref") if element is not None else None
-    text = _literal_text(ref)
+    text = _literal_text(ref) if isinstance(ref, str) else None
     if text is None:
         return False
     repeated_signs = discarded_suffix = False
@@ -5424,11 +5424,12 @@ def ordinary_address_search_marker(use, manifest):
     if not isinstance(name, str) or SEARCH_INPUT_NAME.fullmatch(name) is None:
         return False
     itemset = prompt.get("itemset")
-    return (_address_field(prompt)
+    validations = prompt.get("validations")
+    return (prompt.get("appearance") == "address"
             and not any(prompt.get(key) for key in (
                 "is_group", "hidden", "input_", "default_value", "allow_blank_value", "receiver_expression",
             ))
-            and not _required(prompt) and not _validations(prompt)
+            and not _required(prompt) and not (isinstance(validations, list) and validations)
             and not (isinstance(itemset, dict) and itemset.get("nodeset")))
 
 address_with_required_or_validations = _prompt_reader(
