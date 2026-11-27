@@ -471,6 +471,10 @@ export const FIX_IN_HQ_SENTENCES: Readonly<
 		"breaks-when-run":
 			"The case tile’s parent case index name starts with a hyphen. CommCare can’t use it to open the grouped case list. In CommCare HQ’s Case List settings, you can choose an existing index that starts with a letter or underscore, then bring the app in again.",
 	},
+	"writer-types": {
+		"breaks-when-run":
+			"An answer here sends a date as the case owner. CommCare can’t find the assigned owner using that date. Choose how to assign the case in CommCare HQ, then bring the app in again.",
+	},
 	"case-list-callout": {
 		"breaks-when-run":
 			"The Android case list opens before the worker chooses a case, so the lookup cannot read a field from that case. In CommCare HQ’s Case List settings, use quoted text if the lookup should send a fixed value, then check the app again.",
