@@ -3875,7 +3875,7 @@
 		"section": "Case search",
 		"subsection": "Search prompts",
 		"item": "A checked Name prompt can send an answer containing both quote marks",
-		"surfaceKeys": ["schema:Assertion.text"],
+		"surfaceKeys": ["schema:Assertion.test"],
 		"valueClass": "name-check-allows-both-quote-delimiters",
 		"disposition": "REFUSED",
 		"dispositionCell": "**REFUSED**: a permissive check on the Name answer or a check of a different answer lets the Name send both quote delimiters. HQ refuses that Search request.",

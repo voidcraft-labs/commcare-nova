@@ -122,7 +122,7 @@ export const SETTING_CLAIMS = defineClaims("search.settings", {
 	/** A check whose native test cannot keep the guard and its runtime message together. */
 	nameCheckAllowsBothQuotes: refuse(
 		`${S}name-check-allows-both-quote-delimiters`,
-		"schema:Assertion.text",
+		"schema:Assertion.test",
 	),
 	checkWithoutMessageGuarded: refuse(
 		`${S}a-check-with-no-message-on-a-field-nova-s-search-guards`,

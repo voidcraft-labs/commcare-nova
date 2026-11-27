@@ -784,6 +784,8 @@
 		"hq-search/five-link-date-field-named-by-a-parent-path",
 		"hq-search/four-link-date-field-named-by-a-parent-path",
 		"hq-search/grouped-fields",
+		"hq-search/guarded-name-check-allows-quotes",
+		"hq-search/guarded-name-checks-another-answer",
 		"hq-search/hidden-choice-field",
 		"hq-search/hidden-field-matched-by-its-name",
 		"hq-search/hidden-field-with-no-value",

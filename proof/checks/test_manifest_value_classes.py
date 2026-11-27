@@ -3807,6 +3807,21 @@ def _search_and_menus():
     def search(*modules, **fields):
         return _app(list(modules), **fields)
 
+    def guarded_name_check(checked, pattern, *, text=None, property_name="case_name"):
+        fields = "instance('search-input:results')/input/field"
+        answer = f"{fields}[@name = 'client_name']"
+        query = f"""if(count({answer}), concat("{property_name} = '", {answer}, "'"), 'match-all()')"""
+        rule = f"regex(if(count({fields}) > 0, {fields}[@name = '{checked}'], ''), '{pattern}')"
+        return search(_search_module(
+            properties=[
+                _prompt("client_name", exclude=True, validations=[
+                    {"doc_type": "Assertion", "test": rule, "text": text or {}},
+                ]),
+                _prompt("village"),
+            ],
+            default_properties=[_default("_xpath_query", query)],
+        ))
+
     def details(*modules):
         return _app(list(modules))
 
@@ -4423,6 +4438,19 @@ def _search_and_menus():
                 "schema:CaseSearchProperty.allow_blank_value",
                 f"{prompts}/allow_blank_value",
             ),
+        ),
+        "case-search/name-check-allows-both-quote-delimiters": tuple(
+            verdict(
+                "app", guarded_name_check(checked, pattern, **options),
+                "schema:Assertion.test", f"{prompts}/validations/0/test",
+            )
+            for verdict, checked, pattern, options in [
+                (refused, "village", "^[a-z]+$", {}),
+                (refused, "client_name", "^.+$", {}),
+                (accepted, "client_name", "^[a-z]+$", {}),
+                (accepted, "client_name", "^.+$", {"text": {"en": "Check the name"}}),
+                (accepted, "client_name", "^.+$", {"property_name": "village"}),
+            ]
         ),
         "case-search/validations-1": (
             refused(

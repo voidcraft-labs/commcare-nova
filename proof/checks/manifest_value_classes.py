@@ -5744,6 +5744,61 @@ def _validations(prompt):
     return [each for each in prompt.get("validations") or [] if isinstance(each, dict)]
 
 
+def name_check_allows_both_quote_delimiters(use, manifest):
+    """A retained Name check lets the legacy request send text it cannot quote."""
+    from proof.checks.xpath_tree import tree
+
+    at, config = _search(use)
+    prompt = at.nearest("CaseSearchProperty") if config is not None else None
+    if at is None or at.key != "test" or prompt is None or not prompt.get("exclude"):
+        return False
+    validations = _validations(prompt)
+    if len(validations) != 1 or validations[0] is not at.owner or _address_receiver_widget(prompt) != "text":
+        return False
+    text = at.owner.get("text") or {}
+    if not isinstance(text, dict) or any(not isinstance(value, str) or value.strip() for value in text.values()):
+        return False
+    name = prompt.get("name")
+    prompts = [one for one in config.get("properties") or [] if isinstance(one, dict)]
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+        return False
+
+    fields = "instance('search-input:results')/input/field"
+
+    def answer(key):
+        return f"{fields}[@name = '{key}']"
+
+    source = tree(at.value) if isinstance(at.value, str) else None
+    match source:
+        case ("call", "regex", (tested, ("str", pattern))) if pattern in ("^.+$", "^[a-z]+$"):
+            pass
+        case _:
+            return False
+    allowed_reads = {
+        tree(spelling)
+        for row in prompts
+        if isinstance(key := row.get("name"), str)
+        and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key)
+        and (key != name or pattern == "^.+$")
+        for spelling in (answer(key), f"if(count({fields}) > 0, {answer(key)}, '')")
+    }
+    if tested not in allowed_reads:
+        return False
+    # A single- or double-delimited concat has no third branch for an answer
+    # containing both delimiters. HQ’s legacy Name row uses the case-name index.
+    name_read = answer(name)
+    guarded_names = {
+        tree(f"""if(count({name_read}), concat("case_name = '", {name_read}, "'"), 'match-all()')"""),
+        tree(f"""if(count({name_read}), concat('case_name = "', {name_read}, '"'), 'match-all()')"""),
+    }
+    return any(
+        row.get("property") == "_xpath_query"
+        and isinstance(value := row.get("defaultValue"), str)
+        and tree(value) in guarded_names
+        for row in _default_entries(at, config)
+    )
+
+
 def _prompt_reader(test):
     def reader(use, manifest):
         at = _json(use)
@@ -15362,6 +15417,7 @@ VALUE_CLASSES = {
     "case-search/search-group-shares-its-display-key-with-a-field": search_group_display_key_shared,
     "case-search/allow-blank-value-on-a-hidden-prompt": allow_blank_on_a_hidden_prompt,
     "case-search/allow-blank-value-on-a-prompt-named-owner-id": allow_blank_beside_the_owner,
+    "case-search/name-check-allows-both-quote-delimiters": name_check_allows_both_quote_delimiters,
     "case-search/validations-1": later_validations,
     "case-search/input-select1-select-commcare-reports-itemset-mobile-ucr": mobile_ucr_reports,
     "case-search/input-no-runtime-names": input_no_runtime_names,
