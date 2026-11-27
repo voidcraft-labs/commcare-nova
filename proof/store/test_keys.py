@@ -392,9 +392,8 @@ def test_a_changed_reader_bundle_judges_every_corpus_document_again_and_observes
     ``reader``), and in no other: no part, document or transcript key, no control's judgment, no native family's
     digest. So over a store holding a whole run, a bundle that differs by one byte, beside the same documents,
     queues every corpus document as judged, observes none, keeps every control cached, runs again the package
-    groups that run the bundle (``proof/matrix``'s two and ``proof/checks``), and keeps every other one cached,
-    the one that reads the native products among them. Run again and packed, every group is cached under the new
-    bundle."""
+    groups that run the bundle (checks, Formplayer, the matrix and native proofs), and keeps the independent
+    editor group cached. Run again and packed, every group is cached under the new bundle."""
     from proof.checks import sharding
     from proof.store import pack
     from proof.store.conftest import copied_control
@@ -408,6 +407,8 @@ def test_a_changed_reader_bundle_judges_every_corpus_document_again_and_observes
         checkout,
         {
             "proof/timings.json": json.dumps(timings),
+            "proof/formplayer/conftest.py": 'DOCUMENTS = ("one",)\n',
+            "proof/formplayer/test_reader.py": "def test_reader():\n    pass\n",
             "proof/matrix/conftest.py": 'DOCUMENTS = ("one",)\n',
             "proof/matrix/bases.json": '["one"]',
             "proof/matrix/test_retained.py": "def test_retained():\n    pass\n",
@@ -419,8 +420,8 @@ def test_a_changed_reader_bundle_judges_every_corpus_document_again_and_observes
     register = [{"id": "d1", "check": "bar", "document": "one", "control": control.id}]
     (checkout / "proof" / "known-defects.json").write_text(json.dumps(register))
     documents = ["corpus:one", "corpus:two"]
-    running = ["proof/checks", "proof/matrix", "proof/matrix/test_retained.py[one]"]
-    others = ["proof/editors", "proof/native"]
+    running = ["proof/checks", "proof/formplayer", "proof/matrix", "proof/matrix/test_retained.py[one]", "proof/native"]
+    others = ["proof/editors"]
     every = sorted([control.group, *documents, *running, *others])
 
     cold = _build(checkout, tmp_path / "cold.json", corpus=corpus)

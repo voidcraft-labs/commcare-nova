@@ -192,7 +192,7 @@ PACKAGE_DATA = {
     "proof/connect": {"documents": ("proof/connect/conftest.py", "DOCUMENTS")},
     "proof/diagnostics": {"documents": ("proof/diagnostics/test_native.py", "DOCUMENTS")},
     "proof/editors": {"documents": ("proof/editors/conftest.py", "DOCUMENTS")},
-    "proof/formplayer": {"documents": ("proof/formplayer/conftest.py", "DOCUMENTS")},
+    "proof/formplayer": {"documents": ("proof/formplayer/conftest.py", "DOCUMENTS"), "reader": EVERY},
     "proof/hq": {"documents": ("proof/hq/conftest.py", "DOCUMENTS"), "native": EVERY},
     "proof/lane": {"documents": EVERY, "native": EVERY},
     "proof/matrix": {"documents": ("proof/matrix/conftest.py", "DOCUMENTS"), "reader": EVERY},

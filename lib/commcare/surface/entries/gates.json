@@ -180,6 +180,12 @@
 				"gates": ["toggle/CASE_LIST_CLICKABLE_ICON", "toggle/SESSION_ENDPOINTS"]
 			}
 		},
+		"effects": [
+			{
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/field[*]/endpoint_action[*]"
+			}
+		],
 		"source": {
 			"kind": "row",
 			"table": "app-building-toggles",

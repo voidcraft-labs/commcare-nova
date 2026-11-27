@@ -517,19 +517,20 @@ def _own_corpus(corpus):
     return {"PROOF_CORPUS": str(corpus), "PROOF_KNOWN_DEFECTS": str(corpus.parent / "known-defects.json")}
 
 
-def _two_documents(tmp_path):
-    """The two cheapest edited documents of the lane's corpus that emit a form (``proof/checks``' collection
-    parametrizes over a document with one, ``test_alignment``), as a corpus of their own, with an empty register
-    beside it (``_own_corpus``)."""
+def _two_documents(tmp_path, *, configurations=None):
+    """The two cheapest edited documents that emit a form, optionally under a specified number of
+    configurations, as a corpus of their own with an empty register beside it (``_own_corpus``)."""
     corpus = cases.load_corpus()
     estimate = sharding.estimate(sharding.load_timings())
     edited = [
         document
         for document in corpus.emitted
-        if (document.root / "edit").is_dir() and any(module["forms"] for module in document.wire_modules)
+        if (document.root / "edit").is_dir()
+        and any(module["forms"] for module in document.wire_modules)
+        and (configurations is None or len(document.exports) == configurations)
     ]
     chosen = sorted(edited, key=lambda document: (estimate(document.group), document.id))[:2]
-    assert len(chosen) == 2, "The corpus holds fewer than two edited documents."
+    assert len(chosen) == 2, f"The corpus holds fewer than two eligible edited documents ({configurations=})."
     index = json.loads((corpus.root / "index.json").read_text())
     # Every document the corpus emitted, whether or not the run's sample holds it (proof.store.queue.sampled).
     listed = [*index["documents"], *index.pop("unsampled", [])]
@@ -837,7 +838,7 @@ def _kept(out, kind):
 @pytest.mark.under_determinism
 def test_a_document_observed_in_pieces_is_judged_from_the_records_of_one_observed_whole(tmp_path):
     # Two observations of one document keep the same bytes only where HQ's draws and clocks are seeded.
-    corpus, documents = _two_documents(tmp_path)
+    corpus, documents = _two_documents(tmp_path, configurations=2)
     runs = {}
     for name, split in (("whole", False), ("pieces", True)):
         out, queue = tmp_path / name, tmp_path / f"{name}.json"
@@ -904,7 +905,7 @@ def test_a_document_observed_in_pieces_is_judged_from_the_records_of_one_observe
 
 
 def test_a_lane_that_keeps_no_store_fails_its_pieces_and_never_observes_the_document_whole(tmp_path):
-    corpus, documents = _two_documents(tmp_path)
+    corpus, documents = _two_documents(tmp_path, configurations=2)
     out, queue = tmp_path / "out", tmp_path / "queue.json"
     _, pieces = _split_queue(queue, corpus, documents[:1], split=True)
     # PROOF_STORE=off, as every nested run here but the one above: the pieces would observe into nothing.

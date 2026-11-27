@@ -30,6 +30,7 @@ CORPORA = {
         "mixed-records",
         "grouped-prompts",
         "remote-grouped-prompts",
+        "remote-address-picker",
         "registration-link",
         "hidden-link",
         "automatic",
