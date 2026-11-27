@@ -87,8 +87,8 @@ const VOCABULARY =
 	"questions/savetocase-expressions-outside-nova-s-typed-vocabularies-case-id";
 const AUTHORED_ID =
 	"questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside";
-const TYPE_CHANGE =
-	"questions/a-savetocase-change-of-a-case-s-type-another-change-of-the-form-may-read-as-its-earlier-type";
+const TARGET_ID =
+	"questions/a-savetocase-change-a-device-refuses-a-blank-case-id-or-a-link-of-its-case-to-itself";
 const LIVE_CREATE_ID =
 	"questions/create-case-id-live-calculate-outside-a-repeat";
 const HAND_WRITTEN =
@@ -709,7 +709,7 @@ describe("a Save to Case change the gate refuses, as its one finding", () => {
 			`${HAND_WRITTEN} @question:nova_operations/mk`,
 		],
 		[
-			"a change of the type of a survey's case keyed by an answer",
+			"a change of a survey case's type when its case id can be blank",
 			() =>
 				app(
 					[
@@ -723,7 +723,7 @@ describe("a Save to Case change the gate refuses, as its one finding", () => {
 					{ type: "survey" },
 				),
 			undefined,
-			`${TYPE_CHANGE} @form`,
+			`${TARGET_ID} @question:nova_operations/again`,
 		],
 	];
 	for (const [name, make, xml, finding] of cases)

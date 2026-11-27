@@ -95,6 +95,9 @@ function basicApp(conditional: boolean): BlueprintDoc {
 					{
 						name: "Patients",
 						caseType: "patient",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
 						forms: [
 							{
 								uuid: "worker-keys-form",
