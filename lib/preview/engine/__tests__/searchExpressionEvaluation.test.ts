@@ -256,6 +256,23 @@ describe("preview case-search expression evaluation", () => {
 		).toThrow(XPathInvalidPathError);
 	});
 
+	it("orders a worker name numerically when evaluating the shared owner rule", () => {
+		const worker = term(sessionContext("username"));
+		const owners = (name: string, threshold: string) =>
+			parseExcludedOwnerIds(
+				evaluatePreviewSearchExpression(
+					ifExpr(
+						gt(worker, term(literal(threshold))),
+						term(literal("owner-a")),
+						term(literal("owner-b")),
+					),
+					{ ...SESSION, context: { ...SESSION.context, username: name } },
+				),
+			);
+		expect(owners("zulu", "m")).toEqual(["owner-b"]);
+		expect(owners("12", "2")).toEqual(["owner-a"]);
+	});
+
 	it("binds submitted search inputs before evaluating a dependent expression", () => {
 		const clinicInput = simpleSearchInputDef(
 			testUuid("clinic"),
