@@ -3443,8 +3443,9 @@ def save_to_case_keyed_beside_worker(authoring, app_id):
 
 def save_to_case_keyed_beside_root_close(authoring, app_id):
     """A root close may name a case that the repeated create will overwrite."""
+    case_id = "instance('casedb')/casedb/case[@case_id = /data/full_name and @case_type = 'visit']/@case_id"
     close = _block(
-        "shut", "visit", "<close/>", "/data/full_name",
+        "shut", "visit", "<close/>", case_id,
         [("close", 'relevant="/data/weight &gt; 0"')],
     )
 
