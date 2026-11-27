@@ -321,6 +321,10 @@ export const BASIC_CLAIMS = defineClaims("caseManagement.basicActions", {
 		`${F}/a-datetime-question-s-day-as-the-external-id`,
 		null,
 	),
+	datetimeOwner: refuse(
+		`${F}/basic-case-owner-written-from-a-datetime-answer`,
+		"schema:ConditionalCaseUpdate.question_path",
+	),
 	datetimeStraight: refuse(
 		`${F}/a-date-and-time-saved-straight-in-no-shape-nova-keeps`,
 		null,
@@ -946,6 +950,7 @@ export function questionValue(
 		readonly hiddenClock?: boolean;
 		readonly externalId?: boolean;
 		readonly name?: boolean;
+		readonly owner?: boolean;
 	} = {},
 ): QuestionValue {
 	const xform = form.xform;
@@ -1017,6 +1022,8 @@ export function questionValue(
 		};
 	}
 	if (field.kind === "datetime") {
+		if (days.owner && field.parent === null && field.dataParent === null)
+			return { kind: "finding", claim: BASIC_CLAIMS.datetimeOwner };
 		if (
 			((days.externalId && property === "external_id") ||
 				(days.name && property === "name")) &&
@@ -1514,6 +1521,7 @@ function readUpdate(
 		readonly parent: boolean;
 		readonly externalId?: boolean;
 		readonly name?: boolean;
+		readonly owner?: boolean;
 	},
 ): {
 	readonly value?: ProposedValue;
@@ -1542,6 +1550,7 @@ function readUpdate(
 						dayWrites?.externalId === true &&
 						(updateMode === "always" || updateMode === "edit"),
 					name: dayWrites?.name === true && updateMode === "always",
+					owner: dayWrites?.owner === true && updateMode === "always",
 				})
 			: undefined;
 	if (read === undefined || read.kind === "finding") {
@@ -1882,6 +1891,7 @@ function readUpdateMap(
 			parent: linkedDay,
 			externalId: ordinaryOwnFollowup && property === "external_id",
 			name: ordinaryOwnFollowup && property === "name",
+			owner: ordinaryOwnFollowup && property === "owner_id",
 		});
 		if (!read.ok || read.value === undefined) continue;
 		// The catalog types a supported parent write at its reached case.

@@ -29,7 +29,7 @@ OFFSET_CAST = "2025-04-05T06:24:47.125Z"
 DAY = "2025-04-06"
 
 
-@pytest.mark.parametrize("property_name", ["external_id", "name"], ids=["external-id", "case-name"])
+@pytest.mark.parametrize("property_name", ["external_id", "name", "owner_id"], ids=["external-id", "case-name", "case-owner"])
 def test_datetime_question_stored_directly_in_a_case_text_facet(
     hq, core_runner, editor_driver, tmp_path, property_name,
 ):
@@ -104,6 +104,16 @@ def test_datetime_question_stored_directly_in_a_case_text_facet(
             assert on_device == hq_value(on_hq) == day
             assert wire_property not in on_hq.case_json
             assert datetime.fromisoformat(on_hq.case_json["seen_at"]) == datetime.fromisoformat(moment)
+
+        if property_name == "owner_id":
+            from corehq.apps.users.cases import get_wrapped_owner
+
+            payload, _, on_hq = read("case-owner", [MOMENT])
+            update = payload.find(f"{{{CASE}}}case/{{{CASE}}}update")
+            assert update.findtext(f"{{{CASE}}}owner_id") == DAY
+            assert on_hq.owner_id == DAY
+            assert get_wrapped_owner(on_hq.owner_id) is None
+            return
 
         expects_moment("utc-clock", MOMENT, MOMENT, DAY)
         # The harness casts text the way Formplayer does. DateUtils applies a

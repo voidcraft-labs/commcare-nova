@@ -4786,6 +4786,37 @@ def _is_label(xform, path):
     return bool(controls) and _local(controls[0]) == "trigger"
 
 
+def basic_owner_from_root_datetime(use, manifest):
+    """A basic Followup sets the case owner from one root DateTime answer."""
+    at, form = _form(use)
+    if form is None:
+        return None
+    actions = _actions(form)
+    action = actions.get("update_case") or {}
+    module = at.nearest(*MODULES)
+    if (form.get("doc_type") != "Form" or _requires(form) != "case"
+            or (action.get("condition") or {}).get("type") != "always"
+            or _active(actions.get("close_case")) or module is None or _multi_select(module)
+            or not _in_actions(at, form, "update_case")):
+        return False
+    owner = (action.get("update") or {}).get("owner_id")
+    if not isinstance(owner, dict) or owner.get("update_mode") != "always":
+        return False
+    update = at.nearest("ConditionalCaseUpdate")
+    if update is not None and update is not owner:
+        return False
+    path = owner.get("question_path") or ""
+    if not path.startswith("/data/") or path.count("/") != 2:
+        return False
+    xform = at.app.xform(form)
+    if xform is None:
+        return None
+    bind = xform.bind(path)
+    controls = xform.question_controls(path)
+    return (bind is not None and _vellum_type(bind.get("type") or "") == "datetime"
+            and len(controls) == 1 and _local(controls[0]) == "input")
+
+
 def upload_question(use, manifest):
     """``forms-and-case-writes/update-from-an-upload-question-attachment-mode``: an update from an
     ``<upload>`` question (attachment mode)."""
@@ -14956,6 +14987,7 @@ VALUE_CLASSES = {
     "forms-and-case-writes/a-case-write-name-or-preload-on-a-question-the-picker-does-not": (
         question_not_offered_by_picker
     ),
+    "forms-and-case-writes/basic-case-owner-written-from-a-datetime-answer": basic_owner_from_root_datetime,
     "forms-and-case-writes/update-from-an-upload-question-attachment-mode": upload_question,
     "forms-and-case-writes/subcase-of-the-module-s-own-case-type-in-a-project-space-with": (
         own_case_type_where_same_type_unindexed
