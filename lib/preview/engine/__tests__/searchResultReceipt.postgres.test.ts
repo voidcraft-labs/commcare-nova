@@ -208,6 +208,7 @@ it("opens a form on the same search response that supplied Results", async () =>
 	const prompt = testUuid("search-response-name");
 	const unanswered = testUuid("search-response-unanswered");
 	const offeredRow = opening.snapshot.rows[0];
+	if (!offeredRow) throw new Error("The fixture result was not offered.");
 	const primary = {
 		rows: [offeredRow, { ...offeredRow, case_id: "filtered-by-device" }],
 		totalMatches: 2,
@@ -316,6 +317,20 @@ it("opens a form on the same search response that supplied Results", async () =>
 	} finally {
 		auth.sessionId = firstSession;
 	}
+	await sql`UPDATE auth_session SET "expiresAt" = now() - interval '1 second'
+		WHERE id = ${firstSession}`.execute(h.db());
+	expect(
+		await readKeptSearchResultDetail(
+			resultScope,
+			context,
+			detailReceipt,
+			"served",
+			prompt,
+		),
+	).toBeUndefined();
+	await sql`UPDATE auth_session SET "expiresAt" = now() + interval '1 hour'
+		WHERE id = ${firstSession}`.execute(h.db());
+
 	expect(
 		await setPreviewSearchSettings(
 			{ appId: APP, projectId: PROJECT },

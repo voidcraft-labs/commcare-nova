@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import { gunzip, gzip } from "node:zlib";
 import type { QueryExecutorProvider } from "kysely";
 import { z } from "zod";
+import { lockCurrentProjectGrant } from "@/lib/auth/dataGrant";
 import { CaseSearchUnavailableError } from "@/lib/case-store/searchRequest";
 import {
 	AppAccessError,
@@ -64,6 +65,7 @@ async function withCurrentAudience<T>(
 		key: Omit<OpeningDataKey, "contentDigest">,
 		tx: QueryExecutorProvider,
 	) => T | Promise<T>,
+	requireLiveSession = false,
 ): Promise<T | undefined> {
 	const { appId, moduleUuid, caseType, submission } = scope;
 	const { device, identity, sessionId } = context;
@@ -78,6 +80,16 @@ async function withCurrentAudience<T>(
 				"view",
 			);
 			if (access.projectId !== projectId) throw new AppAccessError("not_found");
+			if (
+				requireLiveSession &&
+				(await lockCurrentProjectGrant(
+					tx,
+					identity.actorUserId,
+					{ kind: "session", sessionId },
+					[],
+				)) === null
+			)
+				return;
 			const selection = device.searchConfiguration;
 			const catalog = await previewSearchCatalogIn(tx, { appId, projectId });
 			const facts = resolvePreviewSearchFacts(catalog, selection?.target);
@@ -134,7 +146,12 @@ export async function keepSearchResult(
 	instance: SearchResultsSnapshot,
 	detail?: SearchResultDetailFrame,
 ): Promise<string> {
-	const key = await withCurrentAudience(scope, context, (current) => current);
+	const key = await withCurrentAudience(
+		scope,
+		context,
+		(current) => current,
+		detail !== undefined,
+	);
 	if (key === undefined) throw new Error("Search response scope is missing.");
 	const snapshot: KeptSearchResult =
 		detail === undefined ? instance : { ...instance, detail };
@@ -164,7 +181,7 @@ export async function readKeptSearchResultDetail(
 	caseId: string,
 	inputUuid: Uuid,
 ): Promise<{ readonly answer: string | null } | undefined> {
-	const snapshot = await readKeptSearchResponse(scope, context, receipt);
+	const snapshot = await readKeptSearchResponse(scope, context, receipt, true);
 	const frame = snapshot?.detail;
 	if (
 		!frame?.visibleCaseIds.includes(caseId) ||
@@ -179,11 +196,15 @@ async function readKeptSearchResponse(
 	scope: SearchReceiptScope,
 	context: Context,
 	receipt: string | undefined,
+	requireLiveSession = false,
 ): Promise<KeptSearchResult | undefined> {
 	const parsed = digestKey.safeParse(receipt);
 	if (!parsed.success) return;
-	const bytes = await withCurrentAudience(scope, context, (key, tx) =>
-		getFormOpeningData({ ...key, contentDigest: parsed.data }, tx),
+	const bytes = await withCurrentAudience(
+		scope,
+		context,
+		(key, tx) => getFormOpeningData({ ...key, contentDigest: parsed.data }, tx),
+		requireLiveSession,
 	);
 	if (bytes === undefined || bytesDigest(bytes) !== parsed.data) return;
 	return JSON.parse(
