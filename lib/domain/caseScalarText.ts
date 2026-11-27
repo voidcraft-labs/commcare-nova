@@ -5,8 +5,8 @@
  * CommCare Core applies Java `String.trim()` to case XML values: it removes
  * boundary UTF-16 code units from U+0000 through U+0020, not Java/JavaScript
  * regular-expression whitespace. Core then enforces a 255 Java UTF-16-unit
- * limit. Nova normalizes before every wire/storage write so HQ, Core, Preview,
- * and Postgres observe one value.
+ * limit. Nova normalizes ordinary writes. An imported Survey can keep the
+ * submitted case name for HQ while Preview persists the device case name after Core’s trim.
  */
 export const MAX_CASE_SCALAR_TEXT_LENGTH = 255;
 
@@ -27,7 +27,8 @@ export function normalizeCaseScalarTextValue(value: string): string {
 }
 
 /**
- * Normalize and validate a scalar result before any case write.
+ * Validate a scalar result before any case write. A retained untrimmed
+ * submission checks the original text, and device storage still normalizes it.
  *
  * Case names and operation-owned owners reject blank. `external_id` accepts an
  * explicit blank as a real `""` scalar write, distinct from no write.
@@ -35,8 +36,9 @@ export function normalizeCaseScalarTextValue(value: string): string {
 export function prepareCaseScalarTextValue(
 	value: string,
 	blank: "allow" | "reject",
+	keepText = false,
 ): PreparedCaseScalarTextValue {
-	const normalized = normalizeCaseScalarTextValue(value);
+	const normalized = keepText ? value : normalizeCaseScalarTextValue(value);
 	if (blank === "reject" && normalized.length === 0) {
 		return { ok: false, value: normalized, reason: "blank" };
 	}

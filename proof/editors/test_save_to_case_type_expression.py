@@ -181,3 +181,65 @@ def test_a_following_guard_keeps_the_resolved_create_type_on_device_and_hq(
             for answer, expected in (("house", "household"), ("visit", "visit")):
                 observed = _observe(state, core_runner, admission["app"], form, answer, guard=True)
                 assert observed[:3] == (expected,) * 3
+
+
+def test_bare_create_name_and_guard_match_the_native_case_writes(
+    hq, core_runner, editor_driver, tmp_path,
+):
+    """Observe the text on the wire and in both native case stores."""
+    with hq_check(CONFIGURATION) as (state, record):
+        app_id = publish_hq_app(state, TWO_LANGUAGE_APP)
+        form = operations.held_app(state, app_id).modules[0].forms[0]
+        source = _source(form.xmlns, "'visit'", guard=True)
+        source = source.replace(
+            'calculate="\'Case from calculation\'"', 'calculate="/data/selection"',
+        ).replace(
+            'calculate="current()/../../../make_case/case/@case_id"',
+            'calculate="if(string-length(current()/../../../make_case/case/create/case_name) &gt; 0 '
+            'and string-length(current()/../../../make_case/case/create/case_name) &lt;= 255, '
+            "current()/../../../make_case/case/@case_id, '')\"",
+        )
+        _patched(state, app_id, form.unique_id, source, "bare create name")
+        saved = vellum.fresh_open_and_save(editor_driver, state, app_id, form.unique_id)
+        assert saved.loaded and saved.saved and saved.stored_source, (saved.load_error, saved.save_refusal)
+        opened = etree.fromstring(saved.stored_source.encode())
+        name, = opened.xpath("//*[local-name()='bind' and @nodeset='/data/make_case/case/create/case_name']")
+        assert name.get("calculate") == "/data/selection"
+        with admitted(core_runner, _built_archive(state, app_id, record, tmp_path)) as admission:
+            assert admission["admitted"], admission["problems"]
+            outcomes = {}
+            for answer in ("North", "  East  ", "\u00a0West\u00a0", "   ", " " + "N" * 254 + " "):
+                table = load_answer_table()
+                table["novaKinds"]["bare-case-name"] = [answer]
+                trace = core_runner.session(
+                    admission["app"],
+                    restore=TEMPLATE_RESTORE.read_bytes(),
+                    answer_table=table,
+                    question_kinds={"/data/selection": "bare-case-name"},
+                )
+                (run, step), = (
+                    (run, step) for run in trace["runs"]
+                    if (step := form_step(run)) and step.get("xmlns") == form.xmlns
+                )
+                if run["end"] != "submitted":
+                    outcomes[answer] = {"end": run["end"]}
+                    continue
+                source = etree.fromstring(step["submission"].encode())
+                create = next(node for node in source.iter(f"{{{CASE}}}case") if node.find(f"{{{CASE}}}create") is not None)
+                case_id = create.get("case_id")
+                device, = etree.fromstring(step["caseDb"].encode()).xpath(f"/*/case[@case_id='{case_id}']")
+                submission, generated = unmarked_submission(run)
+                result = operations.process_case_blocks(state, submission)
+                outcomes[answer] = {
+                    "wire": create.findtext(f"{{{CASE}}}create/{{{CASE}}}case_name"),
+                    "device": device.findtext("{*}case_name"),
+                    "refusal": str(result.refusal) if result.refusal else None,
+                    "server": result.touched.get(generated.get(case_id, case_id)).case.name if result.refusal is None else None,
+                }
+            assert outcomes == {
+                "North": {"wire": "North", "device": "North", "refusal": None, "server": "North"},
+                "  East  ": {"wire": "  East  ", "device": "East", "refusal": None, "server": "  East  "},
+                "   ": {"wire": "   ", "device": "", "refusal": None, "server": "   "},
+                "\u00a0West\u00a0": {"wire": "\u00a0West\u00a0", "device": "\u00a0West\u00a0", "refusal": None, "server": "\u00a0West\u00a0"},
+                " " + "N" * 254 + " ": {"end": "submission-refused"},
+            }, outcomes

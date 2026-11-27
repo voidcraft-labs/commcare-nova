@@ -3349,6 +3349,43 @@ describe("resolved sequence proof", () => {
 // ---------------------------------------------------------------
 
 describe("text facets", () => {
+	it("checks the raw submitted length and stores the device case name", async () => {
+		const store = makeStore();
+		const run = (answer: string) =>
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				operations: rootProgram(
+					[
+						envOp(
+							operation({
+								action: "create",
+								caseType: "visit",
+								target: { kind: "new" },
+								keepNameText: true,
+								name: term(formField(KEY_FIELD)),
+							}),
+						),
+					],
+					{ sessionCaseId: null, formFields: [[KEY_FIELD, answer]] },
+				),
+			});
+		const answer = "  \u00a0East\u00a0  ";
+		await run(answer);
+		expect(
+			(await rejection(run(" " + "N".repeat(254) + " "))).rejection,
+		).toMatchObject({ kind: "text-value", facet: "name", reason: "too-long" });
+		const rows = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "visit",
+		});
+		expect(rows.map((row) => row.case_name).sort()).toEqual([
+			"",
+			"\u00a0East\u00a0",
+		]);
+	});
+
 	it("rejects a whitespace-only create name without committing effects", async () => {
 		const store = makeStore();
 
