@@ -38,6 +38,7 @@ DOCUMENTS = (
     "search-browse",
     "targeted-menu-badges",
     "targeted-worker-messages",
+    "targeted-web-form-activity",
     "targeted-repeat-invitations",
     "targeted-face-photo",
     "search-named-parent",
