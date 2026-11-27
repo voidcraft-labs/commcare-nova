@@ -87,8 +87,9 @@ every other complete global table a page at a time into `suite.xml`
 (`streamedTables`, Nova's own and a complete copy of a table CommCare HQ
 manages alike: `lib/lookup/fixtureSnapshot.ts`'s `download-archive`). The
 aggregate 10,000-row / 100,000-cell / 16 MiB budget
-(`LOOKUP_FIXTURE_EXPORT_TOO_LARGE`) bounds only the inline part, which the
-snapshot keeps far below it. The HQ modes stream only Nova's own tables: a
+(`LOOKUP_FIXTURE_EXPORT_TOO_LARGE`) covers inline and paged fixtures together.
+Preparation measures the paged XML and stops as soon as it crosses the wire
+budget. The HQ modes stream only Nova's own tables: a
 copy of a table CommCare HQ manages is written by its own rule below. `hq-json` and
 `hq-upload` build the fixapi workbook (`lookupWorkbook`) and take CommCare HQ's
 whole-workbook row ceiling (`LOOKUP_HQ_PUSH_TOO_LARGE`), their one size
