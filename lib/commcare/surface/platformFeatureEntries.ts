@@ -24,6 +24,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"case-list-android-lookup": [
 		"menus-and-case-lists/lookup-with-text-extras",
 		"menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum",
+		"menus-and-case-lists/lookup-extras-explicit-evaluation",
 		"menus-and-case-lists/lookup-name",
 		"menus-and-case-lists/lookup-image-jr",
 		"menus-and-case-lists/lookup-autolaunch",
@@ -322,6 +323,7 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"search-address-picker": [
 		"case-search/address-picker-on-a-search-screen",
 		"case-search/address-picker-receiver-on-a-search-screen",
+		"case-search/address-receiver-clears-text",
 	],
 	"search-screen-text": [
 		"case-search/title-label-lang-non-empty",
