@@ -65,6 +65,11 @@ def test_build_move_needs_the_right_group_prompt_and_equal_locale_strings():
     assert not _held(rows[1:], sites)
     assert not _held(rows[:2] + rows[3:], sites)
     assert _held([*rows[:4], replace(rows[4], after="Different words"), *rows[5:]], sites) == rows[:3]
+    duplicate_rows = [*rows[:4], *rows[5:]]
+    duplicate = replace(sites, search_group_duplicates={("0", "0"): ("en", TITLE)})
+    assert _held(duplicate_rows, duplicate) == duplicate_rows
+    altered_duplicate = [*duplicate_rows[:3], replace(duplicate_rows[3], before="Other words"), *duplicate_rows[4:]]
+    assert altered_duplicate[3] not in _held(altered_duplicate, duplicate)
     alternate_hint = replace(rows[5], before="Real instructions"), replace(rows[6], after="Real instructions")
     assert _held([*rows[:5], *alternate_hint], sites) == rows[:5]
     assert _held(rows[:4] + rows[5:], sites) == rows[:3]

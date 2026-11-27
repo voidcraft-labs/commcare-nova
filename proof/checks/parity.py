@@ -416,11 +416,17 @@ def _generated_search_group_heading(use, held):
                 if group_key not in members:
                     continue
                 key = f"search_property.m{module_index}.{group_key}"
+                target = f"search_property.m{module_index}.{current_group}"
+                duplicate = None
                 if group_key != current_group:
-                    target = f"search_property.m{module_index}.{current_group}"
+                    saved = [code for code, values in translations.items()
+                             if isinstance(values, dict) and target in values]
+                    if saved:
+                        if saved != langs or len(saved) != 1 or translations[saved[0]][target] != translations[saved[0]].get(key):
+                            continue
+                        duplicate = saved[0]
                     if (not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", group_key)
                             or re.fullmatch(r"group_header_[0-9]+", group_key)
-                            or any(isinstance(values, dict) and target in values for values in translations.values())
                             or any(not isinstance(labels.get(code), str) or not labels[code].strip()
                                    or labels[code] != labels[code].strip() for code in langs if isinstance(code, str))):
                         continue
@@ -432,6 +438,8 @@ def _generated_search_group_heading(use, held):
                         continue
                     if wording and wording.isascii() and wording.isprintable() and wording.strip() == wording and "\\" not in wording:
                         yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{pointer_token(code)}/{key}")
+                        if duplicate == code:
+                            yield Decided(use, manifest_usage.HELD, (entry,), f"{use.where}/{pointer_token(code)}/{target}")
 
 
 def decided_uses(found, held=None) -> tuple[list[Decided], dict[str, int]]:

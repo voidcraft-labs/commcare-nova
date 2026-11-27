@@ -181,6 +181,13 @@ def translation_competes_with_a_saved_legacy_search_group_heading(authoring, app
         ops.upload_commcare_translation(authoring.state, app_id, "search_property.m0.group_header_0", "Other saved words")
 
 
+def translation_duplicates_a_saved_legacy_search_group_heading(authoring, app_id):
+    """The live heading and its dormant current key store the same wording."""
+    translation_overrides_a_saved_legacy_search_group_heading(authoring, app_id)
+    with authoring.step("variant:duplicate-canonical-heading-wording"):
+        ops.upload_commcare_translation(authoring.state, app_id, "search_property.m0.group_header_0", "Find a client")
+
+
 def _translation_overrides_a_search_group_heading(authoring, app_id, group):
     from lxml import etree
 

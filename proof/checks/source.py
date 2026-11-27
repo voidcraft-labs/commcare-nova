@@ -81,6 +81,7 @@ from proof.checks.changes import (
     LEGACY_SEARCH_GROUP_KEY,
     POSITIONAL_SEARCH_GROUP_KEY,
     SEARCH_GROUP_WORDING_PATH,
+    SEARCH_GROUP_WORDING_DUPLICATE_PATH,
     legacy_related_case_formula,
 )
 from proof.checks.differences import Difference, pointer_token
@@ -358,7 +359,7 @@ def held_media(document, a_map, b_map, held_paths, suites=(None, None)) -> list[
 
 
 def preserved_search_group_wording(a, b):
-    """Each preserved (menu, row, language, old key, new key) from the two actual source snapshots."""
+    """Each preserved heading (menu, row, language, old key, new key, already-saved wording)."""
 
     def groups(module):
         search = module.get("search_config")
@@ -399,15 +400,19 @@ def preserved_search_group_wording(a, b):
                                for code in languages)):
                 continue
             old, new = (f"search_property.m{menu}.{key}" for key in (old, new))
-            if any(isinstance(table, dict) and new in table for table in originals.values()):
-                continue
+            saved_destinations = [(code, table[new]) for code, table in originals.items()
+                                  if isinstance(table, dict) and new in table]
             for code, source in originals.items():
                 target = published.get(code)
                 if code not in languages or not isinstance(source, dict) or not isinstance(target, dict) or old in target:
                     continue
                 wording = source.get(old)
-                if isinstance(wording, str) and wording.strip() and target.get(new) == wording:
-                    found.add((str(menu), str(index), code, old, new))
+                if not isinstance(wording, str) or not wording.strip() or target.get(new) != wording:
+                    continue
+                duplicate = bool(saved_destinations)
+                if duplicate and (len(languages) != 1 or saved_destinations != [(code, wording)]):
+                    continue
+                found.add((str(menu), str(index), code, old, new, wording if duplicate else None))
     return found
 
 def compare_sources(document, a, b, held_paths=frozenset(), suites=(None, None)) -> list[Difference]:
@@ -416,12 +421,14 @@ def compare_sources(document, a, b, held_paths=frozenset(), suites=(None, None))
     walk = _Walk(document, _languages(a, b), frozenset(held_paths))
     walk.compare(a, b)
     rekeyed = {
-        f"/translations/{pointer_token(language)}/{key}"
-        for _, _, language, old, new in preserved_search_group_wording(a, b)
-        for key in (old, new)
+        f"/translations/{pointer_token(language)}/{key}": (
+            SEARCH_GROUP_WORDING_PATH if duplicate is None else SEARCH_GROUP_WORDING_DUPLICATE_PATH
+        )
+        for _, _, language, old, new, duplicate in preserved_search_group_wording(a, b)
+        for key in ((old, new) if duplicate is None else (old,))
     }
     return [
-        replace(row, path=SEARCH_GROUP_WORDING_PATH) if row.at in rekeyed else row
+        replace(row, path=rekeyed[row.at]) if row.at in rekeyed else row
         for row in walk.found
     ] + held_media(
         document, a.get("multimedia_map") or {}, b.get("multimedia_map") or {}, held_paths, suites

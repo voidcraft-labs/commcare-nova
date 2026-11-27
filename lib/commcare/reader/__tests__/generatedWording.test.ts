@@ -380,6 +380,27 @@ it("rekeys only a unique live legacy Search heading and records both source posi
 			detail: { name: oldKey },
 		}),
 	);
+	(body.translations as Record<string, Record<string, string>>).en[currentKey] =
+		"Find a client";
+	const duplicate = await read();
+	if (duplicate.kind !== "read")
+		throw Error(JSON.stringify(duplicate.findings));
+	expect(expandDoc(duplicate.draft.doc).translations?.en).toMatchObject({
+		[currentKey]: "Find a client",
+	});
+	expect(
+		expandDoc(duplicate.draft.doc).translations?.en?.[oldKey],
+	).toBeUndefined();
+	expect(duplicate.draft.facts.unusedTranslationKeys).not.toContain(
+		`/translations/en/${currentKey}`,
+	);
+	expect([...duplicate.claims.records()]).toContainEqual(
+		expect.objectContaining({
+			entry: "application-and-settings/translations-generated-wording",
+			at: `/translations/en/${currentKey}`,
+		}),
+	);
+
 	body.langs = ["en", "es"];
 	body.build_langs = ["en", "es"];
 	body.translations = { en: { [oldKey]: "Find a client" } };

@@ -1841,7 +1841,13 @@ function decideGeneratedKeys(
 	const classified: HeldGeneratedKey[] = [];
 	const verdicts = new Map<string, GeneratedKeyVerdict>();
 	const moved = new Map<HeldTranslationKey, { key: string; owner: string }>();
-	const stored = new Set(reading.generatedKeys.map((one) => one.key));
+	const stored = new Map<string, HeldTranslationKey[]>();
+	for (const key of reading.generatedKeys) {
+		const uses = stored.get(key.key);
+		if (uses) uses.push(key);
+		else stored.set(key.key, [key]);
+	}
+	const duplicateDestinations = new Set<HeldTranslationKey>();
 	for (const { held, target } of left) {
 		if (typeof held.value !== "string" || !readWhole(ctx, held.key, target))
 			continue;
@@ -1860,14 +1866,23 @@ function decideGeneratedKeys(
 		);
 		if (sourceGroup && !sourceGroup.canonical) {
 			const destination = sourceGroup.destination;
-			// A stored value under the new key can have independent intent even
-			// while the saved query cannot see it. Leave that collision for review.
+			const copies =
+				destination === undefined ? [] : (stored.get(destination) ?? []);
+			// The single-language group can unify two saved copies of the exact
+			// wording. A different value may have independent intent.
+			const duplicate =
+				reading.languages.codes.length === 1 &&
+				copies.length === 1 &&
+				copies[0].language === held.language &&
+				copies[0].value === held.value
+					? copies[0]
+					: undefined;
 			if (
 				destination !== undefined &&
 				sourceGroup.owner !== undefined &&
 				sourceGroup.unit !== undefined &&
 				target.position?.menu === target.module?.index &&
-				!stored.has(destination) &&
+				(copies.length === 0 || duplicate !== undefined) &&
 				table.wordingUnits?.[destination] === sourceGroup.unit &&
 				holdText(held.value) === held.value &&
 				hqDeviceText(held.value).trim() !== ""
@@ -1879,6 +1894,7 @@ function decideGeneratedKeys(
 					value: held.value,
 				});
 				moved.set(held, { key: destination, owner: sourceGroup.owner });
+				if (duplicate !== undefined) duplicateDestinations.add(duplicate);
 			} else {
 				verdicts.set(
 					`${held.language}\u0000${held.key}`,
@@ -1912,6 +1928,10 @@ function decideGeneratedKeys(
 	const worded = new Map<TranslationUnitId, Map<string, string>>();
 	let hasWording = false;
 	for (const { held } of left) {
+		if (duplicateDestinations.has(held)) {
+			held.json.take(held.key, wordingClaim(held.key), () => held.value).value;
+			continue;
+		}
 		const verdict = verdicts.get(`${held.language}\u0000${held.key}`) ?? {
 			kind: "not-yet",
 		};
