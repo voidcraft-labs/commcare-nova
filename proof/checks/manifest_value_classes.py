@@ -12987,15 +12987,33 @@ def _custom_short_tile_group(use):
     return at, (group, detail)
 
 
-def tile_group_identifier_outside_supported_connections(use, manifest):
-    """A name Nova's custom grouped tile cannot use as its connection. An empty name disables grouping."""
+def _tile_group_index_starts_with_hyphen(identifier):
+    return (identifier.startswith("-")
+            and CASE_OPERATION_LINK_IDENTIFIER.fullmatch(identifier[1:]) is not None)
+
+
+def tile_group_index_starts_with_hyphen(use, manifest):
+    """The active group emits an index step Core cannot parse."""
     at, tile = _custom_short_tile_group(use)
     if at is None:
         return None
     if tile is None:
         return False
     identifier = tile[0].get("index_identifier")
-    return isinstance(identifier, str) and identifier != "" and CASE_OPERATION_LINK_IDENTIFIER.fullmatch(identifier) is None
+    return isinstance(identifier, str) and _tile_group_index_starts_with_hyphen(identifier)
+
+
+def tile_group_identifier_outside_supported_connections(use, manifest):
+    """Residual unsupported names. An empty name disables grouping."""
+    at, tile = _custom_short_tile_group(use)
+    if at is None:
+        return None
+    if tile is None:
+        return False
+    identifier = tile[0].get("index_identifier")
+    return (isinstance(identifier, str) and identifier != ""
+            and CASE_OPERATION_LINK_IDENTIFIER.fullmatch(identifier) is None
+            and not _tile_group_index_starts_with_hyphen(identifier))
 
 
 def tile_group_header_covers_all_cells(use, manifest):
@@ -13914,6 +13932,7 @@ VALUE_CLASSES = {
     ),
     "menus-and-case-lists/detail-max-select-value-above-100": max_select_value_above_100,
     "menus-and-case-lists/detail-max-select-value-above-2147483647": multi_select_maximum_exceeds_java_int,
+    "menus-and-case-lists/case-tile-group-identifier-starts-with-a-hyphen": tile_group_index_starts_with_hyphen,
     "menus-and-case-lists/case-tile-group-identifier-outside-an-xml-element-name": (
         tile_group_identifier_outside_supported_connections
     ),

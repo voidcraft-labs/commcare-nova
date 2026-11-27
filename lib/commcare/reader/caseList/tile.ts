@@ -116,6 +116,10 @@ export const TILE_CLAIMS = defineClaims("caseList.tile", {
 		`${A}case-tile-group-header-covers-all-cells`,
 		"schema:Detail.case_tile_group",
 	),
+	groupIdentifierStartsWithHyphen: refuse(
+		`${A}case-tile-group-identifier-starts-with-a-hyphen`,
+		"schema:CaseTileGroupConfig.index_identifier",
+	),
 	groupIdentifierOutside: refuse(
 		`${A}case-tile-group-identifier-outside-an-xml-element-name`,
 		"schema:CaseTileGroupConfig.index_identifier",
@@ -656,13 +660,18 @@ export function readTile(
 				T.group,
 			);
 			if (!validIdentifier) {
-				cursor.refuse("index_identifier", T.groupIdentifierOutside, {
-					name: identifier,
-				});
+				const claim =
+					!named &&
+					identifier.startsWith("-") &&
+					caseTileGroupingIdentifierSchema.safeParse(identifier.slice(1))
+						.success
+						? T.groupIdentifierStartsWithHyphen
+						: T.groupIdentifierOutside;
+				cursor.refuse("index_identifier", claim, { name: identifier });
 				claimRestUnderFinding(
 					ctx,
 					cursor,
-					{ code: T.groupIdentifierOutside.entry, place: cursor.place },
+					{ code: claim.entry, place: cursor.place },
 					(key) => key === "header_rows",
 				);
 				ok = false;

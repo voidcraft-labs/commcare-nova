@@ -312,13 +312,92 @@ def test_web_apps_makes_a_grouped_tiles_cards_from_the_rows_a_search_leaves(
     assert searched_cards[1][1] == ["Nurse Baraka", "Cal", "Referred"]
 
 
+def _edit_tile_group_identifier(project, editor_driver, identifier):
+    from django.urls import reverse
+    from urllib.parse import parse_qsl
+
+    from proof.editors.hq import HQAnswers, editor_build
+
+    unit = project.unit
+    args = [unit.domain, project.app_id, project.module_id(0)]
+    page = pages.CASE_LIST
+    save_path = reverse(page.save, args=args)
+    editor_build()
+    answers = HQAnswers(unit, unit)
+    edited = editor_driver.run([
+        {"goto": reverse(page.view, args=args)},
+        {"until": "pages/ready", "arg": {"bar": page.bar}},
+        {"settle": True},
+        {"eval": """identifier => {
+            const field = document.getElementById('id_case_tile_group_by');
+            field.value = identifier;
+            field.dispatchEvent(new Event('change', { bubbles: true }));
+        }""", "arg": identifier},
+        {"click": f"{page.bar} > .btn:not(.disabled)"},
+        {"awaitRequest": {"method": "POST", "pathname": save_path}},
+        {"settle": True},
+    ], answer=answers)
+    answers.check()
+    assert edited["pageErrors"] == []
+    saved, = [exchange for exchange in answers.exchanges
+              if exchange.method == "POST" and exchange.path == save_path]
+    assert saved.status == 200, saved.response
+    return dict(parse_qsl(saved.body.decode("utf-8"), keep_blank_values=True))
+
+
+def test_current_editor_saves_a_leading_hyphen_that_core_rejects_in_a_tile_group(
+    hq, core_runner, editor_driver, webapps_documents, evidence, tmp_path,
+):
+    import json
+
+    from lxml import etree
+
+    from proof.editors import compare
+    from proof.hq import operations
+    from proof.observe.build import admit, arrange
+
+    document = webapps_documents[GROUP_FILTER]
+    observed = {}
+    with webapps_hq.project(document, "maximum") as project:
+        unit = project.unit
+        for identifier in ("my-parent", "-my-parent"):
+            posted = _edit_tile_group_identifier(project, editor_driver, identifier)
+            assert json.loads(posted["case_tile_group"])["index_identifier"] == identifier
+            reopened = pages.fresh_section_save(
+                editor_driver, unit, pages.CASE_LIST, project.app_id, project.module_id(0), unit=unit,
+            )
+            assert reopened.save and reopened.save.status == 200 and not reopened.refused, reopened.alerts
+            group = operations.held_app(unit, project.app_id).modules[0].case_details.short.case_tile_group
+            assert (group.index_identifier, group.header_rows) == (identifier, 1)
+
+            built = compare.build(unit, project.app_id, unit.record)
+            assert not built.errors, built.errors
+            suite = etree.fromstring(built.files["suite.xml"])
+            function, = suite.xpath("//detail/group/@function")
+            assert function == f"string(./index/{identifier})"
+            companions = suite.xpath("//datum[contains(@id, '_parent_ids')]/@function")
+            assert companions and all(f"]/index/{identifier}))" in fn for fn in companions)
+            parsed = core_runner.request("xpathParse", deadline=30, expressions=[function, *companions])["results"]
+            admission = admit(core_runner, arrange(built.files, tmp_path / identifier))
+            if identifier == "my-parent":
+                assert all("error" not in result for result in parsed), parsed
+                assert admission["admitted"], admission["problems"]
+            else:
+                assert all("XPathSyntaxException" in result.get("error", "") for result in parsed), parsed
+                assert not admission["admitted"], admission
+                assert any(problem["stage"] == "install" for problem in admission["problems"]), admission["problems"]
+            observed[identifier] = {
+                "function": function, "companions": companions, "headerRows": group.header_rows,
+                "parser": parsed, "admitted": admission["admitted"], "problems": admission["problems"],
+            }
+    evidence("tile-grouping-leading-hyphen", observed)
+
+
 def test_hyphenated_tile_connection_survives_editor_grouping_and_selection(
     hq, core_runner, formplayer_runner, editor_driver, webapps_documents, evidence
 ):
-    from django.urls import reverse
     from lxml import etree
 
-    from proof.editors.hq import HQAnswers, editor_build
     from proof.hq import operations
     from proof.matrix.authoring import Authoring
     from proof.matrix.ops import set_form_source
@@ -352,28 +431,7 @@ def test_hyphenated_tile_connection_survives_editor_grouping_and_selection(
 
     with webapps_hq.project(document, "maximum") as project:
         unit = project.unit
-        args = [unit.domain, project.app_id, project.module_id(0)]
-        page = pages.CASE_LIST
-        save_path = reverse(page.save, args=args)
-        editor_build()
-        answers = HQAnswers(unit, unit)
-        edited = editor_driver.run([
-            {"goto": reverse(page.view, args=args)},
-            {"until": "pages/ready", "arg": {"bar": page.bar}},
-            {"eval": """() => {
-                const field = document.getElementById('id_case_tile_group_by');
-                field.value = 'my-parent';
-                field.dispatchEvent(new Event('change', { bubbles: true }));
-            }"""},
-            {"click": f"{page.bar} > .btn:not(.disabled)"},
-            {"awaitRequest": {"method": "POST", "pathname": save_path}},
-            {"settle": True},
-        ], answer=answers)
-        answers.check()
-        assert edited["pageErrors"] == []
-        saved = [exchange for exchange in answers.exchanges
-                 if exchange.method == "POST" and exchange.path == save_path]
-        assert [exchange.status for exchange in saved] == [200]
+        _edit_tile_group_identifier(project, editor_driver, "my-parent")
         group = operations.held_app(unit, project.app_id).modules[0].case_details.short.case_tile_group
         assert (group.index_identifier, group.header_rows) == ("my-parent", 1)
 
