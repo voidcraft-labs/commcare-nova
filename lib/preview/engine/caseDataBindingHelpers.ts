@@ -1,5 +1,5 @@
 import { workerLookupSchemas } from "@/lib/case-store/sql/compileLookup";
-import { requiredDateRetypeOverwrite } from "@/lib/domain/caseRetype";
+import { dateRetypeOverwrite } from "@/lib/domain/caseRetype";
 import { connectActivitySites } from "@/lib/domain/connectActivitySites";
 import type { ConnectSubmissionProgram } from "@/lib/domain/connectSubmissionFacts";
 import { USERCASE_CASE_TYPE } from "@/lib/domain/usercase";
@@ -2974,7 +2974,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 			operation.action === "update" && operation.target.kind === "op"
 				? operationsByUuid.get(operation.target.opUuid)
 				: undefined;
-		const requiredDateRetypeProperty = requiredDateRetypeOverwrite(
+		const dateOverwrite = dateRetypeOverwrite(
 			doc,
 			formUuid,
 			operation,
@@ -2995,9 +2995,10 @@ export function buildCaseOperationProgramFromDoc(args: {
 			...(viaCaseTypes.size > 0 && { viaCaseTypes }),
 			...(emptyTextWrites.size > 0 && { emptyTextWrites }),
 			...(calendarName !== undefined && { basicOwnNameDay: true as const }),
-			...(requiredDateRetypeProperty !== undefined && {
-				requiredDateRetypeProperty,
-			}),
+			...(dateOverwrite !== undefined &&
+				(dateOverwrite.mayBeEmpty
+					? { optionalDateRetypeProperty: dateOverwrite.property }
+					: { requiredDateRetypeProperty: dateOverwrite.property })),
 			...(parentUserCaseTypes && { parentUserCaseTypes }),
 			...(operation.writes?.some(
 				(write) => externalIdDayValue(operation, write) !== undefined,

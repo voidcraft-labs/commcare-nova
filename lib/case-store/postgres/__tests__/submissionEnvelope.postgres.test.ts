@@ -3782,11 +3782,13 @@ describe("retype", () => {
 	});
 
 	it.each([
-		["answered", "2025-12-01"],
-		["blank", ""],
+		["required", "answered", "2025-12-01"],
+		["required", "blank", ""],
+		["optional", "answered", "2025-12-01"],
+		["optional", "blank", ""],
 	] as const)(
-		"applies the fresh retype's required date with a %s answer",
-		async (_, date) => {
+		"applies the fresh retype's %s date with a %s answer",
+		async (presence, _, date) => {
 			const store = makeStore();
 			await seedSessionPatient(store, { notes: "an unrelated case" });
 			const envelope = {
@@ -3814,7 +3816,9 @@ describe("retype", () => {
 							retype: "patient",
 							writes: [{ property: "seen_on", value: term(literal(date)) }],
 						}),
-						{ requiredDateRetypeProperty: "seen_on" },
+						presence === "required"
+							? { requiredDateRetypeProperty: "seen_on" }
+							: { optionalDateRetypeProperty: "seen_on" },
 					),
 				]),
 			};
@@ -3824,7 +3828,7 @@ describe("retype", () => {
 					appId: APP_ID,
 					caseType: "patient",
 				});
-			if (date === "") {
+			if (presence === "required" && date === "") {
 				const err = await rejection(submit(store, envelope));
 				expect(err.rejection).toMatchObject({
 					kind: "retype-not-portable",

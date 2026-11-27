@@ -77,7 +77,7 @@ import {
 	planCaseRetype,
 	prepareCaseScalarTextValue,
 	RESERVED_CASE_OPERATION_TYPES,
-	requiredDateRetypeOverwrite,
+	dateRetypeOverwrite,
 	sameCaseWriteKey,
 	type TargetedCaseOperation,
 	USERCASE_BUILT_IN_KEYS,
@@ -815,13 +815,8 @@ function validateOperation(
 			);
 		} else if (
 			!plan.wirePortable &&
-			requiredDateRetypeOverwrite(
-				ctx.doc,
-				ctx.formUuid,
-				operation,
-				producer,
-				plan,
-			) === undefined
+			dateRetypeOverwrite(ctx.doc, ctx.formUuid, operation, producer, plan) ===
+				undefined
 		) {
 			const consequences = [
 				...(plan.parked.length > 0

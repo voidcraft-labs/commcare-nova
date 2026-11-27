@@ -2856,8 +2856,11 @@ async function resolveOperationProgram(
 				);
 				if (
 					value === undefined &&
-					dataType === "text" &&
-					instance.envelope.emptyTextWrites?.has(writeIndex)
+					((dataType === "text" &&
+						instance.envelope.emptyTextWrites?.has(writeIndex)) ||
+						(dataType === "date" &&
+							instance.envelope.optionalDateRetypeProperty === write.property &&
+							bag?.writes.has(writeIndex) === true))
 				) {
 					value = "";
 				}
@@ -3224,7 +3227,9 @@ async function applyOperationEffects(
 					entry.preparedLaterOwner,
 				);
 		} else {
-			const overwrite = entry.instance.envelope.requiredDateRetypeProperty;
+			const overwrite =
+				entry.instance.envelope.requiredDateRetypeProperty ??
+				entry.instance.envelope.optionalDateRetypeProperty;
 			if (
 				overwrite !== undefined &&
 				(!createdInEnvelope.has(entry.caseId) || operation.target.kind !== "op")
@@ -3630,12 +3635,14 @@ async function applyRetypeEffect(
 	);
 	const part = partitionWrites(entry.writes);
 	const { patch, removals, scalars } = part;
-	const overwritten = entry.instance.envelope.requiredDateRetypeProperty;
+	const requiredOverwrite = entry.instance.envelope.requiredDateRetypeProperty;
+	const overwritten =
+		requiredOverwrite ?? entry.instance.envelope.optionalDateRetypeProperty;
 	if (
 		overwritten !== undefined &&
 		(!Object.hasOwn(patch, overwritten) ||
 			typeof patch[overwritten] !== "string" ||
-			patch[overwritten] === "")
+			(requiredOverwrite !== undefined && patch[overwritten] === ""))
 	) {
 		throw new SubmissionRejectedError({
 			kind: "retype-not-portable",
@@ -3643,7 +3650,13 @@ async function applyRetypeEffect(
 			caseId: entry.caseId,
 			toCaseType,
 			failures: [
-				{ path: `/${overwritten}`, message: "The required date was missing." },
+				{
+					path: `/${overwritten}`,
+					message:
+						requiredOverwrite === undefined
+							? "The date response was missing from the submission."
+							: "The required date was missing.",
+				},
 			],
 		});
 	}

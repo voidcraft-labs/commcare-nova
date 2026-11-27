@@ -153,6 +153,11 @@ it("derives the exact fresh-case date overwrite only from the committed required
 			({ requiredDateRetypeProperty }) => requiredDateRetypeProperty,
 		),
 	).toEqual([undefined, undefined]);
+	expect(
+		build(optional, engine, webAppsDevice())?.operations.map(
+			({ optionalDateRetypeProperty }) => optionalDateRetypeProperty,
+		),
+	).toEqual([undefined, "kept"]);
 
 	vi.useFakeTimers({ toFake: ["Date"] });
 	try {

@@ -12557,7 +12557,7 @@ def save_to_case_before_optional_own_update(use):
             and path[4] == [["child", part, 0] for part in ("session", "data", "case_id")])
 
 
-def save_to_case_retype_property_types(use, *, required_date=False):
+def save_to_case_retype_property_types(use, *, required_date=False, optional_date=False):
     """The original and destination bind types for one same-property pair of
     direct question writes across a literal retype of its earlier sibling's
     freshly created case. Wider graphs need the typed reader's verdict."""
@@ -12603,7 +12603,7 @@ def save_to_case_retype_property_types(use, *, required_date=False):
     if source is None or final is None or source[0] != final[0]:
         return None
     types = source[1], final[1]
-    if required_date:
+    if required_date or optional_date:
         root_group = block.getparent()
         if types != ("string", "date") or root_group.getparent() is not form.data_root:
             return None
@@ -12624,7 +12624,12 @@ def save_to_case_retype_property_types(use, *, required_date=False):
                 return None
             if action == "update":
                 question = form.bind(writer.get("calculate"))
-                if question is None or question.get("required") != "true()" or question.get("relevant"):
+                if question is None or question.get("relevant"):
+                    return None
+                required = question.get("required")
+                if required_date and required != "true()":
+                    return None
+                if optional_date and required not in (None, "false()"):
                     return None
     return types
 

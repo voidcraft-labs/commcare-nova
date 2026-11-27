@@ -3363,6 +3363,16 @@ def save_to_case_retype_converts(authoring, app_id):
     _save_to_case_retype_converts(authoring, app_id, required=False)
 
 
+def save_to_case_retype_converts_with_hidden_date(authoring, app_id):
+    """The replacement field can disappear, so the retype may keep the earlier text."""
+    save_to_case_retype_converts(authoring, app_id)
+    bind = 'nodeset="/data/visit_date" type="xsd:date"'
+    _change(
+        authoring, app_id, "save-to-case-retype-converts-with-hidden-date",
+        (bind, f'{bind} relevant="/data/age &gt; 18"', 1),
+    )
+
+
 def save_to_case_retype_required_date(authoring, app_id):
     _save_to_case_retype_converts(authoring, app_id, required=True)
 

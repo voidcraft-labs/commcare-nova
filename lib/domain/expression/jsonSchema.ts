@@ -93,6 +93,7 @@ export type CaseTypePropertyJsonSchema =
 			type: "string";
 			format?: string;
 			pattern?: string;
+			anyOf?: readonly [{ readonly format: "date" }, { readonly const: "" }];
 			/**
 			 * Lossless data-type marker for string flavors whose VALIDATION
 			 * shape is identical to plain text (`single_select` — no enum,
@@ -178,7 +179,9 @@ export function schemaForDataType(
 		case "decimal":
 			return { type: "number" };
 		case "date":
-			return { type: "string", format: "date" };
+			// An empty native date leaf is a present JSON string. Typed
+			// readers cast only nonempty dates and retain the raw presence.
+			return { type: "string", anyOf: [{ format: "date" }, { const: "" }] };
 		case "time":
 			return { type: "string", format: "time" };
 		case "datetime":

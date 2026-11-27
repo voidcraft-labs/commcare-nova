@@ -853,7 +853,7 @@ describe("a change of a case's type to one that holds none of a property", () =>
 	});
 });
 
-describe("a survey's required date replaces a newly created case's text", () => {
+describe("a survey's date replaces a newly created case's text", () => {
 	function retypeDoc(
 		mode:
 			| "required"
@@ -922,22 +922,24 @@ describe("a survey's required date replaces a newly created case's text", () => 
 		};
 	}
 
-	it("admits an unconditional date before export and holds it when reading the wire", async () => {
-		const doc = retypeDoc("required");
-		expect(gateCodes(doc)).toEqual([]);
-		const outcome = await readBack(doc);
-		expect(account(outcome)).toEqual([]);
-		if (outcome.kind !== "read")
-			throw new Error("Expected the required overwrite to read.");
-		expect(outcome.draft.doc.forms[FORM]?.caseOperations?.[1]).toMatchObject({
-			action: "update",
-			retype: "visit",
-			writes: [{ property: "kept" }],
-		});
-	});
+	it.each(["required", "optional"] as const)(
+		"admits a %s visible date before export and holds it when reading the wire",
+		async (mode) => {
+			const doc = retypeDoc(mode);
+			expect(gateCodes(doc)).toEqual([]);
+			const outcome = await readBack(doc);
+			expect(account(outcome)).toEqual([]);
+			if (outcome.kind !== "read")
+				throw new Error("Expected the date overwrite to read.");
+			expect(outcome.draft.doc.forms[FORM]?.caseOperations?.[1]).toMatchObject({
+				action: "update",
+				retype: "visit",
+				writes: [{ property: "kept" }],
+			});
+		},
+	);
 
 	it.each([
-		"optional",
 		"conditional-write",
 		"hidden",
 		"nested-source",

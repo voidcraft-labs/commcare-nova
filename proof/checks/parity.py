@@ -545,7 +545,8 @@ BASIC_OWN_TEXT_OVERLAP = "questions/a-basic-own-text-write-after-an-authored-upd
 DATE_TO_TEXT = "questions/a-savetocase-retype-that-keeps-a-date-as-text"
 RETYPE_CONVERTS = "questions/a-savetocase-change-of-a-case-s-type-to-a-type-that-holds-one-of-its-properties-as-another-type"
 REQUIRED_DATE_RETYPE = "questions/a-fresh-case-retype-that-overwrites-text-with-a-required-date"
-RETYPE_ENTRIES = {DATE_TO_TEXT, RETYPE_CONVERTS, REQUIRED_DATE_RETYPE}
+OPTIONAL_DATE_RETYPE = "questions/a-fresh-case-retype-that-overwrites-text-with-an-optional-date"
+RETYPE_ENTRIES = {DATE_TO_TEXT, RETYPE_CONVERTS, REQUIRED_DATE_RETYPE, OPTIONAL_DATE_RETYPE}
 REGISTRATION_ENTRIES = {PARENT_FOLLOW_UP, CHILD_REGISTRATION, ADVANCED_REGISTRATION}
 REGISTRATION_KEYS = {"schema:Module.case_list_form", "schema:AdvancedModule.case_list_form"}
 ADVANCED_TAG_KEYS = frozenset({"schema:AdvancedOpenCaseAction.case_tag", "schema:LoadUpdateAction.case_tag"})
@@ -929,8 +930,12 @@ def _forms_variant_uses(found, held, entries):
                 required = save_to_case_retype_property_types(use, required_date=True) is not None
                 if required and REQUIRED_DATE_RETYPE in wanted:
                     yield Decided(block, manifest_usage.HELD, (by_id[REQUIRED_DATE_RETYPE],))
-                elif not required and RETYPE_CONVERTS in wanted:
-                    yield Decided(block, manifest_usage.HELD_NEW, (by_id[RETYPE_CONVERTS],))
+                else:
+                    optional = save_to_case_retype_property_types(use, optional_date=True) is not None
+                    if optional and OPTIONAL_DATE_RETYPE in wanted:
+                        yield Decided(block, manifest_usage.HELD, (by_id[OPTIONAL_DATE_RETYPE],))
+                    elif not required and not optional and RETYPE_CONVERTS in wanted:
+                        yield Decided(block, manifest_usage.HELD_NEW, (by_id[RETYPE_CONVERTS],))
         if (BASIC_OWN_TEXT_OVERLAP in wanted and use.key == "vellum-markup:model/instance//*@vellum:role"
                 and save_to_case_before_optional_own_update(use)):
             block = manifest_usage.Use("mug:SaveToCase", use.artifact, use.where.rsplit("/", 1)[0], at)

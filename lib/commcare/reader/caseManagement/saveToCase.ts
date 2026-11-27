@@ -37,10 +37,7 @@ import {
 	prepareCaseScalarTextValue,
 	type Uuid,
 } from "@/lib/domain";
-import {
-	planCaseRetype,
-	requiredDateRetypeOverwrite,
-} from "@/lib/domain/caseRetype";
+import { planCaseRetype, dateRetypeOverwrite } from "@/lib/domain/caseRetype";
 import {
 	actingUser,
 	and,
@@ -285,6 +282,10 @@ export const SAVE_TO_CASE_CLAIMS = defineClaims("caseManagement.saveToCase", {
 	dateRetype: take(`${Q}/a-savetocase-retype-that-keeps-a-date-as-text`, MUG),
 	requiredDateRetype: take(
 		`${Q}/a-fresh-case-retype-that-overwrites-text-with-a-required-date`,
+		MUG,
+	),
+	optionalDateRetype: take(
+		`${Q}/a-fresh-case-retype-that-overwrites-text-with-an-optional-date`,
 		MUG,
 	),
 	/** A `case_type` row that gives a case a type holding one of the earlier
@@ -5131,18 +5132,19 @@ export function settleSaveToCase(ctx: ReadContext, form: DraftForm): void {
 			else if (operation.target.kind === "op") {
 				const producerUuid = operation.target.opUuid;
 				const producer = operations.find((one) => one.uuid === producerUuid);
-				if (
-					requiredDateRetypeOverwrite(
-						settled,
-						form.uuid,
-						operation,
-						producer,
-						plan,
-					) !== undefined
-				)
+				const overwrite = dateRetypeOverwrite(
+					settled,
+					form.uuid,
+					operation,
+					producer,
+					plan,
+				);
+				if (overwrite !== undefined)
 					xform.cursor.within(
 						{ element: block.element },
-						SAVE_TO_CASE_CLAIMS.requiredDateRetype,
+						overwrite.mayBeEmpty
+							? SAVE_TO_CASE_CLAIMS.optionalDateRetype
+							: SAVE_TO_CASE_CLAIMS.requiredDateRetype,
 						[MUG],
 					);
 			}

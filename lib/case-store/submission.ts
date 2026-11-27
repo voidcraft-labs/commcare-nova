@@ -162,6 +162,8 @@ export interface EnvelopeCaseOperation {
 	readonly emptyTextWrites?: ReadonlySet<number>;
 	/** A proven text-to-date overwrite on this submission's fresh case. */
 	readonly requiredDateRetypeProperty?: string;
+	/** The fresh case's optional Date write keeps a submitted empty leaf. */
+	readonly optionalDateRetypeProperty?: string;
 	/** The required basic parent/user block persists even without a relevant leaf. */
 	readonly parentUserCaseTypes?: readonly [
 		intermediate: string,

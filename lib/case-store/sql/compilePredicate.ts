@@ -913,7 +913,13 @@ function compileValueListEquality(
 		];
 		if (spelled.length > 0) matches.push(eb(stored, "in", spelled));
 	}
-	if (texts.has("")) matches.push(blankText(stored));
+	if (texts.has("")) {
+		matches.push(
+			dataType === "date" && ctx.reading === "search"
+				? eb(stored, "=", eb.val(""))
+				: blankText(stored),
+		);
+	}
 	if (matches.length === 0) return eb.lit(false) as Expression<SqlBool>;
 	return matches.length === 1
 		? (matches[0] as Expression<SqlBool>)

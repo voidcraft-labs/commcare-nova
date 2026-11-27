@@ -6351,6 +6351,10 @@ function strictStoredDataType(
 	property: string,
 	propertySchema: unknown,
 ): CasePropertyDataType {
+	// Before the empty-Date migration the same logical type had a single
+	// format guard. Still read that exact stored declaration as Date.
+	if (isDeepStrictEqual(propertySchema, { type: "string", format: "date" }))
+		return "date";
 	for (const dataType of casePropertyDataTypes) {
 		if (isDeepStrictEqual(propertySchema, schemaForDataType(dataType))) {
 			return dataType;

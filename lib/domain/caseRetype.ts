@@ -101,15 +101,15 @@ export function planCaseRetype(
 /** The sole incompatible property that an unconditional write replaces on
  * this form's fresh, unkeyed case created without links. The root questions
  * write that text and date directly. The native update writes the date
- * and the type together. An optional date would send an explicit empty
- * property that Nova's typed storage cannot preserve. */
-export function requiredDateRetypeOverwrite(
+ * and the type together. An unanswered optional date still writes a
+ * present empty string, distinct from a removed property. */
+export function dateRetypeOverwrite(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	operation: CaseOperation,
 	producer: CaseOperation | undefined,
 	plan?: CaseRetypePlan,
-): string | undefined {
+): { property: string; mayBeEmpty: boolean } | undefined {
 	if (
 		operation.action !== "update" ||
 		operation.retype === undefined ||
@@ -127,6 +127,7 @@ export function requiredDateRetypeOverwrite(
 		producer.caseType !== operation.caseType ||
 		producer.target.kind !== "new" ||
 		producer.target.idFrom !== undefined ||
+		producer.target.expr !== undefined ||
 		producer.condition !== undefined ||
 		producer.forEach !== undefined ||
 		producer.links?.length ||
@@ -169,10 +170,15 @@ export function requiredDateRetypeOverwrite(
 		dateField === undefined ||
 		dateField.link ||
 		date?.kind !== "date" ||
-		date.required?.kind !== "match-all" ||
+		(date.required !== undefined &&
+			date.required.kind !== "match-all" &&
+			date.required.kind !== "match-none") ||
 		date.relevant !== undefined ||
 		!doc.fieldOrder[formUuid]?.includes(dateField.field)
 	)
 		return undefined;
-	return conversion.property;
+	return {
+		property: conversion.property,
+		mayBeEmpty: date.required?.kind !== "match-all",
+	};
 }

@@ -1103,6 +1103,8 @@ function jsonbColumnRead(args: {
 		.ref(propertiesRef, readOperator)
 		.key(property);
 	if (dataType === "datetime") return compileStoredInstant(jsonRead);
+	if (dataType === "date")
+		return eb.cast(eb.fn("nullif", [jsonRead, eb.val("")]), cast);
 	return eb.cast(jsonRead, cast);
 }
 
