@@ -529,13 +529,28 @@ function readsOwnRootLabel(
 	const source = caseWriteValueField(write.value);
 	if (source === undefined || source.link) return false;
 	const field = f.doc.fields[source.field];
+	const passive =
+		field?.kind === "label" &&
+		field.askForConfirmation !== true &&
+		field.banner === undefined;
+	const starting =
+		f.form.openingAssignments?.filter(
+			({ field: target }) => target === source.field,
+		) ?? [];
+	const loadedFromOwnRecord =
+		passive &&
+		f.form.type === "followup" &&
+		starting.length === 1 &&
+		starting[0].source.kind === "own" &&
+		starting[0].via === undefined &&
+		isAdvancedOwnLabelProperty(starting[0].property);
 	return (
 		field?.kind === "label" &&
-		((field.askForConfirmation !== true && field.banner === undefined) ||
+		(passive ||
 			(f.form.type !== "close" &&
 				caseWriteLabelSavesEmpty(field.askForConfirmation, field.banner))) &&
 		field.default_value === undefined &&
-		!f.form.openingAssignments?.some(({ field }) => field === source.field) &&
+		(starting.length === 0 || loadedFromOwnRecord) &&
 		f.doc.fieldOrder[f.formUuid]?.includes(source.field) === true &&
 		f.submittedChildren.get(f.formUuid)?.includes(source.field) === true
 	);

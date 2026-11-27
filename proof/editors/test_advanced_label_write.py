@@ -29,7 +29,7 @@ def _seed():
         _case(HOUSEHOLD, _create("household", "Witness household")),
         _case(MEMBER, _create("member", "Witness member") +
               f'<index><parent case_type="household">{HOUSEHOLD}</parent></index>'
-              "<update><seen>before</seen></update>"),
+              "<update><seen>before</seen><notes>From the selected member</notes></update>"),
         _case(OTHER, _create("member", "Unrelated member") + "<update><seen>unrelated</seen></update>"),
     ]
 
@@ -66,34 +66,39 @@ def _authored_label(unit, driver, variant="load_writes_a_label"):
     return authoring, app_id, form
 
 
-def _received(state, submission, relevant=True, closes=False):
+def _received(state, submission, relevant=True, closes=False, answer="OK"):
     root = etree.fromstring(submission)
     label = root.find("{*}seen_label")
-    assert (label.text if label is not None else None) == ("OK" if relevant else None)
+    assert (label.text if label is not None else None) == (answer if relevant else None)
     assert root.findtext("{*}notes") == TEXT
     member = root.find(f".//{{{CASE}}}case[@case_id='{MEMBER}']")
     assert member is not None
     assert (member.find(f"{{{CASE}}}close") is not None) is closes
     update = member.find(f"{{{CASE}}}update")
     assert update.findtext(f"{{{CASE}}}notes") == TEXT
-    assert update.findtext(f"{{{CASE}}}seen") == ("OK" if relevant else None)
+    assert update.findtext(f"{{{CASE}}}seen") == (answer if relevant else None)
     raw = operations.process_case_blocks(state, _submission(*_seed()))
     assert raw.refusal is None
     applied = operations.process_case_blocks(state, submission, cases=[case.case for case in raw.touched.values()])
     assert applied.refusal is None
     assert applied.touched[MEMBER].case.closed is closes
-    assert applied.touched[MEMBER].case.case_json["seen"] == ("OK" if relevant else "before")
+    assert applied.touched[MEMBER].case.case_json["seen"] == (answer if relevant else "before")
     assert applied.touched[MEMBER].case.case_json["notes"] == TEXT
     assert OTHER not in applied.touched
 
 
-@pytest.mark.parametrize("closes", [False, True], ids=["update", "update-and-close"])
+@pytest.mark.parametrize(("variant", "closes", "answer"), [
+    ("load_writes_a_label", False, "OK"),
+    ("load_writes_a_label_and_closes", True, "OK"),
+    ("load_writes_a_preloaded_label", False, "From the selected member"),
+], ids=["update", "update-and-close", "preloaded"])
 def test_advanced_editor_label_write_keeps_the_submitted_answer_and_case(
-    hq, core_runner, editor_driver, tmp_path, closes
+    hq, core_runner, editor_driver, tmp_path, variant, closes, answer
 ):
     with hq_check(BASE.configuration) as (unit, _):
-        variant = "load_writes_a_label_and_closes" if closes else "load_writes_a_label"
         authoring, app_id, form = _authored_label(unit, editor_driver, variant)
+        if variant == "load_writes_a_preloaded_label":
+            assert form.actions.load_update_cases[1].preload[QUESTION] == "notes"
 
         def read(relevant):
             built = compare.build(unit, app_id, unit.record)
@@ -105,7 +110,7 @@ def test_advanced_editor_label_write_keeps_the_submitted_answer_and_case(
             with admitted(core_runner, arrange(built.files, tmp_path / f"label-{relevant}")) as admission:
                 assert admission["admitted"], admission["problems"]
                 table = load_answer_table()
-                table["novaKinds"]["label-control"] = ["OK"]
+                table["novaKinds"]["label-control"] = [] if variant == "load_writes_a_preloaded_label" else ["OK"]
                 table["novaKinds"]["adjacent-text"] = [TEXT]
                 trace = core_runner.session(
                     admission["app"], restore=_restore(), answer_table=table,
@@ -116,9 +121,11 @@ def test_advanced_editor_label_write_keeps_the_submitted_answer_and_case(
             )
             assert run["end"] == "submitted", run.get("refusal")
             payload, _ = unmarked_submission(run)
-            _received(unit, payload, relevant, closes)
+            _received(unit, payload, relevant, closes, answer)
 
         read(True)
+        if variant == "load_writes_a_preloaded_label":
+            return
 
         def hide(root, _form):
             (bind,) = root.xpath("//*[local-name()='bind'][@nodeset=$path]", path=QUESTION)
@@ -128,15 +135,16 @@ def test_advanced_editor_label_write_keeps_the_submitted_answer_and_case(
         read(False)
 
 
+@pytest.mark.parametrize("variant", ["load_writes_a_label", "load_writes_a_preloaded_label"], ids=["plain", "preloaded"])
 @pytest.mark.reader("android")
-def test_android_confirms_a_passive_label_before_the_advanced_member_update(hq, editor_driver):
+def test_android_confirms_a_passive_label_before_the_advanced_member_update(hq, editor_driver, variant):
     from proof.android import observe
     from proof.formplayer import hq as forms_hq
     from proof.observe import casedata
     from proof.observe.record import Blobs
 
     with hq_check(BASE.configuration) as (unit, _):
-        _, app_id, _ = _authored_label(unit, editor_driver)
+        _, app_id, _ = _authored_label(unit, editor_driver, variant)
         database = casedata.database_of_restore(_restore())
         with forms_hq.serve(unit, None, app_id, database=database) as release:
             blobs, sent, stored = Blobs(), [], []
@@ -153,9 +161,10 @@ def test_android_confirms_a_passive_label_before_the_advanced_member_update(hq, 
             assert MEMBER in kept["cases"] and OTHER not in kept["cases"], kept
 
 
+@pytest.mark.parametrize("variant", ["load_writes_a_label", "load_writes_a_preloaded_label"], ids=["plain", "preloaded"])
 @pytest.mark.reader("webapps")
 def test_web_apps_confirms_a_passive_label_before_the_advanced_member_update(
-    hq, formplayer_runner, editor_driver,
+    hq, formplayer_runner, editor_driver, variant,
 ):
     from dataclasses import replace
 
@@ -168,7 +177,7 @@ def test_web_apps_confirms_a_passive_label_before_the_advanced_member_update(
 
     configuration = replace(BASE.configuration, privileges=BASE.configuration.privileges | {WEB_APPS_PRIVILEGE})
     with hq_check(configuration) as (unit, _):
-        authoring, app_id, _ = _authored_label(unit, editor_driver)
+        authoring, app_id, _ = _authored_label(unit, editor_driver, variant)
         _pages.turn_web_apps_on(authoring, app_id)
         database = casedata.database_of_restore(_restore())
         with forms_hq.serve(unit, None, app_id, runner=formplayer_runner, database=database) as release:
