@@ -35,7 +35,9 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	bareRead,
 	basicOwnExternalIdDayValue,
+	basicOwnNameCalendarDay,
 	caseSlotFacts,
 	externalIdCalendarDayField,
 } from "@/lib/domain/basicCaseSlots";
@@ -75,7 +77,8 @@ export type DatetimeSplitRefusal =
 	| "not-a-date-and-time-question"
 	| "self-read-through-a-filter"
 	| "saves-straight-to-date"
-	| "saves-day-as-external-id";
+	| "saves-day-as-external-id"
+	| "saves-day-as-case-name";
 
 export type DatetimeSplitPlan =
 	| ({
@@ -113,6 +116,8 @@ export const DATETIME_SPLIT_REFUSAL_MESSAGES: Readonly<
 		"This question saves its calendar day to a case. To split it, you can first save the day with a separate date calculation.",
 	"saves-day-as-external-id":
 		"This question saves its calendar day as the case’s external ID. You can remove that save before separating the questions.",
+	"saves-day-as-case-name":
+		"This question saves its calendar day as the case’s name. You can remove that save before separating the questions.",
 };
 
 /** A time of day as Core's `TimeData.cast` reads it back. */
@@ -308,6 +313,13 @@ export function planDatetimeSplit(
 		return refusal("self-read-through-a-filter");
 
 	const own = where.form.caseOperations?.find(({ action }) => action === "own");
+	const facts =
+		own === undefined ? undefined : caseSlotFacts(doc, where.formUuid);
+	if (own && facts) {
+		const nameSource = basicOwnNameCalendarDay(facts, own);
+		if (nameSource !== undefined && bareRead(nameSource) === fieldUuid)
+			return refusal("saves-day-as-case-name");
+	}
 	if (
 		own?.writes?.some(
 			(write) =>

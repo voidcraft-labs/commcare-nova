@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -19,6 +20,7 @@ import { proseText } from "@/lib/domain/prose";
 import type { Finding } from "@/lib/publish/hqFindings";
 import { caseListOf } from "../../../../../proof/targeted/build";
 import { planFormCaseWire } from "../../../casePlacementPlan";
+import { planPlacements } from "../../../placement";
 import {
 	formsUsingWorkerRecord,
 	requiredPlanPrivileges,
@@ -34,6 +36,7 @@ import {
 	type AppJson,
 	type CaseReading,
 	readCases as readCasesOf,
+	readCasesOfBody,
 	readFields,
 } from "./caseReading";
 
@@ -1189,6 +1192,35 @@ describe("each use of a basic action claimed under its own row", () => {
 		expect(codes(reading)).toEqual([]);
 		expect(entries(reading)).toContain(
 			`${F}/update-from-a-date-and-time-question-through-a-hidden-sibling`,
+		);
+	});
+
+	it("holds an ordinary own case name written directly by a datetime answer", async () => {
+		const retained = JSON.parse(
+			readFileSync("proof/hq-apps/hq-case-management/app-source.json", "utf8"),
+		) as { body: AppJson | string };
+		const raw =
+			typeof retained.body === "string"
+				? (JSON.parse(retained.body) as AppJson)
+				: retained.body;
+		const actions = raw.modules[0].forms[3].actions as {
+			update_case: { update: Record<string, unknown> };
+		};
+		actions.update_case.update.name = {
+			doc_type: "ConditionalCaseUpdate",
+			question_path: "/data/seen_at",
+			update_mode: "always",
+		};
+		const reading = await readCasesOfBody(raw);
+		if (reading.whole?.kind !== "read")
+			throw new Error(JSON.stringify(reading.whole));
+		const doc = reading.whole.draft.doc;
+		const candidate = doc.formOrder[doc.moduleOrder[0]][3];
+		expect(planPlacements(doc, candidate).inexpressible).toEqual([]);
+		holdWhole(reading);
+
+		expect(entries(reading)).toContain(
+			`${F}/a-datetime-question-s-day-as-the-case-name`,
 		);
 	});
 

@@ -294,6 +294,37 @@ export function basicOwnExternalIdDayValue(
 		: undefined;
 }
 
+/** A Basic follow-up can save a root datetime answer's calendar day as its name. */
+export function basicOwnNameCalendarDay(
+	f: CaseSlotFacts,
+	operation: CaseOperation,
+): Extract<Expression, { kind: "term" }> | undefined {
+	if (
+		operation.action !== "own" ||
+		operation.condition !== undefined ||
+		operation.nameOnlyIfChanged ||
+		f.form.type !== "followup" ||
+		f.severalCases ||
+		f.module?.caseType === undefined ||
+		RESERVED_CASE_OPERATION_TYPES.has(f.module.caseType) ||
+		operation.name?.kind !== "format-date" ||
+		operation.name.pattern !== "%Y-%m-%d" ||
+		operation.name.date.kind !== "date-coerce"
+	)
+		return undefined;
+	const value = operation.name.date.value;
+	const uuid = bareRead(value);
+	if (uuid === undefined || value.kind !== "term") return undefined;
+	const field = f.doc.fields[uuid];
+	return field?.kind === "datetime" &&
+		field.default_value === undefined &&
+		!f.form.openingAssignments?.some(({ field: target }) => target === uuid) &&
+		f.doc.fieldOrder[f.formUuid]?.includes(uuid) &&
+		f.submittedChildren.get(f.formUuid)?.includes(uuid)
+		? value
+		: undefined;
+}
+
 /** The values a basic slot writes from: the name, the owner and each
  *  write's value, the name first. */
 function slotValues(
@@ -301,7 +332,9 @@ function slotValues(
 	own?: CaseSlotFacts,
 ): Expression[] {
 	return [
-		...(operation.name === undefined ? [] : [operation.name]),
+		...(operation.name === undefined
+			? []
+			: [(own && basicOwnNameCalendarDay(own, operation)) ?? operation.name]),
 		...(operation.rename === undefined ? [] : [operation.rename]),
 		...(operation.owner === undefined ? [] : [operation.owner]),
 		...(operation.writes ?? []).map(

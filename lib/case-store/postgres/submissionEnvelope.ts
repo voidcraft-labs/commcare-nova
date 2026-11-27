@@ -2536,8 +2536,9 @@ async function resolveOperationProgram(
 		const prepareText = (
 			facet: "name" | "rename" | "owner",
 			raw: string,
+			blank: "allow" | "reject" = "reject",
 		): string => {
-			const prepared = prepareCaseScalarTextValue(raw, "reject");
+			const prepared = prepareCaseScalarTextValue(raw, blank);
 			if (!prepared.ok) {
 				throw new SubmissionRejectedError({
 					kind: "text-value",
@@ -2602,7 +2603,11 @@ async function resolveOperationProgram(
 			(instance.envelope.blankSavesNothing &&
 				blankText(evaluatedText(bag?.rename)))
 				? undefined
-				: prepareText("rename", evaluatedText(bag?.rename));
+				: prepareText(
+						"rename",
+						evaluatedText(bag?.rename),
+						instance.envelope.basicOwnNameDay ? "allow" : "reject",
+					);
 
 		// Executing writes, storage-converted against the operation's
 		// RESULT type — the retype destination when the operation
