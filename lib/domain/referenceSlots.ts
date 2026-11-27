@@ -2272,6 +2272,10 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	help_media: "media",
 	"optionsSource.kind": "discriminator",
 	"optionsSource.status": "config",
+	// A filter across the worker's whole restore names a wire property key
+	// shared by any number of case types. It has no single catalog identity.
+	"optionsSource.propertyMatch.property": "config",
+	"optionsSource.propertyMatch.text": "data-literal",
 	"optionsSource.options[].uuid": "identity",
 	"optionsSource.options[].value": "data-literal",
 	"optionsSource.options[].media": "media",
@@ -2503,6 +2507,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.columns[].header": "display-text",
 	"caseListConfig.columns[].searchResultDetail.prefix": "display-text",
 	"caseListConfig.columns[].searchResultDetail.suffix": "display-text",
+	"caseListConfig.columns[].searchResultDetail.text": "display-text",
 	// Display text, but NOT a translation unit: a link cell is emitted as
 	// `<template form="markdown">`, and CommCare HQ builds locale variables
 	// only for its `Enum` format subclasses, so an HQ-imported app has

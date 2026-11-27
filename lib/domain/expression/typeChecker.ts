@@ -794,7 +794,8 @@ export function checkExpression(
 	const slot = ctx.slot;
 	if (
 		slot.slot === "case_list_filter" &&
-		readsRestoredCaseTypeQuery(expression)
+		readsRestoredCaseTypeQuery(expression) &&
+		!errors.some((error) => error.code === "arm-unavailable")
 	) {
 		const row = ctx.rows[0];
 		if (

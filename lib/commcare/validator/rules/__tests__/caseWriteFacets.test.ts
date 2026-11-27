@@ -163,7 +163,7 @@ describe("CASE_WRITE_VIA_INVALID", () => {
 		}
 	});
 
-	it("refuses it on any change but the own case, the worker's record included", () => {
+	it("refuses it for a session expression and for the worker’s record", () => {
 		const update = fixture("followup", {
 			operations: () => [own(), sessionUpdate([viaWrite()])],
 		});
@@ -174,7 +174,7 @@ describe("CASE_WRITE_VIA_INVALID", () => {
 			const [finding] = findings(doc, "CASE_WRITE_VIA_INVALID");
 			expect(finding?.details?.reason).toBe("target");
 			expect(finding?.message).toBe(
-				"Only this form's own case can save to the case above it. You can add a case change that updates that case instead.",
+				"A change can save through a parent or host from this form's own case or its first manually chosen case. You can add a change for the connected case directly.",
 			);
 		}
 	});

@@ -242,6 +242,9 @@ export const PLATFORM_CELLS: Readonly<
 	"menus-and-case-lists/lookup-responses-key@web-apps": stated(
 		"case-list-android-lookup",
 	),
+	"menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum@web-apps": stated(
+		"case-list-android-lookup",
+	),
 	"menus-and-case-lists/lookup-extras-fixed-text@web-apps": stated(
 		"case-list-android-lookup",
 	),
