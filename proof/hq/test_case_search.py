@@ -492,6 +492,54 @@ def test_destination_day_and_native_range_read_the_index_at_a_dst_boundary(hq):
         assert matches("visit", "__range__2024-03-10__2024-03-10") == {"before", "start"}
 
 
+def test_numeric_search_equality_reads_the_exact_stored_custom_property(hq, evidence):
+    """Distinguish a literal number from a numeric range or a calendar day."""
+    import hashlib
+
+    from casexml.apps.case.mock import CaseBlock
+    from corehq.apps.app_manager.models import DefaultCaseSearchProperty
+    from corehq.apps.hqcase.utils import submit_case_blocks
+
+    from proof.hq import redis as hq_redis
+
+    cases = {
+        "untyped": "3",
+        "padded": "003",
+        "decimal": "3.0",
+        "epoch-day": "1970-01-04",
+        "ordinary-day": "2024-03-10",
+        "missing": None,
+    }
+    with hq_check(Configuration(case_search_enabled=True)) as (state, _):
+        with hq_redis.shared(None), state.committing():
+            label = "lexical equality of a stored custom date property"
+            with state.operation(label, hashlib.sha256(label.encode()).digest()):
+                blocks = [CaseBlock(
+                    case_id=key, create=True, case_type="patient", case_name=key, owner_id="worker",
+                    update={"dob": value} if value is not None else {},
+                ).as_text() for key, value in cases.items()]
+                submit_case_blocks(blocks, state.domain, user_id="worker", device_id="proof")
+
+        def match(expression):
+            source = f'"{expression}"'
+            datum = DefaultCaseSearchProperty(property="_xpath_query", defaultValue=source)
+            offered, queries = _built_queries(state.domain, [datum])
+            assert offered and len(queries) == 1
+            values = [element.get("ref") for element in queries[0].iter("data")
+                      if element.get("key") == "_xpath_query"]
+            assert values == [source]
+            query = _built_search(state, [("_xpath_query", values[0][1:-1])])
+            return {"expression": expression, "matches": sorted(hit["_id"] for hit in query.run().raw_hits)}
+
+        cases_seen = [match(expression) for expression in (
+            "dob = 3", "dob = '3'", "dob = '003'", "dob = '3.0'", "dob = '1970-01-04'",
+        )]
+        evidence("numeric-custom-date-equality", cases_seen)
+        assert [case["matches"] for case in cases_seen] == [
+            ["untyped"], ["untyped"], ["padded"], ["decimal"], ["epoch-day"],
+        ]
+
+
 def test_ordered_server_keys_choose_matches_after_excluding_named_owners(hq):
     """Run HQ's actual index and request parser. A string property can be
     sorted as text, a number or a date. The second datum breaks ties left by
