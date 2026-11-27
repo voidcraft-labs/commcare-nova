@@ -1,4 +1,5 @@
 import type { InstallationProfileBinding } from "@/lib/commcare/wireIdentity";
+
 /**
  * What Nova's publish sends CommCare HQ for one corpus document, captured
  * from Nova's own client.
@@ -167,7 +168,7 @@ import {
 	type ProjectSpaceCompatibilityReport,
 	projectSpaceCompatibilityProbePlan,
 } from "@/lib/commcare/projectSpaceCompatibility";
-import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
+import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import { streamZip } from "@/lib/commcare/streamZip";
 import gateEntries from "@/lib/commcare/surface/entries/gates.json";
 import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
@@ -337,6 +338,7 @@ import {
 	type MediaKind,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
+import { assignedLookupStaysAtSource } from "@/lib/export/boundaryFindings";
 import {
 	type ExportMode,
 	type LookupTarget,
@@ -362,6 +364,7 @@ import type { FirstPublishChangeId } from "@/lib/publish/firstPublishChangeIds";
 import { renderManualImportGuide } from "@/lib/publish/manualImportGuide";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { CORPUS_COMMCARE_VERSION } from "./configurations";
+import { PROOF_DOMAIN, PROOF_SERVER } from "./defaults";
 import {
 	type HqSideRecorded,
 	type HqSideSaves,
@@ -387,11 +390,7 @@ import {
 	withTargetPeer,
 } from "./targetPeer";
 
-/** The CommCare server every capture targets; only its catalog origin reaches the bytes. */
-export const PROOF_SERVER: CommCareServer = "production";
-
-/** `proof/hq/configuration.py::DEFAULT_DOMAIN`. */
-export const PROOF_DOMAIN = "nova-proof";
+export { PROOF_DOMAIN, PROOF_SERVER } from "./defaults";
 
 /** The Project a corpus document without lookup data belongs to. */
 const PROOF_PROJECT = "proof-corpus";
@@ -1797,9 +1796,13 @@ async function managedDataEdge(
 	}
 	for (const definition of managed) {
 		if (
-			definition.workerAccess === "assigned" ||
-			requiresLookupProjection(definition.hq) ||
-			!data.rowsByTable.has(definition.id)
+			!assignedLookupStaysAtSource(definition, {
+				server: PROOF_SERVER,
+				domain: peer.state.domain,
+			}) &&
+			(definition.workerAccess === "assigned" ||
+				requiresLookupProjection(definition.hq) ||
+				!data.rowsByTable.has(definition.id))
 		) {
 			throw new Error(
 				`The capture needs the source's verified global rows for ${definition.tag} before comparing its managed copy.`,
@@ -1828,6 +1831,25 @@ async function managedDataEdge(
 		},
 	);
 	for (const { definition, table, rows } of reads) {
+		if (
+			assignedLookupStaysAtSource(definition, {
+				server: PROOF_SERVER,
+				domain: peer.state.domain,
+			})
+		) {
+			if (
+				table.id !== definition.hq?.remoteId ||
+				table.isGlobal ||
+				!definition.columns.every(({ wireName }) =>
+					table.fields.includes(wireName),
+				)
+			) {
+				throw new Error(
+					`The assigned source ${definition.tag} no longer matches its retained HQ inventory.`,
+				);
+			}
+			continue;
+		}
 		const intent = expected.get(definition.id);
 		if (
 			table.id === definition.hq?.remoteId &&

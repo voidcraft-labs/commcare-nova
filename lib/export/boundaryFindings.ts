@@ -423,7 +423,14 @@ export function exportCarrierFindings(
 		...lookupExportFindings(doc, {
 			fixtureData: narrowSnapshot(
 				fixtureData,
-				referenced.filter((t) => !fixtureData.streamedTables?.has(t.id)),
+				referenced.filter(
+					(t) =>
+						!fixtureData.streamedTables?.has(t.id) &&
+						!(
+							mode === "hq-upload" &&
+							assignedLookupStaysAtSource(t, input.lookupTarget)
+						),
+				),
 			),
 			textFindings,
 			...(lookupWire !== undefined && { fixtures: lookupWire.fixtures }),
@@ -533,6 +540,18 @@ function leftOutOfMainWorkbook(
 				hq.domain === target.domain
 			);
 	}
+}
+
+/** HQ serves these rows to the worker at their source. A same-space publish
+ * validates the source during preflight and sends no workbook for it. */
+export function assignedLookupStaysAtSource(
+	definition: LookupTableDefinition,
+	target: LookupTarget | undefined,
+): boolean {
+	return (
+		definition.hq?.source?.distribution === "assigned" &&
+		leftOutOfMainWorkbook(definition, "hq-upload", target)
+	);
 }
 
 /** The managed tables grouped by the project space that manages them, in the order they first name each. */

@@ -498,6 +498,47 @@ describe("a downloadable app", () => {
 	});
 });
 
+it("leaves an assigned HQ table at its exact source without treating editor rows as worker choices", () => {
+	const assigned: LookupTableDefinition = {
+		...DISTRICTS,
+		hq: {
+			...ORIGIN,
+			source: {
+				inventory: "complete",
+				distribution: "assigned",
+				indexEvidence: "unobserved",
+			},
+		},
+	};
+	const fixtures = { ...snapshot([assigned]), rowsByTable: new Map() };
+	const doc = docReading([assigned]);
+	const native = exportCarrierFindings({
+		doc,
+		fixtureData: fixtures,
+		mode: "hq-upload",
+		lookupTarget: HERE,
+	});
+	expect(native.rowFindings).toEqual([]);
+	expect(native.lookupWorkbook).toBeUndefined();
+	expect(native.managedLookupTables.map(({ tag }) => tag)).toEqual([
+		assigned.tag,
+	]);
+	for (const [mode, lookupTarget] of [
+		["hq-upload", { ...HERE, domain: "another-space" }],
+		["ccz", HERE],
+	] as const) {
+		const other = exportCarrierFindings({
+			doc,
+			fixtureData: fixtures,
+			mode,
+			lookupTarget,
+		});
+		expect(other.rowFindings).toMatchObject([
+			{ code: "LOOKUP_WORKER_SOURCE_UNAVAILABLE" },
+		]);
+	}
+});
+
 it("keeps an assigned choice unavailable when the workbook binds owners but worker rows are unverified", () => {
 	const assigned: LookupTableDefinition = {
 		...VISITS,
