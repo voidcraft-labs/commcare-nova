@@ -93,6 +93,7 @@ from proof.checks.manifest_value_classes import (
     worker_name_order_in_shared_owner_exclusion,
     worker_name_order_in_text_default,
     guarded_owner_after_fresh_create,
+    guarded_save_to_case_type_choice,
     standalone_result_detail_fixed_text,
     standalone_result_detail_text,
     standalone_result_list_text,
@@ -113,6 +114,8 @@ ALLOWING = frozenset({"HELD", "TARGET-OWNED", "INERT"})
 HQ_BUILD_REASON = "not-hq-buildable"
 DIRECT_PARENT_PROMPT = "case-search/prompt-key-matching-a-direct-parent-property"
 LATER_OWNER_ON_FRESH_CREATE = "questions/savetocase-guarded-owner-after-fresh-create"
+TYPED_CREATE = "questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case"
+UNDECLARED_CREATE_TYPE = "questions/savetocase-case-type-given-as-an-xpath"
 UNICODE_PRIMARY_ROOT = "questions/answer-root-with-a-non-ascii-name"
 SEARCH_DETAIL_PROJECTIONS = {
     "menus-and-case-lists/standalone-search-result-list-text": standalone_result_list_text,
@@ -900,7 +903,7 @@ def _forms_variant_uses(found, held, entries):
         PARENT_USER_WRITE, FIRST_ADVANCED_PARENT_WRITE,
         *REGISTRATION_ENTRIES, *RETYPE_ENTRIES,
         CONDITIONAL_WORKER_UPDATE, REPEATED_WORKER_UPDATE, HELD_REPEATED_WORKER_UPDATE, LATER_OWNER_ON_FRESH_CREATE,
-        PASSIVE_LABEL_WRITE, OTHER_ADVANCED_LABEL, UNICODE_PRIMARY_ROOT,
+        PASSIVE_LABEL_WRITE, OTHER_ADVANCED_LABEL, UNICODE_PRIMARY_ROOT, TYPED_CREATE, UNDECLARED_CREATE_TYPE,
     }.intersection(entries)
     if not wanted:
         return
@@ -915,6 +918,13 @@ def _forms_variant_uses(found, held, entries):
             if (entry := _advanced_own_label_write(use)) in wanted:
                 status = manifest_usage.HELD if entry == PASSIVE_LABEL_WRITE else manifest_usage.HELD_NEW
                 yield Decided(use, status, (by_id[entry],))
+        if wanted.intersection((TYPED_CREATE, UNDECLARED_CREATE_TYPE)) and use.key == "xform:model/bind@calculate":
+            choice = guarded_save_to_case_type_choice(use)
+            if choice in ("restore", "declared") and TYPED_CREATE in wanted:
+                yield Decided(use, manifest_usage.HELD, (by_id[TYPED_CREATE],))
+            if choice == "undeclared" and UNDECLARED_CREATE_TYPE in wanted:
+                bind = manifest_usage.Use("mug:SaveToCase", use.artifact, use.where.removesuffix("/@calculate"), at)
+                yield Decided(bind, manifest_usage.HELD_NEW, (by_id[UNDECLARED_CREATE_TYPE],))
         if (LATER_OWNER_ON_FRESH_CREATE in wanted and use.key == "xform:model/bind@relevant"
                 and guarded_owner_after_fresh_create(use)):
             yield Decided(use, manifest_usage.HELD, (by_id[LATER_OWNER_ON_FRESH_CREATE],))
@@ -1244,7 +1254,7 @@ def _projects(decided: Decided, record: Record, held) -> tuple[bool, bool]:
         return record.standing == "not-yet", record.entry in resting
     exact = PARENT_PROMPT_SHAPES.keys() | SEARCH_DETAIL_PROJECTIONS.keys() | {
         ADDRESS_SAVED_TEXT, FLAT_CLOSE_MAXIMUM, FLAT_FOLLOWUP_MAXIMUM, ORDINARY_LIST_MAXIMUM,
-        REQUIRED_DATE_RETYPE, UNICODE_PRIMARY_ROOT,
+        REQUIRED_DATE_RETYPE, UNICODE_PRIMARY_ROOT, TYPED_CREATE, LATER_OWNER_ON_FRESH_CREATE,
         UNMATCHED_ADDRESS_TOPIC, ADDRESS_UNUSED_SUFFIX, ADDRESS_CLEARS_TEXT, SEARCH_INDEX_FALLBACK,
     }
     if standing == manifest_usage.HELD and len(resting) == 1 and resting <= exact:

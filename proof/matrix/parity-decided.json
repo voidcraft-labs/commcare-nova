@@ -665,6 +665,7 @@
 		"hq-questions/save-to-case-retype-converts-with-hidden-date",
 		"hq-questions/save-to-case-retype-required-date",
 		"hq-questions/save-to-case-type-expression",
+		"hq-questions/save-to-case-undeclared-type-without-primary-restore",
 		"hq-questions/save-to-case-unicode-link-name",
 		"hq-questions/save-to-case-unicode-link-name-cjk",
 		"hq-questions/save-to-case-update-owner-condition",

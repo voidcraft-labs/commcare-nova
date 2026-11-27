@@ -12773,6 +12773,66 @@ def conditioned_aliased_create_owner(use, manifest):
     )
 
 
+def guarded_save_to_case_type_choice(use):
+    """The two-output create with a following text guard on the fresh case."""
+    form, bind, node = _bind(use)
+    if form is None or node is None or isinstance(node, tuple) or node.tag != f"{{{CASE}}}case_type":
+        return None
+    create = node.getparent()
+    case = create.getparent()
+    block = case.getparent()
+    if (create.tag != f"{{{CASE}}}create" or case.tag != f"{{{CASE}}}case"
+            or block.get(f"{{{VELLUM}}}role") != "SaveToCase"
+            or block.get(f"{{{VELLUM}}}case_type") != "" or form.in_repeat(form.paths[block])):
+        return None
+    calculation = expression_tree(bind.get("calculate") or "")
+    if not calculation or calculation[:2] != ["call", "if"] or len(calculation[2]) != 3:
+        return None
+    _, primary, other = calculation[2]
+    if primary[0] != "text" or other[0] != "text" or primary == other:
+        return None
+    if any(not MENU_PAGE_CASE_TYPE.fullmatch(value[1]) or value[1] in RESERVED_CASE_TYPES
+           for value in (primary, other)):
+        return None
+    block_path = f"{form.paths[block]}/case"
+    if not any(step.get("ref") == f"{block_path}/@case_id" and step.get("event") == "xforms-ready"
+               and expression_tree(step.get("value") or "") == ["call", "uuid", []]
+               for step in form.model.findall(f"{{{XFORMS}}}setvalue")):
+        return None
+    name = _local(block)
+    guard = block.getnext()
+    if (guard is None or _local(guard) != f"nova_guard_{name}_text"
+            or guard.get(f"{{{VELLUM}}}role") != "SaveToCase"):
+        return None
+    guard_path = f"{form.paths[guard]}/case"
+    target = form.bind(f"{guard_path}/@case_id")
+    final_type = form.bind(f"{guard_path}/update/case_type")
+    if target is None or final_type is None:
+        return None
+    sibling = f"current()/../../../{name}/case"
+    case_name = f"{sibling}/create/case_name"
+    owner = f"{sibling}/create/owner_id"
+    expected_target = (
+        f"if(string-length({case_name}) > 0 and string-length({case_name}) <= 255 and"
+        f" string-length({owner}) > 0 and string-length({owner}) <= 255, {sibling}/@case_id, '')"
+    )
+    if expression_tree(target.get("calculate") or "") != expression_tree(expected_target):
+        return None
+    chosen = expression_tree(final_type.get("calculate") or "")
+    if guard.get(f"{{{VELLUM}}}case_type") == primary[1] and chosen == primary:
+        return "restore"
+    selected = f"current()/../../../../{name}/case/create/case_type"
+    if chosen != expression_tree(selected) or form.app_form is None:
+        return None
+    app, _ = form.app_form
+    declared = {module.get("case_type") for module in app.modules}
+    if primary[1] in declared and other[1] in declared and guard.get(f"{{{VELLUM}}}case_type") == "":
+        return "declared"
+    if (primary[1] not in declared or other[1] not in declared) and guard.get(f"{{{VELLUM}}}case_type") == primary[1]:
+        return "undeclared"
+    return None
+
+
 def guarded_owner_after_fresh_create(use):
     """Both ordered owner leaves of the standalone fresh block, with its distinct text checks."""
     form, bind, node = _bind(use)
