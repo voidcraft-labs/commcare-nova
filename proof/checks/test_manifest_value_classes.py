@@ -8840,7 +8840,8 @@ def _case_list_lookup_shapes():
         ),
         "menus-and-case-lists/lookup-extra-with-a-fixed-integer-sum": (
             use(refused, "lookup_extras", lookup_extras=[{"key": "mode", "value": "1 + 2"}]),
-            use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "'3'"}]),
+            replace(use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "'3'"}]),
+                    standing=manifest_usage.HELD),
             use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "2147483647 + 1"}]),
             use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "1.0 + 2"}]),
             use(accepted, "lookup_extras", lookup_extras=[{"key": "mode", "value": "1+2"}]),

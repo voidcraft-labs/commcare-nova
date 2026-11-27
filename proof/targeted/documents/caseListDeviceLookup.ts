@@ -23,12 +23,16 @@ export function caseListDeviceLookupProperty() {
 	return caseListDeviceLookup("property");
 }
 
+export function caseListDeviceLookupSum() {
+	return caseListDeviceLookup("sum");
+}
+
 export function caseListDeviceLookupWording() {
 	return caseListDeviceLookup("wording");
 }
 
 export function caseListDeviceLookup(
-	mode: "count" | "property" | "wording" | "ordinary" = "ordinary",
+	mode: "count" | "property" | "sum" | "wording" | "ordinary" = "ordinary",
 ) {
 	const count = mode === "count";
 	const property = mode === "property";
@@ -86,7 +90,23 @@ export function caseListDeviceLookup(
 								...(!count && { automatic: true }),
 								extras: [
 									{ name: "visit_mode", value: "followup" },
-									{ name: "visit_limit", value: "3" },
+									mode === "sum"
+										? {
+												name: "visit_limit",
+												expression: {
+													kind: "arith",
+													op: "+",
+													left: {
+														kind: "term",
+														term: { kind: "literal", value: 1 },
+													},
+													right: {
+														kind: "term",
+														term: { kind: "literal", value: 2 },
+													},
+												},
+											}
+										: { name: "visit_limit", value: "3" },
 									{
 										name: "worker_name",
 										expression: {

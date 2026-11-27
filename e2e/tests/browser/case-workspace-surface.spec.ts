@@ -69,6 +69,41 @@ async function savedModule(page: Page) {
 		(await page.getByLabel("Saved module").textContent()) ?? "null",
 	);
 }
+test("Android lookup edits and retains both whole numbers in a saved sum", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}?scenario=lookup-sum`);
+	const lookup = page.getByRole("region", {
+		name: "Case lookup with an Android app",
+	});
+	const edit = lookup.getByRole("button", { name: "Edit lookup" });
+	await edit.click();
+	const first = lookup.getByRole("textbox", { name: "First whole number" });
+	const second = lookup.getByRole("textbox", { name: "Second whole number" });
+	await expect(first).toHaveValue("1");
+	await expect(second).toHaveValue("2");
+	await second.fill("7");
+	await lookup.getByRole("button", { name: "Save lookup" }).click();
+	await expect(edit).toBeVisible();
+	await expect
+		.poll(
+			async () => (await savedModule(page)).caseListConfig.deviceLookup.extras,
+		)
+		.toEqual([
+			{
+				name: "visit_limit",
+				expression: {
+					kind: "arith",
+					op: "+",
+					left: { kind: "term", term: { kind: "literal", value: 1 } },
+					right: { kind: "term", term: { kind: "literal", value: 7 } },
+				},
+			},
+		]);
+	await edit.click();
+	await expect(second).toHaveValue("7");
+});
+
 test("a map color, its boundary and a location are saved together from Results", async ({
 	page,
 }) => {

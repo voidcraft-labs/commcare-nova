@@ -724,7 +724,7 @@ Each case and search column registers its own positions while producing its shor
 A menu or form text badge keeps the editor’s ordinary text in `custom_icons` and registers its own generated badge wording. Commands in menus that list another menu’s forms reference the source form’s `forms.m#f#.badge` locale. Independently stored shared form entries have their own form badge wording. Synthetic empty-Search registration commands cannot carry badges.
 A supported Android lookup results heading registers one module-owned `case_lists.m#.callout.header` for the case and standalone Search short details. The typed `lookup_field_header` keeps the ordinary Case List editor label.
 
-A lookup argument can be a saved sum of two fixed whole numbers. Pinned Android normally evaluates it and sends a string, but its legacy reporting-domain mode sends the saved value verbatim unless `force_xpath_parsing` is `yes`. The reader accounts a canonical bounded sum under its own held entry and keeps the existing gates for other calculation or configuration shapes.
+A lookup argument can be a saved sum of two fixed whole numbers. Pinned Android normally evaluates it and sends a string, but its legacy reporting-domain mode sends the saved value verbatim unless `force_xpath_parsing` is `yes`. The reader preserves a canonical addition of two nonnegative whole numbers up to the signed 32-bit sum limit. Both publishers send the original two-operand spelling. Other calculation and configuration shapes follow their existing gates.
 A regular Search prompt's required condition can count the worker's restored
 cases with a single declared case-type filter. It uses the normal case query and
 count AST and preserves its required message. Web Apps checks it before sending

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import { eq, literal, prop, term } from "@/lib/domain/expression";
+import { arith, eq, literal, prop, term } from "@/lib/domain/expression";
 import {
 	configureCaseListInputSchema,
 	configureCaseListTool,
@@ -31,6 +31,10 @@ describe("configureCaseList", () => {
 						kind: "term",
 						term: { kind: "session-context", field: "username" },
 					},
+				},
+				{
+					name: "limit",
+					expression: arith("+", term(literal(1)), term(literal(2))),
 				},
 			],
 			responses: ["primary", "backup"],
@@ -64,6 +68,24 @@ describe("configureCaseList", () => {
 								kind: "term",
 								term: { kind: "session-context", field: "deviceid" },
 							},
+						},
+					],
+				},
+			}).success,
+		).toBe(false);
+		expect(
+			configureCaseListInputSchema.safeParse({
+				moduleUuid: MOD_A,
+				deviceLookup: {
+					...deviceLookup,
+					extras: [
+						{
+							name: "limit",
+							expression: arith(
+								"+",
+								term(literal(2_147_483_647)),
+								term(literal(1)),
+							),
 						},
 					],
 				},
