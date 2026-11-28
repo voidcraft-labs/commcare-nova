@@ -112,7 +112,7 @@ it("reads one authorized revision while a concurrent MCP call appends to the can
 	} finally {
 		releaseRead.resolve();
 		await read;
-		if (write) await write;
+		await write;
 		pausedRead.mockRestore();
 	}
 });

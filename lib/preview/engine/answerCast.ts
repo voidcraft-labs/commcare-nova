@@ -116,8 +116,7 @@ function javaLong(value: number): bigint {
 	const truncated = BigInt(Math.trunc(value));
 	return truncated < LONG_MIN
 		? LONG_MIN
-		: // biome-ignore lint/complexity/useMathMinMax: Math.min rejects bigint operands.
-			truncated > LONG_MAX
+		: truncated > LONG_MAX
 			? LONG_MAX
 			: truncated;
 }

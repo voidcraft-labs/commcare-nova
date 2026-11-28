@@ -146,9 +146,13 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			}
 			// Everything else is the real route.
 			const streamId = url.pathname.split("/")[3];
-			return GET(new Request(url, init), {
+			const response = await GET(new Request(url, init), {
 				params: Promise.resolve({ streamId }),
 			});
+			expect(response.headers.get("cache-control")).toBe(
+				"no-cache, no-transform",
+			);
+			return response;
 		};
 
 		const transport = new WorkflowChatTransport({
