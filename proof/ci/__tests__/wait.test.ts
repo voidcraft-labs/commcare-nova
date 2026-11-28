@@ -163,9 +163,9 @@ it("gives up once its deadline passes on the monotonic clock", async () => {
 it("looks once with --once and leaves the destinations as they were", async () => {
 	const result = await wait("--once");
 	expect([result.code, result.record.listings]).toEqual([5, 2]);
-	expect(
-		service.calls.filter((call) => call.method === "ListArtifacts"),
-	).toHaveLength(result.record.listings);
+	expect(result.record.listings).toBe(
+		service.calls.filter((call) => call.method === "ListArtifacts").length,
+	);
 	await expect(readdir(join(scratch, "lane"))).rejects.toThrow();
 });
 
