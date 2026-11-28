@@ -101,6 +101,21 @@ it.each([
 	},
 );
 
+it("cannot pack a fresh store when a successful shard's output was unavailable", async () => {
+	const workflow = parse(
+		await readFile(join(WORKTREE, ".github/workflows/proof-lane.yml"), "utf8"),
+	);
+	const steps = workflow.jobs.gate.steps;
+	const download = steps.find(
+		(step: { id?: string }) => step.id === "shard-download",
+	);
+	expect(download.with["allow-missing"]).toContain(
+		"needs.shard.result != 'success'",
+	);
+	const pack = steps.find((step: { id?: string }) => step.id === "pack");
+	expect(pack.if).toContain("steps.shard-download.outcome == 'success'");
+});
+
 it("runs as many of a lane's shards at once as the planner fills its rounds with", async () => {
 	const workflow = parse(
 		await readFile(join(WORKTREE, ".github/workflows/proof-lane.yml"), "utf8"),
@@ -166,7 +181,6 @@ it("gives a lone shard's output its directory after every download of the shards
 	expect(downloads.sort()).toEqual([
 		"ci.yml:proof-store",
 		"ci.yml:proofs-gate",
-		"proof-lane.yml:gate",
 	]);
 });
 

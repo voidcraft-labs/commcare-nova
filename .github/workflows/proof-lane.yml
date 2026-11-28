@@ -61,6 +61,13 @@ name: Proof lane
 # a bound and as JSON.
 on:
   workflow_call:
+    outputs:
+      shards:
+        description: Number of shard outputs expected for this lane
+        value: ${{ jobs.emit.outputs.shards }}
+      attempt:
+        description: Run attempt in the shard artifact names the verdict read
+        value: ${{ jobs.gate.outputs.attempt }}
     inputs:
       pin-candidate:
         description: The weekly pin commit whose validated proof/pins.json to apply to the checkout
@@ -161,6 +168,7 @@ jobs:
     timeout-minutes: 20
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      shards: ${{ steps.matrix.outputs.shards }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -314,6 +322,7 @@ jobs:
           matrix="$(node proof/run.mjs --matrix "$count" "${deadline[@]}" |
             jq -c --arg runner "$RUNNER" '.include[].runner = $runner')"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "shards=$count" >> "$GITHUB_OUTPUT"
 
   shard:
     name: Shard ${{ matrix.shard }}/${{ matrix.total }} (${{ inputs.label }})
@@ -501,6 +510,8 @@ jobs:
     if: ${{ always() && needs.emit.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      attempt: ${{ steps.artifact-attempt.outputs.attempt }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -508,6 +519,7 @@ jobs:
           sparse-checkout: |
             proof
             lib/commcare/surface
+            .github/actions/proof-download
       - name: Apply the planned pins
         if: ${{ inputs.pin-candidate != '' }}
         env:
@@ -534,20 +546,26 @@ jobs:
       - name: Put the candidate's retained trees in place
         if: ${{ inputs.retained != '' }}
         run: python3 -m proof.matrix.place unpack "$RUNNER_TEMP/retained" proof
-      - uses: actions/download-artifact@v8
+      - id: artifact-attempt
+        run: echo "attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+      - name: Download the lane's shard outputs
+        id: shard-download
+        uses: ./.github/actions/proof-download
+        continue-on-error: true
         with:
-          pattern: proof-out-${{ inputs.label }}-${{ github.run_attempt }}-*
+          shard-counts: ${{ format('{0}:{1}={2}', inputs.label, steps.artifact-attempt.outputs.attempt, needs.emit.outputs.shards) }}
+          allow-missing: ${{ needs.shard.result != 'success' }}
           path: ${{ runner.temp }}/proof-shards
-      # A lane of one shard downloads one artifact, which download-artifact extracts loose into the path
-      # (src/download-artifact.ts, lines 185-194); proof/ci/shard-outputs.mjs gives it the directory a shard's
-      # output has when there are several, so every proof-shards/proof-out-* below reads it.
-      - name: Give a lone shard's output its directory
-        run: node proof/ci/shard-outputs.mjs --dir "$RUNNER_TEMP/proof-shards" --name "proof-out-$LABEL-$GITHUB_RUN_ATTEMPT-1"
-      - uses: actions/download-artifact@v8
+      - name: Download the early queue
+        uses: actions/download-artifact@v8
         with:
-          pattern: proof-*queue-${{ inputs.label }}-${{ github.run_attempt }}.json
+          name: proof-early-queue-${{ inputs.label }}-${{ github.run_attempt }}.json
           path: ${{ runner.temp }}/queues
-          merge-multiple: true
+      - name: Download the main queue
+        uses: actions/download-artifact@v8
+        with:
+          name: proof-queue-${{ inputs.label }}-${{ github.run_attempt }}.json
+          path: ${{ runner.temp }}/queues
       # Main's store: what a lane queued against it reads its cached groups' evidence from, and what every
       # record a lane observes is compared with.
       - name: Name the store's snapshots
@@ -604,13 +622,18 @@ jobs:
           python3 -m proof.store.audit compare --store "$RUNNER_TEMP/store/main" \
             --mismatches "$RUNNER_TEMP/audit" \
             "$RUNNER_TEMP"/proof-shards/proof-out-*
+      - name: Hold the shard artifact downloads to their result
+        if: ${{ !cancelled() && steps.shard-download.outcome == 'failure' }}
+        run: |
+          echo "::error::Downloading the proof shard outputs failed. The artifact step names what could not be read."
+          exit 1
       # Saved whatever the verdict and the comparison (fresh records are what
       # the lane observes, so they replace the store even where a stored one
       # was wrong), but only when every shard ran: a shard that could not run
       # leaves its blocks' records out, and main's previous snapshot is kept
       # rather than replaced by one that lacks them.
       - name: Pack the fresh store
-        if: ${{ !cancelled() && (inputs.store == 'save' || inputs.store == 'pack') && needs.shard.result == 'success' && steps.store.outputs.key != '' }}
+        if: ${{ !cancelled() && (inputs.store == 'save' || inputs.store == 'pack') && needs.shard.result == 'success' && steps.shard-download.outcome == 'success' && steps.store.outputs.key != '' }}
         id: pack
         env:
           FRESH: ${{ inputs.fresh }}

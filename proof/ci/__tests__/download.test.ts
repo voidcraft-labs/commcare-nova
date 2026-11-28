@@ -10,6 +10,16 @@ import { downloadNamed } from "../download.mjs";
 import { ArtifactService } from "./artifactService";
 import { Scripts } from "./scripts";
 
+function serving<T extends { name: string }>(artifacts: readonly T[]) {
+	return async (name: string) => {
+		const artifact = artifacts.find((artifact) => artifact.name === name);
+		if (artifact) return { artifact };
+		throw Object.assign(new Error(`Missing ${name}`), {
+			name: "ArtifactNotFoundError",
+		});
+	};
+}
+
 let directory: string;
 beforeEach(async () => {
 	directory = await mkdtemp(join(tmpdir(), "proof-download-"));
@@ -27,13 +37,7 @@ it.each([0, 1, 2])(
 			digest: `digest-${id}`,
 		}));
 		const service = {
-			listArtifacts: async () => ({
-				artifacts: [
-					...artifacts,
-					{ id: 99, name: "proof-store-old-2", digest: "old" },
-					{ id: 100, name: "proof-lane-verdict-other-1", digest: "other" },
-				],
-			}),
+			getArtifact: serving(artifacts),
 			downloadArtifact: vi.fn(
 				async (id: number, options: { path: string; expectedHash: string }) => {
 					expect(options.expectedHash).toBe(`digest-${id}`);
@@ -43,8 +47,8 @@ it.each([0, 1, 2])(
 			),
 		};
 		await downloadNamed(service, {
-			prefix: "proof-store-",
-			suffix: "-1",
+			names: [...artifacts.map((artifact) => artifact.name), "unpublished"],
+			allowMissing: true,
 			directory,
 		});
 		expect(service.downloadArtifact).toHaveBeenCalledTimes(count);
@@ -60,12 +64,12 @@ it("refuses corrupt downloaded evidence", async () => {
 	await expect(
 		downloadNamed(
 			{
-				listArtifacts: async () => ({
-					artifacts: [{ id: 1, name: "proof-store-lane-1", digest: "digest" }],
-				}),
+				getArtifact: serving([
+					{ id: 1, name: "proof-store-lane-1", digest: "digest" },
+				]),
 				downloadArtifact: async () => ({ digestMismatch: true }),
 			},
-			{ prefix: "proof-store-", suffix: "-1", directory },
+			{ names: ["proof-store-lane-1"], directory },
 		),
 	).rejects.toThrow("downloads failed");
 });
@@ -75,9 +79,7 @@ it.each(["digest", "transport"])(
 	async (failure) => {
 		const name = "proof-store-lane-1";
 		const service = {
-			listArtifacts: async () => ({
-				artifacts: [{ id: 1, name, digest: "digest" }],
-			}),
+			getArtifact: serving([{ id: 1, name, digest: "digest" }]),
 			downloadArtifact: async (_id: number, options: { path: string }) => {
 				await writeFile(join(options.path, "valid-looking-entry"), "{}");
 				if (failure === "transport") throw new Error("Disconnected");
@@ -86,8 +88,7 @@ it.each(["digest", "transport"])(
 		};
 		await expect(
 			downloadNamed(service, {
-				prefix: "proof-store-",
-				suffix: "-1",
+				names: [name],
 				directory,
 			}),
 		).rejects.toThrow();
@@ -106,13 +107,13 @@ it("downloads independent evidence after one artifact fails", async () => {
 	await expect(
 		downloadNamed(
 			{
-				listArtifacts: async () => ({ artifacts }),
+				getArtifact: serving(artifacts),
 				downloadArtifact: async (id: number, options: { path: string }) => {
 					await writeFile(join(options.path, "entry"), `${id}`);
 					return { digestMismatch: id === 0 };
 				},
 			},
-			{ prefix: "proof-store-", suffix: "-1", directory },
+			{ names: artifacts.map((artifact) => artifact.name), directory },
 		),
 	).rejects.toThrow();
 	await expect(
@@ -130,13 +131,15 @@ it.each([false, true])(
 		const scripts = new Scripts(service, directory);
 		await service.start();
 		try {
+			service.broadListingLimit = 1;
+			service.put("checkpoint", Buffer.from("unrelated"));
 			await writeFile(join(directory, "verdict.json"), '{"passed":true}');
 			const archive = join(directory, "evidence.zip");
 			await promisify(execFile)("zip", [archive, "verdict.json"], {
 				cwd: directory,
 			});
 			service.put(
-				"proof-lane-verdict-mechanics-1",
+				"proof-out-mechanics-1-1",
 				await readFile(archive),
 				corrupt ? `sha256:${"0".repeat(64)}` : undefined,
 				"application/zip",
@@ -148,8 +151,8 @@ it.each([false, true])(
 				{
 					env: {
 						...service.env("report"),
-						INPUT_PREFIX: "proof-lane-verdict-",
-						INPUT_SUFFIX: "-1",
+						"INPUT_SHARD-COUNTS": "mechanics:1=1",
+						GITHUB_RUN_ATTEMPT: "2",
 						INPUT_PATH: destination,
 					},
 				},
@@ -159,7 +162,7 @@ it.each([false, true])(
 				expect(result.stderr).toContain("digest validation");
 				await expect(
 					readFile(
-						join(destination, "proof-lane-verdict-mechanics-1", "verdict.json"),
+						join(destination, "proof-out-mechanics-1-1", "verdict.json"),
 					),
 				).rejects.toMatchObject({ code: "ENOENT" });
 				return;
@@ -170,7 +173,7 @@ it.each([false, true])(
 			expect(result.code, result.stderr).toBe(0);
 			expect(
 				await readFile(
-					join(destination, "proof-lane-verdict-mechanics-1", "verdict.json"),
+					join(destination, "proof-out-mechanics-1-1", "verdict.json"),
 					"utf8",
 				),
 			).toBe('{"passed":true}');
@@ -180,3 +183,23 @@ it.each([false, true])(
 		}
 	},
 );
+
+it("refuses a missing shard in a comparison that requires its complete evidence", async () => {
+	await expect(
+		downloadNamed(
+			{
+				getArtifact: serving([]),
+				downloadArtifact: async () => {
+					throw new Error("download should not run");
+				},
+			},
+			{ names: ["proof-out-audit-1-1"], directory },
+		),
+	).rejects.toMatchObject({
+		errors: [
+			expect.objectContaining({
+				message: "Proof artifact proof-out-audit-1-1 is missing.",
+			}),
+		],
+	});
+});

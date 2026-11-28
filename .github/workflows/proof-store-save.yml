@@ -84,6 +84,8 @@ jobs:
         continue-on-error: true
         with:
           prefix: proof-store-
+          labels: ${{ inputs.labels }}
+          allow-missing: 'true'
           suffix: -${{ github.run_attempt }}
           path: ${{ runner.temp }}/packed
       - name: Merge every call's packed store

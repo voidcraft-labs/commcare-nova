@@ -80,6 +80,17 @@ export function statusOf(error) {
 	return match ? Number(match[1]) : undefined;
 }
 
+/** Finds an exact name on the service, independent of its run-wide listing limit. */
+export async function findArtifact(service, name) {
+	try {
+		const { artifact } = await service.getArtifact(name);
+		return artifact;
+	} catch (error) {
+		if (error?.name === "ArtifactNotFoundError") return undefined;
+		throw error;
+	}
+}
+
 /**
  * Every artifact the run holds, as [{name, id, size, digest, createdAt}],
  * duplicates of a name included; createdAt is when the service created it,
