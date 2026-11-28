@@ -71,16 +71,28 @@ sha256_of() {
 }
 # fetched <file> <url> <sha256>: the file, downloaded where absent, refused where its bytes are not the named ones.
 fetched() {
-  if [ ! -f "$1" ]; then
-    mkdir -p "$(dirname "$1")"
-    curl -fsSLo "$1.part" "$2"
-    mv "$1.part" "$1"
+  artifact="$1"
+  url="$2"
+  expected="$3"
+  source="$artifact"
+  if [ ! -f "$artifact" ]; then
+    mkdir -p "$(dirname "$artifact")"
+    source="$artifact.part"
+    echo "build-runtime: downloading $(basename "$artifact") from $url"
+    if ! curl --fail --silent --show-error --location --retry 3 --retry-max-time 120 \
+      --connect-timeout 30 --max-time 180 --output "$source" "$url"; then
+      rm -f "$source"
+      echo "build-runtime: could not download $(basename "$artifact") from $url" >&2
+      exit 1
+    fi
   fi
-  actual="$(sha256_of "$1")"
-  if [ "$actual" != "$3" ]; then
-    echo "build-runtime: $1 has sha256 $actual, and proof/android/toolchain.json names $3" >&2
+  actual="$(sha256_of "$source")"
+  if [ "$actual" != "$expected" ]; then
+    if [ "$source" != "$artifact" ]; then rm -f "$source"; fi
+    echo "build-runtime: $artifact has sha256 $actual, and proof/android/toolchain.json names $expected" >&2
     exit 1
   fi
+  if [ "$source" != "$artifact" ]; then mv "$source" "$artifact"; fi
 }
 
 mkdir -p "$target"
