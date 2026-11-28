@@ -118,6 +118,7 @@ export class ArtifactService {
 		{ status: number; code: string; msg: string }
 	>();
 	private listings = 0;
+	broadListingLimit = Number.POSITIVE_INFINITY;
 	private revealFrom = 0;
 	private origin = "";
 
@@ -388,7 +389,10 @@ export class ArtifactService {
 					(idFilter === undefined || String(artifact.id) === String(idFilter)),
 			);
 			send(response, 200, {
-				artifacts: listed.map((artifact) => ({
+				artifacts: (nameFilter === undefined && idFilter === undefined
+					? listed.slice(0, this.broadListingLimit)
+					: listed
+				).map((artifact) => ({
 					workflow_run_backend_id: RUN,
 					workflow_job_run_backend_id: artifact.job,
 					database_id: String(artifact.id),

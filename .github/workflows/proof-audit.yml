@@ -192,7 +192,9 @@ jobs:
         continue-on-error: true
         uses: ./.github/actions/proof-download
         with:
-          prefix: proof-lane-verdict-mechanics
+          prefix: proof-lane-verdict-
+          labels: mechanics
+          allow-missing: 'true'
           suffix: -${{ github.run_attempt }}
           path: ${{ runner.temp }}/verdicts
       - env:
@@ -324,6 +326,8 @@ jobs:
         uses: ./.github/actions/proof-download
         with:
           prefix: proof-lane-verdict-
+          labels: audit audit-no-readers
+          allow-missing: 'true'
           suffix: -${{ github.run_attempt }}
           path: ${{ runner.temp }}/verdicts
       - env:
@@ -464,10 +468,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          sparse-checkout: proof
-      - uses: actions/download-artifact@v8
+          sparse-checkout: |
+            proof
+            .github/actions/proof-download
+      - name: Download the sampled lanes' shard outputs
+        uses: ./.github/actions/proof-download
         with:
-          pattern: proof-out-weekly-*
+          shard-counts: |
+            ${{ format('weekly-baseline={0}', needs.weekly-baseline.outputs.shards) }}
+            ${{ needs.weekly-unseeded.result == 'success' && format('weekly-unseeded={0}', needs.weekly-unseeded.outputs.shards) || '' }}
+            ${{ needs.weekly-unseamed.result == 'success' && format('weekly-unseamed={0}', needs.weekly-unseamed.outputs.shards) || '' }}
           path: ${{ runner.temp }}/lanes
       # Each side is one lane run: --left and --right each take every shard
       # output that run uploaded, one directory per shard.
@@ -520,6 +530,8 @@ jobs:
         uses: ./.github/actions/proof-download
         with:
           prefix: proof-lane-verdict-
+          labels: weekly-verified weekly-no-readers weekly-baseline weekly-unseeded weekly-unseamed
+          allow-missing: 'true'
           suffix: -${{ github.run_attempt }}
           path: ${{ runner.temp }}/verdicts
       - env:

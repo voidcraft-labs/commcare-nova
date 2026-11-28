@@ -95,7 +95,9 @@ function wait(...extra: string[]) {
 const listing = async (directory: string) =>
 	(await readdir(directory, { recursive: true })).sort();
 
-it("brings the queue and the corpus the run holds into place", async () => {
+it("fetches the queue and corpus beyond the run-wide artifact listing limit", async () => {
+	service.broadListingLimit = 1;
+	service.put("checkpoint", Buffer.from("unrelated"));
 	service.put(NAMES.corpus, await corpus());
 	service.put(NAMES.queue, Buffer.from(QUEUE));
 	const result = await wait();
@@ -133,7 +135,7 @@ it("waits for a queue that arrives later, listing until it does", async () => {
 	service.put(NAMES.corpus, await corpus());
 	service.put(NAMES.queue, Buffer.from(QUEUE));
 	const result = await wait();
-	expect([result.code, result.record.listings]).toEqual([0, 4]);
+	expect([result.code, result.record.listings]).toEqual([0, 3]);
 	expect(await readFile(destinations().queue, "utf8")).toBe(QUEUE);
 });
 

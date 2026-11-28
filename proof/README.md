@@ -6914,6 +6914,10 @@ The pin pull request is prewarmed in the pull request lane's profile
 (`upstream-pins.yml`), so its CI reads its records like any other pull
 request's.
 
+Scheduled lanes fetch their queues, shard outputs and verdicts by exact
+artifact name. The run-wide GitHub listing can omit older files once
+checkpoint uploads fill its limit.
+
 ## Changing a pin
 
 `proof/pins.json` names the commit of each upstream the harness uses

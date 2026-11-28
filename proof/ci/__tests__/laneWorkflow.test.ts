@@ -166,7 +166,6 @@ it("gives a lone shard's output its directory after every download of the shards
 	expect(downloads.sort()).toEqual([
 		"ci.yml:proof-store",
 		"ci.yml:proofs-gate",
-		"proof-lane.yml:gate",
 	]);
 });
 

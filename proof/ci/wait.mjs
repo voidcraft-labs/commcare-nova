@@ -7,14 +7,14 @@
 // NAME are artifacts of this workflow run: the queue (one JSON file), the
 // corpus (one zstd-compressed tar of the emitted corpus directory), and the
 // marker the emitting job uploads when it fails before the queue. The emitting
-// job uploads the corpus before the queue, so a listing that holds the queue
-// holds the corpus. The queue is written to --queue-to (default
+// job uploads the corpus before the queue, so a visible queue also has a
+// corpus. The queue is written to --queue-to (default
 // PROOF_LANE_QUEUE, which the lane's server sets for its wait command) and the
 // corpus unpacked into --corpus-to (default PROOF_CORPUS), which must be empty:
 // the corpus first, then the queue, staged beside its destination and moved
 // into place whole, so a queue in place always has its corpus.
 //
-// It lists the run's artifacts every --poll seconds (2 by default) until the
+// It checks exact artifact names every --poll seconds (2 by default) until the
 // queue is there, the marker is there, or --deadline seconds (600 by default)
 // have passed on the monotonic clock. Exit status, as the lane's server reads
 // it (proof/lane/serve.py): 0 when the queue and corpus are in place, 3 when
@@ -33,7 +33,13 @@ import { pipeline } from "node:stream/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import { parseArgs } from "node:util";
 import zlib from "node:zlib";
-import { download, EXIT, listAll, recordsOnStdout } from "./artifacts.mjs";
+import {
+	client,
+	download,
+	EXIT,
+	findArtifact,
+	recordsOnStdout,
+} from "./artifacts.mjs";
 
 const USAGE =
 	"node proof/ci/wait.mjs --queue NAME --corpus NAME --failed NAME [--queue-to FILE] [--corpus-to DIR] [--deadline SECONDS] [--poll SECONDS] [--once]";
@@ -190,16 +196,12 @@ async function main() {
 	let result;
 	try {
 		const settings = options(process.argv.slice(2));
+		const service = await client();
 		for (;;) {
 			costs.listings += 1;
-			const artifacts = await listAll();
-			const named = (name) =>
-				artifacts
-					.filter((artifact) => artifact.name === name)
-					.sort((a, b) => b.id - a.id)[0];
-			const queue = named(settings.queue);
+			const queue = await findArtifact(service, settings.queue);
 			if (queue) {
-				const corpus = named(settings.corpus);
+				const corpus = await findArtifact(service, settings.corpus);
 				if (!corpus) {
 					throw new Error(
 						`The run holds the queue ${settings.queue} and no corpus ${settings.corpus}, and the emitting job uploads the corpus first; look at its upload steps.`,
@@ -214,7 +216,7 @@ async function main() {
 				};
 				break;
 			}
-			if (named(settings.failed)) {
+			if (await findArtifact(service, settings.failed)) {
 				result = {
 					outcome: "emission-failed",
 					code: EXIT.emissionFailed,

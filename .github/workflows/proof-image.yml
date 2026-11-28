@@ -325,10 +325,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          sparse-checkout: proof
-      - uses: actions/download-artifact@v8
+          sparse-checkout: |
+            proof
+            .github/actions/proof-download
+      - name: Download the image lanes' shard outputs
+        uses: ./.github/actions/proof-download
         with:
-          pattern: proof-out-image-*
+          shard-counts: |
+            ${{ format('image-slim={0}', needs.lane-slim.outputs.shards) }}
+            ${{ needs.lane-full.result == 'success' && format('image-full={0}', needs.lane-full.outputs.shards) || '' }}
+            ${{ needs.lane-arm64.result == 'success' && format('image-arm64={0}', needs.lane-arm64.outputs.shards) || '' }}
+            ${{ needs.lane-readers-slim.result == 'success' && needs.lane-readers-full.result == 'success' && format('image-readers-slim={0} image-readers-full={1}', needs.lane-readers-slim.outputs.shards, needs.lane-readers-full.outputs.shards) || '' }}
           path: ${{ runner.temp }}/lanes
       # Each side is one lane run: --left and --right each take every shard
       # output that run uploaded, one directory per shard. No label is the
@@ -507,7 +514,9 @@ jobs:
         continue-on-error: true
         uses: ./.github/actions/proof-download
         with:
-          prefix: proof-lane-verdict-image-
+          prefix: proof-lane-verdict-
+          labels: image-slim image-full image-arm64 image-readers-slim image-readers-full
+          allow-missing: 'true'
           suffix: -${{ github.run_attempt }}
           path: ${{ runner.temp }}/verdicts
       - env:

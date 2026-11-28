@@ -10,6 +10,16 @@ import { downloadNamed } from "../download.mjs";
 import { ArtifactService } from "./artifactService";
 import { Scripts } from "./scripts";
 
+function serving<T extends { name: string }>(artifacts: readonly T[]) {
+	return async (name: string) => {
+		const artifact = artifacts.find((artifact) => artifact.name === name);
+		if (artifact) return { artifact };
+		throw Object.assign(new Error(`Missing ${name}`), {
+			name: "ArtifactNotFoundError",
+		});
+	};
+}
+
 let directory: string;
 beforeEach(async () => {
 	directory = await mkdtemp(join(tmpdir(), "proof-download-"));
@@ -27,13 +37,7 @@ it.each([0, 1, 2])(
 			digest: `digest-${id}`,
 		}));
 		const service = {
-			listArtifacts: async () => ({
-				artifacts: [
-					...artifacts,
-					{ id: 99, name: "proof-store-old-2", digest: "old" },
-					{ id: 100, name: "proof-lane-verdict-other-1", digest: "other" },
-				],
-			}),
+			getArtifact: serving(artifacts),
 			downloadArtifact: vi.fn(
 				async (id: number, options: { path: string; expectedHash: string }) => {
 					expect(options.expectedHash).toBe(`digest-${id}`);
@@ -43,8 +47,8 @@ it.each([0, 1, 2])(
 			),
 		};
 		await downloadNamed(service, {
-			prefix: "proof-store-",
-			suffix: "-1",
+			names: [...artifacts.map((artifact) => artifact.name), "unpublished"],
+			allowMissing: true,
 			directory,
 		});
 		expect(service.downloadArtifact).toHaveBeenCalledTimes(count);
@@ -60,12 +64,12 @@ it("refuses corrupt downloaded evidence", async () => {
 	await expect(
 		downloadNamed(
 			{
-				listArtifacts: async () => ({
-					artifacts: [{ id: 1, name: "proof-store-lane-1", digest: "digest" }],
-				}),
+				getArtifact: serving([
+					{ id: 1, name: "proof-store-lane-1", digest: "digest" },
+				]),
 				downloadArtifact: async () => ({ digestMismatch: true }),
 			},
-			{ prefix: "proof-store-", suffix: "-1", directory },
+			{ names: ["proof-store-lane-1"], directory },
 		),
 	).rejects.toThrow("downloads failed");
 });
@@ -106,13 +110,13 @@ it("downloads independent evidence after one artifact fails", async () => {
 	await expect(
 		downloadNamed(
 			{
-				listArtifacts: async () => ({ artifacts }),
+				getArtifact: serving(artifacts),
 				downloadArtifact: async (id: number, options: { path: string }) => {
 					await writeFile(join(options.path, "entry"), `${id}`);
 					return { digestMismatch: id === 0 };
 				},
 			},
-			{ prefix: "proof-store-", suffix: "-1", directory },
+			{ names: artifacts.map((artifact) => artifact.name), directory },
 		),
 	).rejects.toThrow();
 	await expect(
@@ -130,6 +134,8 @@ it.each([false, true])(
 		const scripts = new Scripts(service, directory);
 		await service.start();
 		try {
+			service.broadListingLimit = 1;
+			service.put("checkpoint", Buffer.from("unrelated"));
 			await writeFile(join(directory, "verdict.json"), '{"passed":true}');
 			const archive = join(directory, "evidence.zip");
 			await promisify(execFile)("zip", [archive, "verdict.json"], {
@@ -150,6 +156,7 @@ it.each([false, true])(
 						...service.env("report"),
 						INPUT_PREFIX: "proof-lane-verdict-",
 						INPUT_SUFFIX: "-1",
+						INPUT_LABELS: "mechanics",
 						INPUT_PATH: destination,
 					},
 				},
@@ -180,3 +187,23 @@ it.each([false, true])(
 		}
 	},
 );
+
+it("refuses a missing shard in a comparison that requires its complete evidence", async () => {
+	await expect(
+		downloadNamed(
+			{
+				getArtifact: serving([]),
+				downloadArtifact: async () => {
+					throw new Error("download should not run");
+				},
+			},
+			{ names: ["proof-out-audit-1-1"], directory },
+		),
+	).rejects.toMatchObject({
+		errors: [
+			expect.objectContaining({
+				message: "Proof artifact proof-out-audit-1-1 is missing.",
+			}),
+		],
+	});
+});
