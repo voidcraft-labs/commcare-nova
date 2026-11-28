@@ -226,7 +226,8 @@ harness keeps, each with its reason.
   `proof/checks/parity.py` run the reader bundle the corpus carries
   (`native/reader/reader.mjs`, and sharp's runtime beside it, each of its
   files held by name, `readerbundle.py::held_runtime`; built by
-  `proof/reader/build.mjs` in the corpus job) under the image's Node, through
+  `proof/reader/build.mjs` in the corpus job, on the shard's architecture)
+  under the image's Node, through
   `proof/checks/readerbundle.py`; the first-publish judge reads the claim log
   parity's judge read (`parity.claim_places_of`). Parity joins an appearance
   attribute once, on the inventory row the lane's own classifier puts its

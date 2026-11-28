@@ -214,6 +214,16 @@ async function readWith(
 	return { ran, answers, trapped: await readFile(trapLog, "utf8") };
 }
 
+function expectOnlyBundledModules(trapped: string, bundle: string) {
+	const directory = `${realpathSync(bundle)}/`;
+	const lines = trapped.split("\n").filter((line) => line !== "");
+	expect(lines.length).toBeGreaterThan(0);
+	for (const line of lines) {
+		expect(line.startsWith("module "), line).toBe(true);
+		expect(line.split(" ").at(-1)?.startsWith(directory), line).toBe(true);
+	}
+}
+
 /** Every file under `root`, as [its path under `root`, in / form], sorted. */
 async function filesUnder(root: string): Promise<string[]> {
 	const entries = await readdir(root, { recursive: true, withFileTypes: true });
@@ -332,7 +342,7 @@ it(
 		]);
 		expect(ran.stderr).toBe("");
 		expect(ran.code).toBe(0);
-		expect(trapped).toBe("");
+		expectOnlyBundledModules(trapped, first);
 		expect(answers?.[0]).toMatchObject({
 			id: "read-back",
 			kind: "read",
@@ -416,7 +426,7 @@ it(
 		]);
 		expect(ran.code).toBe(1);
 		expect(answers).toBeNull();
-		expect(trapped).toBe("");
+		expectOnlyBundledModules(trapped, first);
 		// Nova's logger writes beside it: the client's own lines about the refused request.
 		expect(ran.stderr.trimEnd().split("\n").at(-1)).toBe(
 			`Nova's reader asked CommCare HQ for /a/nova-proof/api/application/v1/${APP_ID}/ while it read navigation-base, and the lane holds no answer for that request. The retained answers are every request Nova's client makes of an app; either the client now asks for something new, which the lane must read and keep (proof/matrix/retain.py), or it built an address HQ does not give.`,
@@ -505,15 +515,31 @@ it(
 					`media:${picture.path}`,
 				],
 			});
-			const lines = trapped.split("\n").filter((line) => line !== "");
-			expect(lines).toContain(
-				`module sharp ${realpathSync(join(alone, "node_modules/sharp/dist/index.cjs"))}`,
+			expectOnlyBundledModules(trapped, alone);
+		} finally {
+			await rm(alone, { recursive: true, force: true });
+		}
+	},
+	BUDGET_MS,
+);
+
+it(
+	"fails before reading when the native image binding cannot load",
+	async () => {
+		const alone = await mkdtemp(join(tmpdir(), "proof-reader-broken-binding-"));
+		try {
+			await cp(second, alone, { recursive: true });
+			const nativeBinding = (await filesUnder(alone)).find((path) =>
+				path.endsWith(".node"),
 			);
-			const directory = `${realpathSync(alone)}/`;
-			for (const line of lines) {
-				expect(line.startsWith("module "), line).toBe(true);
-				expect(line.split(" ").at(-1)?.startsWith(directory), line).toBe(true);
-			}
+			if (nativeBinding === undefined)
+				throw new Error("The bundle must carry a native binding.");
+			await writeFile(join(alone, nativeBinding), "invalid native code");
+			const { ran, answers } = await readWith(alone, []);
+			expect(ran.code).not.toBe(0);
+			expect(ran.stderr).toContain("Could not load the");
+			expect(ran.stderr).toContain("sharp");
+			expect(answers).toBeNull();
 		} finally {
 			await rm(alone, { recursive: true, force: true });
 		}

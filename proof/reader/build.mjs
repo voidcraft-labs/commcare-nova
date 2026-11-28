@@ -13,7 +13,7 @@
 //   package sharp loads (its JavaScript, its dependencies, and the binding
 //   and libvips npm installed for this platform), file for file, at the paths
 //   they have under the checkout's node_modules/, so the bundle's
-//   `require("sharp")` resolves to them beside it and a lane shard, which
+//   `import sharp` resolves to them beside it and a lane shard, which
 //   mounts no node_modules, judges a file with the sharp and libvips
 //   production's package-lock.json names;
 // - runtime.json: { "platform": <sharp's name for this platform>,
@@ -60,36 +60,6 @@ function outDirectory(argv) {
 	}
 	return resolve(out);
 }
-
-/**
- * sharp is a native addon, and Nova's media validation imports it at the
- * top of its module (`lib/media/validate.ts`). In the bundle it is required
- * on its first call instead, through the banner's `require`, which resolves
- * it from the bundle's own directory: the runtime this build copies there.
- * So a reading that judges no picture never loads it.
- */
-const sharpOnFirstCall = {
-	name: "sharp-on-first-call",
-	setup(builder) {
-		// The stand-in's own `require("sharp")` stays a require of the package at
-		// run time; every other import of sharp is the stand-in.
-		builder.onResolve({ filter: /^sharp$/ }, (args) =>
-			args.namespace === "sharp-on-first-call"
-				? { path: "sharp", external: true }
-				: { path: "sharp", namespace: "sharp-on-first-call" },
-		);
-		builder.onLoad({ filter: /.*/, namespace: "sharp-on-first-call" }, () => ({
-			contents: [
-				"let loaded;",
-				"export default function sharp(...args) {",
-				'\tloaded ??= require("sharp");',
-				"\treturn loaded(...args);",
-				"}",
-			].join("\n"),
-			loader: "js",
-		}));
-	},
-};
 
 /** `path` relative to `root`, in / form. */
 function posix(root, path) {
@@ -265,7 +235,9 @@ await build({
 			"const __dirname = __readerDirname(__filename);",
 		].join("\n"),
 	},
-	plugins: [sharpOnFirstCall],
+	// Load the binding before any request. A runtime failure must fail the
+	// reader process before the media validator can classify it as a bad image.
+	external: [RUNTIME],
 	logLevel: "warning",
 });
 

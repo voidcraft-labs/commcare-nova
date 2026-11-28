@@ -101,6 +101,21 @@ it.each([
 	},
 );
 
+it("builds the corpus with the same native architecture as its proof shards", async () => {
+	const workflow = parse(
+		await readFile(join(WORKTREE, ".github/workflows/proof-lane.yml"), "utf8"),
+	);
+	expect(workflow.jobs.emit["runs-on"]).toBe(
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: This is a literal GitHub expression.
+		"${{ inputs.runner }}",
+	);
+	expect(
+		workflow.jobs.emit.steps.find(
+			(step: { name?: string }) => step.name === "Emit the proof corpus",
+		)?.run,
+	).toContain("python3 -m proof.native.produce");
+});
+
 it("runs as many of a lane's shards at once as the planner fills its rounds with", async () => {
 	const workflow = parse(
 		await readFile(join(WORKTREE, ".github/workflows/proof-lane.yml"), "utf8"),
