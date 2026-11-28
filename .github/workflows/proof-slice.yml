@@ -98,7 +98,7 @@ jobs:
           if not paths:
               raise SystemExit('Name specific proof test files or items; a slice cannot run the whole proof.')
           readers = parse(os.environ['PROOF_READERS'])
-          if os.environ['ARCHITECTURE'] == 'arm64' and 'android' in readers:
+          if os.environ.get('ARCHITECTURE', 'amd64') == 'arm64' and 'android' in readers:
               raise SystemExit('The Android reader requires amd64. Select readers=0 or name the other readers for arm64.')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               print(f'android={str("android" in readers).lower()}', file=output)

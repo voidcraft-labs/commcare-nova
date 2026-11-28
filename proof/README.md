@@ -1186,6 +1186,7 @@ worker, and continues after assertion failures. `slice_readers` accepts
 loads the Android runtime when selected but runs only its selected checks;
 the scheduled lane still runs every reader selfcheck and predicate. This
 is a verdict on those tests alone, not the corpus gate.
+
 For an image comparison failure on arm64, dispatch the slice with
 `architecture=arm64` and `readers=0`. The Android reader requires amd64.
 

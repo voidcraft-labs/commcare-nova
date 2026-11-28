@@ -443,6 +443,18 @@ it("executes slice validation against a named test and refuses broader paths and
 		expect(
 			JSON.parse(await readFile(join(scratch, "proof-selectors.json"), "utf8")),
 		).toEqual(["proof/android/test_navigation.py", "-k", "entry_point"]);
+		await expect(
+			run("bash", ["-e", "-c", validation], {
+				cwd: WORKTREE,
+				env: {
+					...env,
+					ARCHITECTURE: "arm64",
+					SELECTORS: "proof/android/test_navigation.py -k entry_point",
+				},
+			}),
+		).rejects.toMatchObject({
+			stderr: expect.stringContaining("Android reader requires amd64"),
+		});
 		const piece =
 			"proof/checks/pieces.py::test_a_configuration_is_observed_into_the_runs_store[targeted-search-hq-compile@minimum]";
 		await run("bash", ["-e", "-c", validation], {
