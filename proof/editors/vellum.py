@@ -138,8 +138,10 @@ HQ stored, with the options recomputed from HQ's state after the first save.
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 from proof.editors import seeding, transcripts
 from proof.editors.client import EditorDriver, EditorDriverError, cookie_list
@@ -650,15 +652,48 @@ def _comparable_events(events):
     return [event["name"] for event in events if not event["name"].startswith("parse:")]
 
 
+def redundant_submission_checks(run: VellumRun) -> set[str]:
+    """URLs of submission checks that only repeated HQ's initial read for this form."""
+    # HQ already gives Vellum the submission flag in its initial options.
+    # Vellum can refresh it during question validation on a throttle. A
+    # successful read of the same flag changes nothing about the observed
+    # save. Keep the raw exchanges for replay and diagnostics, and keep any
+    # failed or changed refresh in the comparison.
+    checks = [exchange for exchange in run.exchanges if exchange.url_name == "form_has_submissions"]
+    if not checks:
+        return set()
+    core = json.loads(run.spec["options"])["core"]
+    initial, url = core.get("hasSubmissions"), core.get("hasSubmissionsUrl")
+    if type(initial) is not bool or not url:
+        return set()
+    target = urlsplit(url)
+    for exchange in checks:
+        if (exchange.path, exchange.query) != (target.path, target.query):
+            return set()
+        if exchange.method != "GET" or exchange.status != 200 or exchange.wrote is not False:
+            return set()
+        try:
+            body = json.loads(exchange.response)
+        except (TypeError, ValueError):
+            return set()
+        if not isinstance(body, dict) or body.keys() != {"form_has_submissions"}:
+            return set()
+        if body["form_has_submissions"] is not initial:
+            return set()
+    return {exchange.url for exchange in checks}
+
+
 def _asked(run: VellumRun) -> list:
     """Every request the page had HQ answer, by method, path and query, in a fixed order, but for the editors'
     static files: the warm host's origin answers those itself, and a fresh page asks HQ for one the editors' static
     directory lacks; whether the page asks for one at all depends on Chromium's cache (``pages.page_requests``
-    leaves them out of a run's outputs too)."""
+    leaves them out of a run's outputs too). A read-only refresh of the submission flag already given to this
+    form is also incidental to the comparison. The run's raw exchanges still hold it."""
+    redundant = redundant_submission_checks(run)
     return sorted(
         (exchange.method, exchange.path, exchange.query)
         for exchange in run.exchanges
-        if not exchange.path.startswith(STATIC_PREFIX)
+        if not exchange.path.startswith(STATIC_PREFIX) and exchange.url not in redundant
     )
 
 

@@ -1858,6 +1858,7 @@ def test_vellum_save_reports_ignore_only_an_unchanged_read_of_the_initial_submis
     from types import SimpleNamespace
 
     from proof.editors.hq import Exchange
+    from proof.editors.vellum import _asked
     from proof.observe.proof4 import vellum_report
 
     path = "/a/test/apps/view/app/form_has_submissions/form/"
@@ -1882,10 +1883,15 @@ def test_vellum_save_reports_ignore_only_an_unchanged_read_of_the_initial_submis
     run.exchanges.append(exchange)
     assert vellum_report(run)["outputs"] == baseline
     assert run.outputs["requests"] == [request, save]
+    assert _asked(run) == []
 
     exchange.path = path.replace("/form/", "/previous-form/")
+    exchange.url = "http://hq.proof.test" + exchange.path
+    request["url"] = exchange.url
     assert vellum_report(run)["outputs"]["requests"] == [request, save]
+    assert _asked(run) == [("GET", exchange.path, "")]
     exchange.path = path
+    exchange.url = request["url"] = url
     exchange.response = b'{"form_has_submissions": true}'
     assert vellum_report(run)["outputs"]["requests"] == [request, save]
     exchange.status = 503
