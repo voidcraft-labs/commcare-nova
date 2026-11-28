@@ -585,7 +585,9 @@ harness keeps, each with its reason.
   after them judges it whole, reading every part and observing nothing. A
   configuration is normally the smallest piece. The seeded all-reader lane also
   partitions the oversized single-configuration agriculture starter by complete HQ
-  views and Vellum forms. All readers observe each assigned save together. The
+  views and Vellum forms. The Vellum save comparison leaves out a successful,
+  read-only submission check only when it echoed the flag HQ supplied at
+  open. The driver's exchanges still retain the request and response. All readers observe each assigned save together. The
   whole-document group requires both current-run fragments of the same B and
   judges the complete record. Connect opportunities stay in one observation.
   Never divide an observation finer (by part, by reader,

@@ -1851,3 +1851,49 @@ def test_bs_app_read_once_is_read_only_while_hq_holds_its_document_and_verify_ho
     assert again == at_b
     assert {page: offer for page, offer in stale_offers}[pages.CASE_LIST][0] == observed.SKIPPED
     assert (stale_vellum["offer"], stale_vellum["reason"]) == (observed.SKIPPED, "the form has no source")
+
+
+
+def test_vellum_save_reports_ignore_only_an_unchanged_read_of_the_initial_submission_flag():
+    from types import SimpleNamespace
+
+    from proof.editors.hq import Exchange
+    from proof.editors.vellum import _asked
+    from proof.observe.proof4 import vellum_report
+
+    path = "/a/test/apps/view/app/form_has_submissions/form/"
+    url = "http://hq.proof.test" + path
+    request = {"method": "GET", "answeredBy": "hq", "status": 200, "url": url}
+    save = {"method": "POST", "answeredBy": "hq", "status": 200, "url": "http://hq.proof.test/save"}
+    outputs = {"requests": [save]}
+    run = SimpleNamespace(
+        source="<form/>",
+        spec={"options": json.dumps({"core": {"hasSubmissions": False, "hasSubmissionsUrl": path}})},
+        outputs=outputs,
+        exchanges=[],
+        saves=[],
+    )
+    baseline = vellum_report(run)["outputs"]
+    assert baseline["requests"] == [save]
+    outputs["requests"].insert(0, request)
+    exchange = Exchange(
+        method="GET", path=path, query="", url_name="form_has_submissions",
+        view=None, status=200, seconds=0, response=b'{"form_has_submissions": false}', wrote=False, url=url,
+    )
+    run.exchanges.append(exchange)
+    assert vellum_report(run)["outputs"] == baseline
+    assert run.outputs["requests"] == [request, save]
+    assert _asked(run) == []
+
+    exchange.path = path.replace("/form/", "/previous-form/")
+    exchange.url = "http://hq.proof.test" + exchange.path
+    request["url"] = exchange.url
+    assert vellum_report(run)["outputs"]["requests"] == [request, save]
+    assert _asked(run) == [("GET", exchange.path, "")]
+    exchange.path = path
+    exchange.url = request["url"] = url
+    exchange.response = b'{"form_has_submissions": true}'
+    assert vellum_report(run)["outputs"]["requests"] == [request, save]
+    exchange.status = 503
+    request["status"] = 503
+    assert vellum_report(run)["outputs"]["requests"] == [request, save]

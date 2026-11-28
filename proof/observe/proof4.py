@@ -896,12 +896,32 @@ def page_report(saved, shown_before=None):
     return report
 
 
+def _vellum_report_outputs(run):
+    from proof.editors.vellum import redundant_submission_checks
+
+    urls = redundant_submission_checks(run)
+    if not urls:
+        return run.outputs
+    return {
+        **run.outputs,
+        "requests": [
+            request for request in run.outputs["requests"]
+            if not (
+                request.get("method") == "GET"
+                and request.get("answeredBy") == "hq"
+                and request.get("status") == 200
+                and request.get("url") in urls
+            )
+        ],
+    }
+
+
 def vellum_report(run):
     """What one Vellum run showed and HQ answered, as data (``proof.editors.vellum.VellumRun``)."""
     return {
         "kind": "vellum",
         "source": run.source,
-        "outputs": _json(run.outputs),
+        "outputs": _json(_vellum_report_outputs(run)),
         "saves": [
             {"urlName": save.url_name, "status": save.status, "body": _text(save.response)} for save in run.saves
         ],
