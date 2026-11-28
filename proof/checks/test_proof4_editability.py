@@ -1860,13 +1860,14 @@ def test_vellum_save_reports_ignore_only_an_unchanged_read_of_the_initial_submis
     from proof.editors.hq import Exchange
     from proof.observe.proof4 import vellum_report
 
-    url = "http://hq.proof.test/a/test/apps/view/app/form_has_submissions/form/"
+    path = "/a/test/apps/view/app/form_has_submissions/form/"
+    url = "http://hq.proof.test" + path
     request = {"method": "GET", "answeredBy": "hq", "status": 200, "url": url}
     save = {"method": "POST", "answeredBy": "hq", "status": 200, "url": "http://hq.proof.test/save"}
     outputs = {"requests": [save]}
     run = SimpleNamespace(
         source="<form/>",
-        spec={"options": '{"core":{"hasSubmissions":false}}'},
+        spec={"options": json.dumps({"core": {"hasSubmissions": False, "hasSubmissionsUrl": path}})},
         outputs=outputs,
         exchanges=[],
         saves=[],
@@ -1875,13 +1876,16 @@ def test_vellum_save_reports_ignore_only_an_unchanged_read_of_the_initial_submis
     assert baseline["requests"] == [save]
     outputs["requests"].insert(0, request)
     exchange = Exchange(
-        method="GET", path="/form_has_submissions/", query="", url_name="form_has_submissions",
+        method="GET", path=path, query="", url_name="form_has_submissions",
         view=None, status=200, seconds=0, response=b'{"form_has_submissions": false}', wrote=False, url=url,
     )
     run.exchanges.append(exchange)
     assert vellum_report(run)["outputs"] == baseline
     assert run.outputs["requests"] == [request, save]
 
+    exchange.path = path.replace("/form/", "/previous-form/")
+    assert vellum_report(run)["outputs"]["requests"] == [request, save]
+    exchange.path = path
     exchange.response = b'{"form_has_submissions": true}'
     assert vellum_report(run)["outputs"]["requests"] == [request, save]
     exchange.status = 503

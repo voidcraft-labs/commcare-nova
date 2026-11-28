@@ -98,6 +98,7 @@ import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from proof.diagnostics import stages
 from proof.lane import progress
@@ -905,10 +906,14 @@ def _vellum_report_outputs(run):
     checks = [exchange for exchange in run.exchanges if exchange.url_name == "form_has_submissions"]
     if not checks:
         return run.outputs
-    initial = json.loads(run.spec["options"])["core"].get("hasSubmissions")
-    if type(initial) is not bool:
+    core = json.loads(run.spec["options"])["core"]
+    initial, url = core.get("hasSubmissions"), core.get("hasSubmissionsUrl")
+    if type(initial) is not bool or not url:
         return run.outputs
+    target = urlsplit(url)
     for exchange in checks:
+        if (exchange.path, exchange.query) != (target.path, target.query):
+            return run.outputs
         if exchange.method != "GET" or exchange.status != 200 or exchange.wrote is not False:
             return run.outputs
         try:
