@@ -135,7 +135,7 @@ it("waits for a queue that arrives later, listing until it does", async () => {
 	service.put(NAMES.corpus, await corpus());
 	service.put(NAMES.queue, Buffer.from(QUEUE));
 	const result = await wait();
-	expect([result.code, result.record.listings]).toEqual([0, 3]);
+	expect([result.code, result.record.listings]).toEqual([0, 6]);
 	expect(await readFile(destinations().queue, "utf8")).toBe(QUEUE);
 });
 
@@ -162,7 +162,10 @@ it("gives up once its deadline passes on the monotonic clock", async () => {
 
 it("looks once with --once and leaves the destinations as they were", async () => {
 	const result = await wait("--once");
-	expect([result.code, result.record.listings]).toEqual([5, 1]);
+	expect([result.code, result.record.listings]).toEqual([5, 2]);
+	expect(
+		service.calls.filter((call) => call.method === "ListArtifacts"),
+	).toHaveLength(result.record.listings);
 	await expect(readdir(join(scratch, "lane"))).rejects.toThrow();
 });
 

@@ -197,11 +197,14 @@ async function main() {
 	try {
 		const settings = options(process.argv.slice(2));
 		const service = await client();
-		for (;;) {
+		const lookup = (name) => {
 			costs.listings += 1;
-			const queue = await findArtifact(service, settings.queue);
+			return findArtifact(service, name);
+		};
+		for (;;) {
+			const queue = await lookup(settings.queue);
 			if (queue) {
-				const corpus = await findArtifact(service, settings.corpus);
+				const corpus = await lookup(settings.corpus);
 				if (!corpus) {
 					throw new Error(
 						`The run holds the queue ${settings.queue} and no corpus ${settings.corpus}, and the emitting job uploads the corpus first; look at its upload steps.`,
@@ -216,7 +219,7 @@ async function main() {
 				};
 				break;
 			}
-			if (await findArtifact(service, settings.failed)) {
+			if (await lookup(settings.failed)) {
 				result = {
 					outcome: "emission-failed",
 					code: EXIT.emissionFailed,

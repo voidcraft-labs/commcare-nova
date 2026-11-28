@@ -79,9 +79,7 @@ it.each(["digest", "transport"])(
 	async (failure) => {
 		const name = "proof-store-lane-1";
 		const service = {
-			listArtifacts: async () => ({
-				artifacts: [{ id: 1, name, digest: "digest" }],
-			}),
+			getArtifact: serving([{ id: 1, name, digest: "digest" }]),
 			downloadArtifact: async (_id: number, options: { path: string }) => {
 				await writeFile(join(options.path, "valid-looking-entry"), "{}");
 				if (failure === "transport") throw new Error("Disconnected");
@@ -90,8 +88,7 @@ it.each(["digest", "transport"])(
 		};
 		await expect(
 			downloadNamed(service, {
-				prefix: "proof-store-",
-				suffix: "-1",
+				names: [name],
 				directory,
 			}),
 		).rejects.toThrow();
