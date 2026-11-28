@@ -896,12 +896,50 @@ def page_report(saved, shown_before=None):
     return report
 
 
+def _vellum_report_outputs(run):
+    # HQ already gives Vellum the submission flag in its initial options.
+    # Vellum can refresh it during question validation on a throttle. A
+    # successful read of the same flag changes nothing about the observed
+    # save. Keep the raw exchanges for replay and diagnostics, and keep any
+    # failed or changed refresh in the comparison.
+    checks = [exchange for exchange in run.exchanges if exchange.url_name == "form_has_submissions"]
+    if not checks:
+        return run.outputs
+    initial = json.loads(run.spec["options"])["core"].get("hasSubmissions")
+    if type(initial) is not bool:
+        return run.outputs
+    for exchange in checks:
+        if exchange.method != "GET" or exchange.status != 200 or exchange.wrote is not False:
+            return run.outputs
+        try:
+            body = json.loads(exchange.response)
+        except (TypeError, ValueError):
+            return run.outputs
+        if not isinstance(body, dict) or body.keys() != {"form_has_submissions"}:
+            return run.outputs
+        if body["form_has_submissions"] is not initial:
+            return run.outputs
+    urls = {exchange.url for exchange in checks}
+    return {
+        **run.outputs,
+        "requests": [
+            request for request in run.outputs["requests"]
+            if not (
+                request.get("method") == "GET"
+                and request.get("answeredBy") == "hq"
+                and request.get("status") == 200
+                and request.get("url") in urls
+            )
+        ],
+    }
+
+
 def vellum_report(run):
     """What one Vellum run showed and HQ answered, as data (``proof.editors.vellum.VellumRun``)."""
     return {
         "kind": "vellum",
         "source": run.source,
-        "outputs": _json(run.outputs),
+        "outputs": _json(_vellum_report_outputs(run)),
         "saves": [
             {"urlName": save.url_name, "status": save.status, "body": _text(save.response)} for save in run.saves
         ],

@@ -557,3 +557,27 @@ def test_a_search_a_handler_answers_lists_the_cases_the_answer_holds_whatever_th
     request = screens(stopped, "search")[0]["requests"][0]
     assert request["status"] == 400 and request["answered"] is None
     assert stopped["end"] == "search-failed"
+
+
+
+def test_a_search_response_with_mismatched_xml_keeps_the_parser_error_and_no_process_identity(core_runner):
+    restore = person_cases(SESSION_RESTORE.read_bytes(), ["person-a"])
+
+    def invalid_response(url, params):
+        return 400, b"<html><head><link></head></html>"
+
+    report = core_runner.admit(SESSION_APP)
+    assert report["admitted"], report["problems"]
+    try:
+        trace = core_runner.session(report["app"], restore=restore, searches=invalid_response)
+        repeated = core_runner.session(report["app"], restore=restore, searches=invalid_response)
+    finally:
+        core_runner.release(report["app"])
+
+    stopped = next(run for run in trace["runs"] if screens(run, "search"))
+    search = screens(stopped, "search")[0]
+    assert stopped["end"] == "search-failed"
+    assert search["requests"][0]["status"] == 400
+    assert "expected: /link read: head" in search["error"]
+    assert " in java.io.InputStreamReader)" in search["error"]
+    assert trace == repeated

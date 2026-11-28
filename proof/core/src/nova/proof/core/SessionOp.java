@@ -42,6 +42,7 @@ import java.util.Base64;
 import java.util.Deque;
 import java.util.Hashtable;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * Scripted sessions over an admitted app, driven the way Formplayer drives Core
@@ -75,6 +76,10 @@ final class SessionOp {
     private static final int MAX_SCREENS = 400;
     private static final int MAX_SCRIPT_STEPS = 64;
     private static final int MAX_RUNS = 5000;
+    // KXml's position includes the parser's Reader.toString(). Keep the tag,
+    // position and reader class, without the JVM's process-specific identity.
+    private static final Pattern QUERY_READER_ID = Pattern.compile(
+            "(?<= in java\\.io\\.InputStreamReader)@[0-9a-f]{1,8}(?=\\))");
 
     private final Apps.App app;
     private final byte[] restore;
@@ -675,7 +680,8 @@ final class SessionOp {
         Pair<ExternalDataInstance, String> instance = query.processResponse(response, url, params);
         step.put("requests", network.takeEvents());
         if (instance.first == null) {
-            step.put("error", FormRun.nullable(instance.second));
+            String error = instance.second;
+            step.put("error", FormRun.nullable(error == null ? null : QUERY_READER_ID.matcher(error).replaceAll("")));
             return false;
         }
         query.updateSession(instance.first);
