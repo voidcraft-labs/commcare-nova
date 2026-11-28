@@ -11,7 +11,7 @@ inputs:
     description: Whitespace-separated names between the prefix and suffix
     default: ""
   shard-counts:
-    description: Whitespace-separated label=count pairs for shard outputs from this attempt
+    description: Whitespace-separated label:attempt=count entries for the producing lane
     default: ""
   allow-missing:
     description: Preserve available evidence when a failed lane never uploaded an artifact

@@ -65,6 +65,9 @@ on:
       shards:
         description: Number of shard outputs expected for this lane
         value: ${{ jobs.emit.outputs.shards }}
+      attempt:
+        description: Run attempt in the shard artifact names the verdict read
+        value: ${{ jobs.gate.outputs.attempt }}
     inputs:
       pin-candidate:
         description: The weekly pin commit whose validated proof/pins.json to apply to the checkout
@@ -507,6 +510,8 @@ jobs:
     if: ${{ always() && needs.emit.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      attempt: ${{ steps.artifact-attempt.outputs.attempt }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -541,12 +546,15 @@ jobs:
       - name: Put the candidate's retained trees in place
         if: ${{ inputs.retained != '' }}
         run: python3 -m proof.matrix.place unpack "$RUNNER_TEMP/retained" proof
+      - id: artifact-attempt
+        run: echo "attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
       - name: Download the lane's shard outputs
+        id: shard-download
         uses: ./.github/actions/proof-download
         continue-on-error: true
         with:
-          shard-counts: ${{ format('{0}={1}', inputs.label, needs.emit.outputs.shards) }}
-          allow-missing: 'true'
+          shard-counts: ${{ format('{0}:{1}={2}', inputs.label, steps.artifact-attempt.outputs.attempt, needs.emit.outputs.shards) }}
+          allow-missing: ${{ needs.shard.result != 'success' }}
           path: ${{ runner.temp }}/proof-shards
       - name: Download the early queue
         uses: actions/download-artifact@v8
@@ -620,7 +628,7 @@ jobs:
       # leaves its blocks' records out, and main's previous snapshot is kept
       # rather than replaced by one that lacks them.
       - name: Pack the fresh store
-        if: ${{ !cancelled() && (inputs.store == 'save' || inputs.store == 'pack') && needs.shard.result == 'success' && steps.store.outputs.key != '' }}
+        if: ${{ !cancelled() && (inputs.store == 'save' || inputs.store == 'pack') && needs.shard.result == 'success' && steps.shard-download.outcome == 'success' && steps.store.outputs.key != '' }}
         id: pack
         env:
           FRESH: ${{ inputs.fresh }}

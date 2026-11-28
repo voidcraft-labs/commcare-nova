@@ -8,11 +8,11 @@ try {
 	const labels = words(process.env.INPUT_LABELS);
 	const names = labels.map((label) => `${process.env.INPUT_PREFIX}${label}${process.env.INPUT_SUFFIX}`);
 	for (const pair of counts) {
-		const match = /^([a-z0-9-]+)=([1-9][0-9]{0,2})$/.exec(pair);
+		const match = /^([a-z0-9-]+):([1-9][0-9]*)=([1-9][0-9]{0,2})$/.exec(pair);
 		if (!match) throw new Error(`Invalid proof shard count: ${pair}.`);
-		const [, label, count] = match;
+		const [, label, attempt, count] = match;
 		for (let shard = 1; shard <= Number(count); shard++) {
-			names.push(`proof-out-${label}-${process.env.GITHUB_RUN_ATTEMPT}-${shard}`);
+			names.push(`proof-out-${label}-${attempt}-${shard}`);
 		}
 	}
 	await downloadNamed(await client(), {

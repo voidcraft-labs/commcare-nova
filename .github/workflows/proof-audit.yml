@@ -475,9 +475,9 @@ jobs:
         uses: ./.github/actions/proof-download
         with:
           shard-counts: |
-            ${{ format('weekly-baseline={0}', needs.weekly-baseline.outputs.shards) }}
-            ${{ needs.weekly-unseeded.result == 'success' && format('weekly-unseeded={0}', needs.weekly-unseeded.outputs.shards) || '' }}
-            ${{ needs.weekly-unseamed.result == 'success' && format('weekly-unseamed={0}', needs.weekly-unseamed.outputs.shards) || '' }}
+            ${{ format('weekly-baseline:{0}={1}', needs.weekly-baseline.outputs.attempt, needs.weekly-baseline.outputs.shards) }}
+            ${{ needs.weekly-unseeded.result == 'success' && format('weekly-unseeded:{0}={1}', needs.weekly-unseeded.outputs.attempt, needs.weekly-unseeded.outputs.shards) || '' }}
+            ${{ needs.weekly-unseamed.result == 'success' && format('weekly-unseamed:{0}={1}', needs.weekly-unseamed.outputs.attempt, needs.weekly-unseamed.outputs.shards) || '' }}
           path: ${{ runner.temp }}/lanes
       # Each side is one lane run: --left and --right each take every shard
       # output that run uploaded, one directory per shard.

@@ -142,7 +142,7 @@ it.each([false, true])(
 				cwd: directory,
 			});
 			service.put(
-				"proof-lane-verdict-mechanics-1",
+				"proof-out-mechanics-1-1",
 				await readFile(archive),
 				corrupt ? `sha256:${"0".repeat(64)}` : undefined,
 				"application/zip",
@@ -154,9 +154,8 @@ it.each([false, true])(
 				{
 					env: {
 						...service.env("report"),
-						INPUT_PREFIX: "proof-lane-verdict-",
-						INPUT_SUFFIX: "-1",
-						INPUT_LABELS: "mechanics",
+						"INPUT_SHARD-COUNTS": "mechanics:1=1",
+						GITHUB_RUN_ATTEMPT: "2",
 						INPUT_PATH: destination,
 					},
 				},
@@ -166,7 +165,7 @@ it.each([false, true])(
 				expect(result.stderr).toContain("digest validation");
 				await expect(
 					readFile(
-						join(destination, "proof-lane-verdict-mechanics-1", "verdict.json"),
+						join(destination, "proof-out-mechanics-1-1", "verdict.json"),
 					),
 				).rejects.toMatchObject({ code: "ENOENT" });
 				return;
@@ -177,7 +176,7 @@ it.each([false, true])(
 			expect(result.code, result.stderr).toBe(0);
 			expect(
 				await readFile(
-					join(destination, "proof-lane-verdict-mechanics-1", "verdict.json"),
+					join(destination, "proof-out-mechanics-1-1", "verdict.json"),
 					"utf8",
 				),
 			).toBe('{"passed":true}');

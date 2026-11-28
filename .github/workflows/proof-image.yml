@@ -332,10 +332,10 @@ jobs:
         uses: ./.github/actions/proof-download
         with:
           shard-counts: |
-            ${{ format('image-slim={0}', needs.lane-slim.outputs.shards) }}
-            ${{ needs.lane-full.result == 'success' && format('image-full={0}', needs.lane-full.outputs.shards) || '' }}
-            ${{ needs.lane-arm64.result == 'success' && format('image-arm64={0}', needs.lane-arm64.outputs.shards) || '' }}
-            ${{ needs.lane-readers-slim.result == 'success' && needs.lane-readers-full.result == 'success' && format('image-readers-slim={0} image-readers-full={1}', needs.lane-readers-slim.outputs.shards, needs.lane-readers-full.outputs.shards) || '' }}
+            ${{ format('image-slim:{0}={1}', needs.lane-slim.outputs.attempt, needs.lane-slim.outputs.shards) }}
+            ${{ needs.lane-full.result == 'success' && format('image-full:{0}={1}', needs.lane-full.outputs.attempt, needs.lane-full.outputs.shards) || '' }}
+            ${{ needs.lane-arm64.result == 'success' && format('image-arm64:{0}={1}', needs.lane-arm64.outputs.attempt, needs.lane-arm64.outputs.shards) || '' }}
+            ${{ needs.lane-readers-slim.result == 'success' && needs.lane-readers-full.result == 'success' && format('image-readers-slim:{0}={1} image-readers-full:{2}={3}', needs.lane-readers-slim.outputs.attempt, needs.lane-readers-slim.outputs.shards, needs.lane-readers-full.outputs.attempt, needs.lane-readers-full.outputs.shards) || '' }}
           path: ${{ runner.temp }}/lanes
       # Each side is one lane run: --left and --right each take every shard
       # output that run uploaded, one directory per shard. No label is the
