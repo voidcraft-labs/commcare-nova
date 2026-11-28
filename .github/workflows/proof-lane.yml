@@ -622,6 +622,11 @@ jobs:
           python3 -m proof.store.audit compare --store "$RUNNER_TEMP/store/main" \
             --mismatches "$RUNNER_TEMP/audit" \
             "$RUNNER_TEMP"/proof-shards/proof-out-*
+      - name: Hold the shard artifact downloads to their result
+        if: ${{ !cancelled() && steps.shard-download.outcome == 'failure' }}
+        run: |
+          echo "::error::Downloading the proof shard outputs failed. The artifact step names what could not be read."
+          exit 1
       # Saved whatever the verdict and the comparison (fresh records are what
       # the lane observes, so they replace the store even where a stored one
       # was wrong), but only when every shard ran: a shard that could not run
