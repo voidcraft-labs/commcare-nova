@@ -59,6 +59,7 @@ import pytest
 from lxml import etree
 
 from proof.editors import pages, seeding, vellum
+from proof.editors.client import EditorDriver
 from proof.editors.conftest import ADVANCED_APP, SUITE_APP, first_draw, publish_hq_app, record_timing
 from proof.editors.hq import HQAnswers, HQRefusedPageRequest
 from proof.editors.units import CheckUnit
@@ -246,7 +247,16 @@ def _questions(run):
     }
 
 
-def test_a_warm_host_puts_back_the_mug_types_and_specs_earlier_instances_extended(hq, core_runner, editor_driver):
+@pytest.fixture
+def plugin_switch_driver(monkeypatch):
+    # This test needs four operations on a driver of its own. A reload
+    # halfway through the sequence would remove the state it checks.
+    monkeypatch.setenv("PROOF_EDITORS_RECYCLE_LOADS", "4")
+    with EditorDriver() as driver:
+        yield driver
+
+
+def test_a_warm_host_puts_back_the_mug_types_and_specs_earlier_instances_extended(hq, core_runner, plugin_switch_driver):
     """A Connect learn module run on the warm host after a form of a project without Connect, and run again in a
     project without Connect after it, gives what a fresh page gives each time: in the project with Connect, a
     ConnectLearnModule question, and in the one without, the same node as a hidden value, each carrying Vellum's
@@ -265,7 +275,7 @@ def test_a_warm_host_puts_back_the_mug_types_and_specs_earlier_instances_extende
         # A form whose load fails leaves the host, so the plain form is the first instance on a fresh load of it.
         for app_id, form_id in ((broken, broken_form), (plain, plain_form)):
             with unit.fork():
-                runs.append(vellum.open_and_save(editor_driver, HQAnswers(state, unit), app_id, form_id))
+                runs.append(vellum.open_and_save(plugin_switch_driver, HQAnswers(state, unit), app_id, form_id))
     assert [run.loaded for run in runs] == [False, True]
     assert runs[1].warm is False and runs[1].kept is True
 
@@ -279,9 +289,9 @@ def test_a_warm_host_puts_back_the_mug_types_and_specs_earlier_instances_extende
             form_id = operations.held_app(state, app_id).modules[0].forms[0].unique_id
             _with_connect_learn_module(state, app_id, form_id, module_path.rsplit("/", 1)[1])
             with unit.fork():
-                warm = vellum.open_and_save(editor_driver, HQAnswers(state, unit), app_id, form_id)
+                warm = vellum.open_and_save(plugin_switch_driver, HQAnswers(state, unit), app_id, form_id)
             with unit.fork():
-                fresh = vellum.fresh_open_and_save(editor_driver, HQAnswers(state, unit), app_id, form_id)
+                fresh = vellum.fresh_open_and_save(plugin_switch_driver, HQAnswers(state, unit), app_id, form_id)
         assert warm.warm is True, (configuration, warm.recycled)
         assert _questions(fresh)[module_path] == expected, _questions(fresh)
         assert _questions(warm)[module_path] == expected, _questions(warm)
