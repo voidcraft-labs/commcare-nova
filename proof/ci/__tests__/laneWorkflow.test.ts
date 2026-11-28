@@ -443,6 +443,18 @@ it("executes slice validation against a named test and refuses broader paths and
 		expect(
 			JSON.parse(await readFile(join(scratch, "proof-selectors.json"), "utf8")),
 		).toEqual(["proof/android/test_navigation.py", "-k", "entry_point"]);
+		await expect(
+			run("bash", ["-e", "-c", validation], {
+				cwd: WORKTREE,
+				env: {
+					...env,
+					ARCHITECTURE: "arm64",
+					SELECTORS: "proof/android/test_navigation.py -k entry_point",
+				},
+			}),
+		).rejects.toMatchObject({
+			stderr: expect.stringContaining("Android reader requires amd64"),
+		});
 		const piece =
 			"proof/checks/pieces.py::test_a_configuration_is_observed_into_the_runs_store[targeted-search-hq-compile@minimum]";
 		await run("bash", ["-e", "-c", validation], {
@@ -961,4 +973,19 @@ it("includes the domain data consumed by both sparse proof shard checkouts", asy
 			"lib/domain",
 		);
 	}
+});
+
+it("builds the corpus with the same native architecture as its proof shards", async () => {
+	const workflow = parse(
+		await readFile(join(WORKTREE, ".github/workflows/proof-lane.yml"), "utf8"),
+	);
+	expect(workflow.jobs.emit["runs-on"]).toBe(
+		// biome-ignore lint/suspicious/noTemplateCurlyInString: This is a literal GitHub expression.
+		"${{ inputs.runner }}",
+	);
+	expect(
+		workflow.jobs.emit.steps.find(
+			(step: { name?: string }) => step.name === "Emit the proof corpus",
+		)?.run,
+	).toContain("python3 -m proof.native.produce");
 });

@@ -270,7 +270,7 @@ jobs:
       readers: false
       shards: '4'
 
-  # The arm64 image, on an arm64 runner: the corpus is emitted on x64, as CI emits it, and read here.
+  # Emit and observe on arm64, with the arm64 image and reader binding.
   lane-arm64:
     name: Lane on the slim image on arm64, without the readers
     needs: publish

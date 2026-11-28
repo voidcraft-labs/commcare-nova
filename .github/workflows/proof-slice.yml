@@ -1,6 +1,6 @@
 name: Proof slice
 
-# A bounded diagnostic run on the native amd64 readers, for failures whose
+# A bounded diagnostic run on a native proof runner, for failures whose
 # pytest items a nightly issue names. No store is read or saved.
 on:
   workflow_call:
@@ -24,6 +24,11 @@ on:
         description: Readers to run (all, 0, or a comma list of formplayer,webapps,android,connect)
         type: string
         default: all
+      architecture:
+        description: Native runner architecture (the Android reader requires amd64)
+        type: choice
+        options: [amd64, arm64]
+        default: amd64
       mode:
         description: Audit conditions to reproduce for these checks
         type: choice
@@ -33,7 +38,7 @@ permissions:
   contents: read
 jobs:
   slice:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 90
     env:
       PROOF_READERS: ${{ inputs.readers }}
@@ -61,6 +66,7 @@ jobs:
         env:
           SELECTORS: ${{ inputs.selectors }}
           AUDIT_MODE: ${{ inputs.mode }}
+          ARCHITECTURE: ${{ inputs.architecture || 'amd64' }}
         run: |
           python3 - <<'PY'
           import json, os, shlex
@@ -92,6 +98,8 @@ jobs:
           if not paths:
               raise SystemExit('Name specific proof test files or items; a slice cannot run the whole proof.')
           readers = parse(os.environ['PROOF_READERS'])
+          if os.environ.get('ARCHITECTURE', 'amd64') == 'arm64' and 'android' in readers:
+              raise SystemExit('The Android reader requires amd64. Select readers=0 or name the other readers for arm64.')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               print(f'android={str("android" in readers).lower()}', file=output)
           Path(os.environ['RUNNER_TEMP'], 'proof-selectors.json').write_text(json.dumps(args))

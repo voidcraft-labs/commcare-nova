@@ -1187,6 +1187,9 @@ loads the Android runtime when selected but runs only its selected checks;
 the scheduled lane still runs every reader selfcheck and predicate. This
 is a verdict on those tests alone, not the corpus gate.
 
+For an image comparison failure on arm64, dispatch the slice with
+`architecture=arm64` and `readers=0`. The Android reader requires amd64.
+
 To reproduce a weekly audit's conditions on those same checks, dispatch the
 slice directly with `mode=verified`, `unseeded`, or `unseamed` (`normal` is
 the default). Verified enables memo comparisons, editor replay and all

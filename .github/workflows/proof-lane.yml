@@ -156,7 +156,8 @@ env:
 jobs:
   emit:
     name: Emit and queue (${{ inputs.label }})
-    runs-on: ubuntu-latest
+    # The corpus carries the native image reader. Its binding must match the shards.
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 20
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
