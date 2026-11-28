@@ -15,7 +15,7 @@
 	},
 	"robolectricAndroid": {
 		"file": "android-all-instrumented-10-robolectric-5803371-i7.jar",
-		"url": "https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented/10-robolectric-5803371-i7/android-all-instrumented-10-robolectric-5803371-i7.jar",
+		"url": "https://repo.maven.apache.org/maven2/org/robolectric/android-all-instrumented/10-robolectric-5803371-i7/android-all-instrumented-10-robolectric-5803371-i7.jar",
 		"sha256": "700fb3bb88ff346969b955241b86d2f55d395488bf5df1e8eddfbd003980c78a"
 	},
 	"androidSdk": [
